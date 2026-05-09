@@ -8,6 +8,8 @@
   产品能力、定位与边界
 - `architecture.md`
   整体架构图与链路说明
+- `slim_ops_architecture.md`
+  RCA 平台瘦身、统一资源资产、自动巡检基线和总运维入口目标架构
 - `deployment.md`
   部署步骤、依赖与验证方式
 - `operations.md`
@@ -41,10 +43,11 @@
 
 1. `product.md`
 2. `architecture.md`
-3. `frontend_ui_design.md`
-4. `storage_architecture.md`
-5. `deployment.md`
-6. `operations.md`
+3. `slim_ops_architecture.md`
+4. `frontend_ui_design.md`
+5. `storage_architecture.md`
+6. `deployment.md`
+7. `operations.md`
 
 补充索引：
 
