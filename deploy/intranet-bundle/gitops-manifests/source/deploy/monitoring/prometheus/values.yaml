@@ -1,0 +1,67 @@
+﻿alertmanager:
+  enabled: false
+
+prometheus-pushgateway:
+  enabled: false
+
+kube-state-metrics:
+  enabled: true
+  image:
+    registry: docker-hub.tpo.xzoa.com
+    repository: auto-inspection/kube-state-metrics
+    tag: v2.18.0
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+prometheus-node-exporter:
+  enabled: true
+  image:
+    registry: docker-hub.tpo.xzoa.com
+    repository: auto-inspection/node-exporter
+    tag: v1.10.2
+  resources: {}
+
+configmapReload:
+  prometheus:
+    image:
+      repository: docker-hub.tpo.xzoa.com/auto-inspection/prometheus-config-reloader
+      tag: v0.90.1
+
+server:
+  image:
+    repository: docker-hub.tpo.xzoa.com/auto-inspection/prometheus
+    tag: v3.11.0
+  nodeSelector:
+    kubernetes.io/hostname: xzyc115-19
+  retention: "7d"
+  storagePath: /prometheus-data
+  strategy:
+    type: Recreate
+  resources:
+    requests:
+      cpu: 250m
+      memory: 768Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  persistentVolume:
+    enabled: false
+  extraVolumes:
+    - name: prometheus-data
+      hostPath:
+        path: /data/observability/prometheus
+        type: DirectoryOrCreate
+  extraVolumeMounts:
+    - name: prometheus-data
+      mountPath: /prometheus-data
+  service:
+    enabled: true
+    type: NodePort
+    servicePort: 9090
+    nodePort: 32092
+

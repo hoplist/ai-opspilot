@@ -1,0 +1,54 @@
+﻿apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opensearch-snapshot-job
+  namespace: observability
+data:
+  snapshot_job.py: |
+    #!/usr/bin/env python3
+    import datetime
+    import json
+    import os
+    import urllib.request
+
+    base_url = os.environ.get("OPENSEARCH_URL", "http://opensearch.observability.svc.cluster.local:9200").rstrip("/")
+    repository = os.environ.get("SNAPSHOT_REPOSITORY", "auto-inspection-local-fs")
+    keep_days = int(os.environ.get("SNAPSHOT_KEEP_DAYS", "14"))
+
+    def request(method, path, payload=None):
+        body = None
+        headers = {"Content-Type": "application/json"}
+        if payload is not None:
+            body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(f"{base_url}{path}", method=method, data=body, headers=headers)
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            text = resp.read().decode("utf-8")
+            return json.loads(text) if text else {}
+
+    snapshot_name = "daily-" + datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    create_payload = {
+        "indices": "logs-k8s-*,events-k8s-*,inspection-incidents-*,inspection-investigations-*",
+        "include_global_state": False,
+    }
+    create_result = request("PUT", f"/_snapshot/{repository}/{snapshot_name}?wait_for_completion=true", create_payload)
+
+    snapshots = request("GET", f"/_snapshot/{repository}/_all").get("snapshots") or []
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=keep_days)
+    deleted = []
+    for item in snapshots:
+        start_time = item.get("start_time")
+        if not start_time:
+            continue
+        try:
+            dt = datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            continue
+        if dt >= cutoff:
+            continue
+        name = item.get("snapshot")
+        if not name:
+            continue
+        request("DELETE", f"/_snapshot/{repository}/{name}")
+        deleted.append(name)
+
+    print(json.dumps({"created": snapshot_name, "create_result": create_result, "deleted": deleted}, ensure_ascii=False))

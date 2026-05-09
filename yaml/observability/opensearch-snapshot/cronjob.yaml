@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: opensearch-snapshot-daily
+  namespace: observability
+spec:
+  schedule: "30 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: snapshot
+            image: python:3.12-slim
+            imagePullPolicy: IfNotPresent
+            command:
+            - python
+            - /opt/scripts/snapshot_job.py
+            env:
+            - name: OPENSEARCH_URL
+              value: http://opensearch.observability.svc.cluster.local:9200
+            - name: SNAPSHOT_REPOSITORY
+              value: auto-inspection-local-fs
+            - name: SNAPSHOT_KEEP_DAYS
+              value: "14"
+            volumeMounts:
+            - name: script
+              mountPath: /opt/scripts
+          volumes:
+          - name: script
+            configMap:
+              name: opensearch-snapshot-job

@@ -1,0 +1,324 @@
+﻿apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-logs-config
+  namespace: observability
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush                     1
+        Daemon                    Off
+        Log_Level                 info
+        Parsers_File              /fluent-bit/etc/parsers.conf
+        storage.path              /var/fluent-bit/state/storage
+        storage.sync              normal
+        storage.checksum          off
+        storage.backlog.mem_limit 50M
+
+    [INPUT]
+        Name                tail
+        Tag                 kube.*
+        Path                /var/log/containers/*.log
+        Exclude_Path        /var/log/containers/*fluent-bit*.log,/var/log/containers/*otel-collector*.log
+        multiline.parser    cri
+        Parser              cri
+        DB                  /var/fluent-bit/state/flb_kube.db
+        DB.Sync             Normal
+        Mem_Buf_Limit       50MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Rotate_Wait         30
+        storage.type        filesystem
+
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Kube_Tag_Prefix     kube.var.log.containers.
+        Labels              On
+        Annotations         Off
+        Merge_Log           On
+        Merge_Log_Key       log_processed
+        Keep_Log            On
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+
+    [FILTER]
+        Name                modify
+        Match               kube.*
+        Add                 cluster kubernetes
+
+    [FILTER]
+        Name                lua
+        Match               kube.*
+        script              /fluent-bit/scripts/normalize_logs.lua
+        call                normalize_log_record
+
+    [OUTPUT]
+        Name                opensearch
+        Match               kube.*
+        Host                opensearch.observability.svc.cluster.local
+        Port                9200
+        Suppress_Type_Name  On
+        Logstash_Format     On
+        Logstash_Prefix     logs-k8s
+        Generate_ID         On
+        Trace_Error         On
+        Retry_Limit         3
+        Workers             2
+        tls                 Off
+
+  parsers.conf: |
+    [PARSER]
+        Name         cri
+        Format       regex
+        Regex        ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+        Time_Key     time
+        Time_Format  %Y-%m-%dT%H:%M:%S.%L%z
+        Time_Keep    On
+
+  normalize_logs.lua: |
+    function trim(value)
+      if value == nil then
+        return nil
+      end
+      local text = tostring(value)
+      text = text:gsub("^%s+", "")
+      text = text:gsub("%s+$", "")
+      if text == "" then
+        return nil
+      end
+      return text
+    end
+
+    function strip_ansi(value)
+      local text = trim(value)
+      if text == nil then
+        return nil
+      end
+      text = text:gsub("\27%[[0-9;]*[A-Za-z]", "")
+      text = text:gsub("\27%][^\7]*\7", "")
+      return trim(text)
+    end
+
+    function normalize_severity(value, message, stream)
+      local text = string.lower(trim(value) or "")
+      local msg = string.lower(message or "")
+      if text == "" then
+        if stream == "stderr" then
+          text = "error"
+        elseif msg:find("traceback %(most recent call last%)", 1, false) or msg:find("panic:", 1, true) then
+          text = "error"
+        elseif msg:find("exception", 1, true) or msg:find("error", 1, true) then
+          text = "error"
+        elseif msg:find("warn", 1, true) then
+          text = "warn"
+        else
+          text = "info"
+        end
+      end
+      if text:find("fatal", 1, true) or text == "critical" then
+        return "fatal"
+      end
+      if text:find("err", 1, true) then
+        return "error"
+      end
+      if text:find("warn", 1, true) then
+        return "warn"
+      end
+      if text:find("debug", 1, true) then
+        return "debug"
+      end
+      if text:find("trace", 1, true) then
+        return "trace"
+      end
+      return "info"
+    end
+
+    function extract_python_exception(message)
+      if message == nil or not message:find("Traceback %(most recent call last%)") then
+        return nil, nil, nil
+      end
+      local last = nil
+      for line in string.gmatch(message, "[^\r\n]+") do
+        local cleaned = trim(line)
+        if cleaned ~= nil then
+          last = cleaned
+        end
+      end
+      if last == nil then
+        return "PythonTraceback", nil, "python"
+      end
+      local ex_type, ex_message = last:match("^([%w_%.]+):%s*(.+)$")
+      if ex_type ~= nil then
+        return ex_type, ex_message, "python"
+      end
+      return "PythonTraceback", last, "python"
+    end
+
+    function extract_java_exception(message)
+      if message == nil then
+        return nil, nil, nil
+      end
+      local ex_type, ex_message = message:match("([%w%._$]+Exception):%s*([^\r\n]+)")
+      if ex_type == nil then
+        ex_type, ex_message = message:match("([%w%._$]+Error):%s*([^\r\n]+)")
+      end
+      if ex_type == nil then
+        ex_type, ex_message = message:match("Caused by:%s*([%w%._$]+):%s*([^\r\n]+)")
+      end
+      if ex_type ~= nil then
+        return ex_type, ex_message, "java"
+      end
+      return nil, nil, nil
+    end
+
+    function extract_go_exception(message)
+      if message == nil then
+        return nil, nil, nil
+      end
+      local panic_message = message:match("panic:%s*([^\r\n]+)")
+      if panic_message ~= nil then
+        return "panic", panic_message, "go"
+      end
+      local fatal_message = message:match("fatal error:%s*([^\r\n]+)")
+      if fatal_message ~= nil then
+        return "fatal error", fatal_message, "go"
+      end
+      return nil, nil, nil
+    end
+
+    function extract_generic_exception(message)
+      if message == nil then
+        return nil, nil, nil
+      end
+      local ex_type, ex_message = message:match("%[([%w_%.]+[Ee]rror)%]:%s*([^\r\n]+)")
+      if ex_type == nil then
+        ex_type, ex_message = message:match("%[([%w_%.]+Exception)%]:%s*([^\r\n]+)")
+      end
+      if ex_type == nil then
+        ex_type, ex_message = message:match("^([%w_%.]+[Ee]rror):%s*([^\r\n]+)")
+      end
+      if ex_type == nil then
+        ex_type, ex_message = message:match("^([%w_%.]+Exception):%s*([^\r\n]+)")
+      end
+      if ex_type ~= nil then
+        return ex_type, ex_message, "generic"
+      end
+      return nil, nil, nil
+    end
+
+    function extract_exception(message)
+      local ex_type, ex_message, language = extract_python_exception(message)
+      if ex_type ~= nil then
+        return ex_type, ex_message, language
+      end
+      ex_type, ex_message, language = extract_java_exception(message)
+      if ex_type ~= nil then
+        return ex_type, ex_message, language
+      end
+      ex_type, ex_message, language = extract_go_exception(message)
+      if ex_type ~= nil then
+        return ex_type, ex_message, language
+      end
+      ex_type, ex_message, language = extract_generic_exception(message)
+      if ex_type ~= nil then
+        return ex_type, ex_message, language
+      end
+      return nil, nil, nil
+    end
+
+    function normalize_log_record(tag, timestamp, record)
+      local kube = record["kubernetes"]
+      if type(kube) == "table" then
+        if record["namespace"] == nil then
+          record["namespace"] = kube["namespace_name"]
+        end
+        if record["pod"] == nil then
+          record["pod"] = kube["pod_name"]
+        end
+        if record["container"] == nil then
+          record["container"] = kube["container_name"]
+        end
+        if record["node"] == nil then
+          record["node"] = kube["host"] or kube["node_name"]
+        end
+      end
+
+      local processed = record["log_processed"]
+      local raw_log = strip_ansi(record["log"])
+      local message = strip_ansi(record["message"])
+      local severity = trim(record["severity"])
+      local logger = trim(record["logger"])
+
+      if type(processed) == "table" then
+        if message == nil then
+          message = strip_ansi(processed["msg"] or processed["message"] or raw_log)
+        end
+        if severity == nil then
+          severity = trim(processed["level"] or processed["severity"])
+        end
+        if logger == nil then
+          logger = trim(processed["logger"] or processed["caller"])
+        end
+        if record["service"] == nil then
+          record["service"] = trim(processed["service"] or processed["otelServiceName"])
+        end
+        if record["trace_id"] == nil then
+          record["trace_id"] = trim(processed["trace_id"] or processed["otelTraceID"])
+        end
+        if record["span_id"] == nil then
+          record["span_id"] = trim(processed["span_id"] or processed["otelSpanID"])
+        end
+        if record["request_id"] == nil then
+          record["request_id"] = trim(processed["request_id"] or processed["requestId"] or processed["x_request_id"])
+        end
+        if record["event_id"] == nil then
+          record["event_id"] = trim(processed["event_id"] or processed["eventId"])
+        end
+        if record["biz_line"] == nil then
+          record["biz_line"] = trim(processed["biz_line"] or processed["bizLine"])
+        end
+      else
+        if message == nil then
+          message = raw_log
+        end
+      end
+
+      if message ~= nil then
+        record["message"] = message
+        record["message_normalized"] = message
+      end
+      if raw_log ~= nil then
+        record["log"] = raw_log
+      end
+
+      local normalized_severity = normalize_severity(severity, message, record["stream"])
+      record["severity"] = normalized_severity
+      if logger ~= nil then
+        record["logger"] = tostring(logger)
+      end
+
+      local ex_type, ex_message, language = extract_exception(message)
+      if ex_type ~= nil then
+        record["exception_type"] = ex_type
+        record["exception_message"] = ex_message
+        record["stack_language"] = language
+        record["exception"] = {
+          ["type"] = ex_type,
+          ["message"] = ex_message,
+          ["language"] = language,
+        }
+      end
+
+      if record["service"] == nil and type(kube) == "table" and type(kube["labels"]) == "table" then
+        record["service"] = kube["labels"]["app.kubernetes.io/name"] or kube["labels"]["app"] or kube["labels"]["k8s-app"]
+      end
+
+      if type(kube) == "table" then
+        kube["labels"] = nil
+      end
+      record["log_processed"] = nil
+
+      return 2, timestamp, record
+    end

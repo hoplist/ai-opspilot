@@ -1,0 +1,81 @@
+﻿apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-pyroscope-ebpf-config
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alloy-pyroscope-ebpf
+    app.kubernetes.io/part-of: auto-inspection
+data:
+  config.alloy: |
+    logging {
+      level  = "info"
+      format = "logfmt"
+    }
+
+    discovery.kubernetes "all_pods" {
+      role = "pod"
+    }
+
+    discovery.relabel "local_pods" {
+      targets = discovery.kubernetes.all_pods.targets
+
+      rule {
+        action        = "drop"
+        regex         = "Succeeded|Failed"
+        source_labels = ["__meta_kubernetes_pod_phase"]
+      }
+
+      rule {
+        action        = "drop"
+        regex         = "observability|kube-system|kube-public|kube-node-lease|argocd"
+        source_labels = ["__meta_kubernetes_namespace"]
+      }
+
+      rule {
+        action        = "replace"
+        separator     = "/"
+        source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_container_name"]
+        target_label  = "service_name"
+      }
+
+      rule {
+        action = "labelmap"
+        regex  = "__meta_kubernetes_pod_label_(.+)"
+      }
+
+      rule {
+        action        = "replace"
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+
+      rule {
+        action        = "replace"
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+
+      rule {
+        action        = "replace"
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label  = "node"
+      }
+
+      rule {
+        action        = "replace"
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+    }
+
+    pyroscope.write "endpoint" {
+      endpoint {
+        url = "http://pyroscope.observability.svc.cluster.local:4040"
+      }
+    }
+
+    pyroscope.ebpf "local_pods" {
+      forward_to = [pyroscope.write.endpoint.receiver]
+      targets    = discovery.relabel.local_pods.output
+    }

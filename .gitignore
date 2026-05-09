@@ -1,0 +1,55 @@
+# Local credentials and machine-specific config
+.ssh/
+.env
+.env.*
+!.env.example
+config.json
+*.key
+*.pem
+*.pfx
+*.crt
+*.kubeconfig
+
+# Kubernetes Secret manifests should be provided out-of-band or templated.
+**/secret.yaml
+**/*secret*.yaml
+**/mysql-31326.yaml
+deploy/db/mysql-31326/mysql-31326.yaml
+
+# Runtime data and generated outputs
+data/
+outputs/
+logs/
+*.log
+dashboard/data.json
+
+# Local Git/worktree copies and packaged artifacts
+worktrees/
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Node / frontend build artifacts
+node_modules/
+.next/
+dist/
+build/
+coverage/
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

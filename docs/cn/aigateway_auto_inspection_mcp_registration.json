@@ -1,0 +1,58 @@
+{
+  "name": "auto-inspection-mcp",
+  "type": "mcp",
+  "transport": "streamable-http",
+  "url": "http://auto-inspection-rca.observability.svc.cluster.local:18081/mcp",
+  "external_url": "http://192.168.48.200:32181/mcp",
+  "policy": {
+    "mode": "readonly",
+    "deny_mutations": true,
+    "audit": true,
+    "timeout_seconds": 120
+  },
+  "tool_allowlist": [
+    "health",
+    "health_details",
+    "search_logs",
+    "search_events",
+    "search_business_logs",
+    "search_traces",
+    "correlate_business_context",
+    "get_context_pack",
+    "diagnose_pod",
+    "list_investigations",
+    "list_targets",
+    "get_investigation",
+    "list_incidents",
+    "search_incidents",
+    "node_resources",
+    "release_for_workload",
+    "release_recent_changes",
+    "correlate_change_with_incident",
+    "argocd_app_status",
+    "argocd_app_history",
+    "argocd_diff_summary",
+    "gitlab_recent_commits",
+    "gitlab_commit_detail",
+    "gitlab_pipeline_status",
+    "gitlab_release_context",
+    "gitlab_merge_requests",
+    "gitlab_tags",
+    "gitlab_artifacts",
+    "gitlab_image_digest_context"
+  ],
+  "tool_denylist": [
+    "kubectl_apply",
+    "kubectl_delete",
+    "argocd_sync",
+    "argocd_rollback",
+    "gitlab_push",
+    "gitlab_merge",
+    "gitlab_pipeline_trigger"
+  ],
+  "notes": [
+    "This file is a registration payload template because no AI Gateway deployment or API endpoint is present in the current cluster.",
+    "Register this MCP server in AI Gateway only with the readonly tool allowlist above.",
+    "Do not place GitLab, Argo CD, Kubernetes, or OpenSearch credentials in the gateway registration payload."
+  ]
+}

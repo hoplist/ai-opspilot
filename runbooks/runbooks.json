@@ -1,0 +1,76 @@
+{
+  "default": {
+    "title": "通用排查",
+    "checks": ["检查系统状态", "查看近期变更"],
+    "analysis": ["确认是否为已知问题"],
+    "actions": ["根据实际情况处理"]
+  },
+  "by_dominant_risk": {
+    "cpu": {
+      "title": "CPU 压力排查",
+      "checks": ["查看 CPU 使用率与负载", "定位热点进程/线程"],
+      "analysis": ["确认是否为突发流量或定时任务"],
+      "actions": ["限流或扩容", "优化热点路径"]
+    },
+    "mem": {
+      "title": "内存压力排查",
+      "checks": ["查看内存占用与缓存", "检查 OOM/Swap 活动"],
+      "analysis": ["确认是否存在内存泄漏【假设】"],
+      "actions": ["释放缓存或扩容", "修复异常进程"]
+    },
+    "disk": {
+      "title": "磁盘压力排查",
+      "checks": ["检查磁盘使用率与 I/O", "确认增长最快目录"],
+      "analysis": ["确认是否为日志或数据暴涨"],
+      "actions": ["清理或归档", "扩容或迁移数据"]
+    }
+  },
+  "by_signal_combo": {
+    "cpu+mem": {
+      "title": "CPU+内存拥塞排查",
+      "checks": ["检查热点进程资源占用", "对比峰值时间段"],
+      "analysis": ["确认是否为流量突增或批处理冲击"],
+      "actions": ["短期限流/扩容", "优化任务调度"]
+    }
+  },
+  "by_signal": {
+    "cpu": {
+      "title": "CPU 信号排查",
+      "checks": ["查看 CPU 使用率与上下文切换"],
+      "analysis": ["确认是否为计算密集型任务"],
+      "actions": ["优化算法或扩容"]
+    },
+    "mem": {
+      "title": "内存信号排查",
+      "checks": ["检查内存与 Swap 使用情况"],
+      "analysis": ["确认是否存在内存回收压力"],
+      "actions": ["调整内存配置或优化应用"]
+    },
+    "disk": {
+      "title": "磁盘信号排查",
+      "checks": ["检查磁盘使用率与 I/O 延迟"],
+      "analysis": ["确认是否为日志或数据增长"],
+      "actions": ["清理空间或扩容"]
+    }
+  },
+  "by_final_risk_level": {
+    "critical": {
+      "title": "Critical 事件处理",
+      "checks": ["确认影响范围", "开启应急通道"],
+      "analysis": ["评估是否需故障升级处理"],
+      "actions": ["快速止损", "同步相关负责人"]
+    },
+    "high": {
+      "title": "High 事件处理",
+      "checks": ["复核监控指标", "定位可疑变更"],
+      "analysis": ["评估是否有持续扩大风险"],
+      "actions": ["制定修复计划并跟踪"]
+    },
+    "medium": {
+      "title": "Medium 事件处理",
+      "checks": ["确认指标趋势", "排查常规原因"],
+      "analysis": ["判断是否需要进一步观察"],
+      "actions": ["记录并持续关注"]
+    }
+  }
+}

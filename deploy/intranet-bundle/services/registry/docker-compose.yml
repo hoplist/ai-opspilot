@@ -1,0 +1,9 @@
+﻿services:
+  registry:
+    image: docker-hub.tpo.xzoa.com/auto-inspection/registry:2
+    container_name: registry-private
+    restart: always
+    ports:
+      - "5002:5000"
+    volumes:
+      - /srv/registry:/var/lib/registry

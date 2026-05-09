@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>告警看板（实时）</title>
+    <link rel="stylesheet" href="../dashboard/styles.css?v=20260413a" />
+  </head>
+  <body>
+    <div class="bg-glow"></div>
+    <div class="page">
+      <header class="top">
+        <div>
+          <div class="title">告警看板（实时）</div>
+          <div class="subtitle">和主看板共用筛选、KPI、列表卡片和表格语义</div>
+        </div>
+        <div class="meta-stack">
+          <div class="meta" id="meta">加载中...</div>
+          <div class="meta-badge" id="top-status">加载中...</div>
+        </div>
+      </header>
+
+      <section class="toolbar">
+        <div class="toolbar-left">
+          <div class="seg" id="category-filter">
+            <button data-category="all" class="active">全部</button>
+          </div>
+          <div class="search">
+            <input id="search" type="search" placeholder="搜索 告警分类 / 对象" />
+          </div>
+        </div>
+        <div class="legend">
+          <span class="pill alert">告警</span>
+        </div>
+      </section>
+
+      <section class="active-filters" id="active-filters"></section>
+      <section class="kpis" id="kpis"></section>
+
+      <section class="highlights">
+        <div class="panel">
+          <div class="panel-title">最长告警 Top 5</div>
+          <div class="panel-sub">先处理持续时间长、影响面大的告警</div>
+          <div class="list" id="top-risk"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">分类热度</div>
+          <div class="panel-sub">按分类聚合，帮助判断集中爆发面</div>
+          <div class="list" id="top-surplus"></div>
+        </div>
+      </section>
+
+      <section class="tables">
+        <div class="panel">
+          <div class="panel-title">告警累计时长</div>
+          <div class="panel-sub">按累计时长排序，支持分类和搜索筛选</div>
+          <div class="table-wrap">
+            <table class="data-table" id="alert-table"></table>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script src="../dashboard/core.js?v=20260413a"></script>
+    <script src="./app.js?v=20260413a"></script>
+  </body>
+</html>

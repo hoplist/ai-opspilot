@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI RCA 工作台</title>
+    <link rel="stylesheet" href="./styles.css?v=20260421d" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="nav-rail">
+        <div class="rail-brand">
+          <div class="rail-mark">AI</div>
+          <div>
+            <div class="rail-eyebrow">Auto Inspection</div>
+            <div class="rail-title">RCA Workbench</div>
+          </div>
+        </div>
+
+        <nav class="rail-nav">
+          <a href="#section-summary">结论摘要</a>
+          <a href="#section-analysis">根因分析</a>
+          <a href="#section-context">运行上下文</a>
+          <a href="#section-evidence">证据明细</a>
+          <a href="#section-side">调查入口</a>
+        </nav>
+
+        <div class="rail-card">
+          <div class="rail-card-label">设计方向</div>
+          <p>参考现代工作台布局，把“判断”和“证据”放在主区，把“入口”和“跳转”放进侧栏。</p>
+        </div>
+      </aside>
+
+      <div class="page-shell">
+        <main class="page">
+          <header class="hero">
+            <div class="hero-copy">
+              <p class="eyebrow">AI RCA</p>
+              <h1>先看结论，再看证据，再决定动作</h1>
+              <p class="subtitle">这个页面按真实排障顺序组织，帮助你在几分钟内定位最重要的信息：当前判断、关键指标、证据链、可执行动作和一键跳转入口。</p>
+            </div>
+            <div class="hero-actions">
+              <a class="ghost-link" href="/dashboard-live/">资源看板</a>
+              <a class="ghost-link" href="http://192.168.48.200:32091/app/dashboards#/view/dashboard-auto-inspection-overview" target="_blank" rel="noreferrer">OpenSearch Dashboard</a>
+            </div>
+          </header>
+
+          <section class="control-panel compact">
+            <div class="panel-head">
+              <div>
+                <h2>调查输入</h2>
+                <p>输入 Namespace 与 Pod，或给出 Workload 名称；默认查看最近 6 小时。</p>
+              </div>
+              <div class="status-badge" id="status-badge">待执行</div>
+            </div>
+            <form id="investigation-form" class="query-grid">
+              <label><span>Namespace</span><input id="namespace" placeholder="例如：langfuse" required /></label>
+              <label><span>Pod</span><input id="pod" placeholder="例如：langfuse-clickhouse-shard0-0" /></label>
+              <label><span>Workload</span><input id="workload_name" placeholder="Deployment / StatefulSet 名称，可选" /></label>
+              <label><span>Range Hours</span><input id="range_hours" type="number" min="1" max="168" value="6" /></label>
+              <label class="wide"><span>Question</span><input id="question" placeholder="例如：这个 Pod 为什么一直重启？" /></label>
+              <label class="wide"><span>Query Hint</span><input id="query" placeholder="例如：OOMKilled、BackOff、Exception" /></label>
+              <div class="actions">
+                <button class="primary" type="submit" id="run-button">开始调查</button>
+                <button class="secondary" type="button" id="load-latest-button">加载最近一次</button>
+                <label class="toggle"><input id="use_ai" type="checkbox" /><span>启用 AI 总结</span></label>
+              </div>
+            </form>
+          </section>
+
+          <section class="summary-grid">
+            <article class="summary-card">
+              <p class="card-label">调查 ID</p>
+              <div class="card-value mono" id="investigation-id">-</div>
+              <p class="card-note" id="generated-at">-</p>
+            </article>
+            <article class="summary-card">
+              <p class="card-label">证据来源</p>
+              <div class="card-value" id="evidence-sources">-</div>
+              <p class="card-note" id="evidence-counts">-</p>
+            </article>
+            <article class="summary-card">
+              <p class="card-label">目标对象</p>
+              <div class="card-value" id="target-object">-</div>
+              <p class="card-note" id="target-meta">-</p>
+            </article>
+            <article class="summary-card">
+              <p class="card-label">存储状态</p>
+              <div class="card-value" id="storage-status">-</div>
+              <p class="card-note" id="storage-meta">-</p>
+            </article>
+          </section>
+
+          <section class="workspace-layout">
+            <div class="main-column">
+              <article class="panel spotlight" id="section-summary">
+                <div class="panel-head">
+                  <div>
+                    <h2>一句话结论</h2>
+                    <p>先看系统当前最强判断，再决定是否深入展开证据。</p>
+                  </div>
+                </div>
+                <div class="narrative" id="summary-text">尚未生成调查结果。</div>
+              </article>
+
+              <article class="panel full">
+                <div class="panel-head">
+                  <div>
+                    <h2>关键指标摘要</h2>
+                    <p>把重启、等待原因、最近终止原因和 request / limit 先亮出来。</p>
+                  </div>
+                </div>
+                <div class="signal-summary-grid" id="signal-summary-grid"></div>
+              </article>
+
+              <section class="analysis-grid" id="section-analysis">
+                <article class="panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>根因排序</h2>
+                      <p>按置信度从高到低展示支持证据与反证。</p>
+                    </div>
+                  </div>
+                  <div class="stack-list" id="root-cause-list"></div>
+                </article>
+
+                <article class="panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>建议动作</h2>
+                      <p>聚焦接下来最值得执行的 3 到 5 个动作。</p>
+                    </div>
+                  </div>
+                  <ol class="ordered" id="actions-list"></ol>
+                </article>
+
+                <article class="panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>需要人工确认</h2>
+                      <p>避免把不确定项当成事实，帮助你快速补最后一跳确认。</p>
+                    </div>
+                  </div>
+                  <ul class="plain-list" id="human-check-list"></ul>
+                </article>
+
+                <article class="panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>关键时间线</h2>
+                      <p>按事件和分析结论拼出最短可读时间线。</p>
+                    </div>
+                  </div>
+                  <ul class="timeline" id="timeline-list"></ul>
+                </article>
+              </section>
+
+              <section class="detail-grid" id="section-context">
+                <article class="panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Pod 快照</h2>
+                      <p>当前 Pod 状态、Owner、容器状态、重启次数与资源配置。</p>
+                    </div>
+                  </div>
+                  <div class="pod-cards" id="pod-cards"></div>
+                </article>
+
+                <article class="panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Prometheus 上下文</h2>
+                      <p>补充 Pod 维度 CPU、内存、重启和等待原因的指标视角。</p>
+                    </div>
+                  </div>
+                  <div class="metrics-grid" id="prometheus-cards"></div>
+                </article>
+              </section>
+
+              <article class="panel full" id="section-evidence">
+                <div class="panel-head">
+                  <div>
+                    <h2>日志证据</h2>
+                    <p>优先展示规范化日志字段，直接支持错误定位与证据引用。</p>
+                  </div>
+                </div>
+                <div class="table-wrap"><table class="table" id="logs-table"></table></div>
+              </article>
+
+              <article class="panel full">
+                <div class="panel-head">
+                  <div>
+                    <h2>K8s 事件</h2>
+                    <p>辅助解释状态迁移、探针失败、调度问题和 BackOff 过程。</p>
+                  </div>
+                </div>
+                <div class="table-wrap"><table class="table" id="events-table"></table></div>
+              </article>
+
+              <article class="panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>原始调查提示词</h2>
+                    <p>便于回看 LLM 看到的证据上下文，帮助校验调查质量。</p>
+                  </div>
+                </div>
+                <pre class="prompt-box" id="analysis-prompt">-</pre>
+              </article>
+            </div>
+
+            <aside class="side-column" id="section-side">
+              <div class="sticky-stack">
+                <article class="panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Current Incidents</h2>
+                      <p>当前高风险对象池，可直接跳调查或打开日志事件视图。</p>
+                    </div>
+                  </div>
+                  <div class="list-links" id="current-incidents"></div>
+                </article>
+
+                <article class="panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>调查对象列表</h2>
+                      <p>按近期活跃度聚合的排障入口，适合做巡检和复盘。</p>
+                    </div>
+                  </div>
+                  <div class="list-links" id="investigation-targets"></div>
+                </article>
+
+                <article class="panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Dashboards 直达</h2>
+                      <p>当前调查对象的日志、事件和总览跳转入口。</p>
+                    </div>
+                  </div>
+                  <div class="link-stack" id="dashboards-links"></div>
+                </article>
+
+                <article class="panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>最近调查记录</h2>
+                      <p>快速回看已生成的调查结果，减少重复排障。</p>
+                    </div>
+                  </div>
+                  <div class="list-links" id="recent-investigations"></div>
+                </article>
+              </div>
+            </aside>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script src="./app.js?v=20260421c"></script>
+  </body>
+</html>

@@ -1,0 +1,151 @@
+# Example Filebeat config for business file logs.
+# Goal:
+# - keep current Filebeat-based collection
+# - normalize service/biz_line
+# - decode JSON payload from message when possible
+# - preserve request_id / trace_id / span_id / event_id if the app already prints them
+
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /opt/apisix/apisix-log/access.log*
+    json.keys_under_root: true
+    json.add_error_key: true
+    fields_under_root: true
+    fields:
+      service: apisix-gateway
+      biz_line: observability
+      log_type: access
+    processors:
+      - rename:
+          fields:
+            - from: host_02
+              to: origin_host
+          ignore_missing: true
+          fail_on_error: false
+      - rename:
+          fields:
+            - from: timestamp_02
+              to: upstream_timestamp
+          ignore_missing: true
+          fail_on_error: false
+      - rename:
+          fields:
+            - from: http_x_forwarded_for
+              to: client_ip
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: x_request_id
+              to: request_id
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: trace_id
+              to: trace_id
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: span_id
+              to: span_id
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: event_id
+              to: event_id
+          ignore_missing: true
+          fail_on_error: false
+
+  - type: log
+    enabled: true
+    paths:
+      - /data/nsqd/devops/devops-server.nsq2file-devops-*.log
+    fields_under_root: true
+    fields:
+      service: devops-server
+      biz_line: observability
+      log_type: app
+    processors:
+      - decode_json_fields:
+          fields: ["message"]
+          target: ""
+          overwrite_keys: false
+          add_error_key: true
+      - rename:
+          fields:
+            - from: timestamp
+              to: app_timestamp
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: evtName
+              to: event_name
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: requestId
+              to: request_id
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: request_id
+              to: request_id
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: traceId
+              to: trace_id
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: trace_id
+              to: trace_id
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: spanId
+              to: span_id
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: span_id
+              to: span_id
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: eventId
+              to: event_id
+          ignore_missing: true
+          fail_on_error: false
+      - copy_fields:
+          fields:
+            - from: event_id
+              to: event_id
+          ignore_missing: true
+          fail_on_error: false
+
+processors:
+  - add_host_metadata: {}
+  - add_fields:
+      target: ""
+      fields:
+        cluster: kubernetes
+
+output.elasticsearch:
+  hosts: ["http://opensearch.observability.svc.cluster.local:9200"]
+  index: "logs-k8s-%{+yyyy.MM.dd}"
+
+setup.template.enabled: false

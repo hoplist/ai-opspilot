@@ -1,0 +1,13 @@
+﻿apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - fluent-bit
+  - minio
+  - opensearch
+  - opensearch-dashboards
+  - opensearch-snapshot
+  - otel-collector
+  - beyla
+  - falco
+  - pyroscope
+  - auto-inspection-rca

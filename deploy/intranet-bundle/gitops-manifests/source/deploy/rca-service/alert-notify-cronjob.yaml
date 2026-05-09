@@ -1,0 +1,36 @@
+﻿apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: auto-inspection-alert-notify-dryrun
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: auto-inspection-alert-notify
+    app.kubernetes.io/part-of: auto-inspection
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: auto-inspection-alert-notify
+            app.kubernetes.io/part-of: auto-inspection
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: notify-dryrun
+            image: docker-hub.tpo.xzoa.com/auto-inspection/curl:8.10.1
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/sh
+            - -lc
+            args:
+            - |
+              curl -sS -X POST \
+                http://auto-inspection-rca.observability.svc.cluster.local:18080/api/alerts/notify \
+                -H 'Content-Type: application/json' \
+                -d '{"enabled":false,"dry_run":true,"range_hours":1,"cooldown_seconds":1800,"min_hours":0}'
