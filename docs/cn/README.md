@@ -2,6 +2,8 @@
 
 本目录提供面向交付、运维和产品设计的中文文档，围绕当前 `auto_inspection` RCA 方案整理。
 
+OpsPilot 新项目文档已隔离到 `docs/opspilot/`，后续新架构、新 CLI、新 Skill 和 Go Backend 设计默认写入该目录。
+
 文档清单：
 
 - `product.md`
