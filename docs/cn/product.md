@@ -2,132 +2,113 @@
 
 ## 产品定位
 
-本项目定位为一套面向 Kubernetes 场景的日志优先型 AI RCA 平台，用于把：
+本项目定位为一套轻量化的智能运维入口，用于把现有运维数据源组织成可查询、可关联、可给 AI 调用的 RCA 能力。
 
-- Kubernetes 容器日志
-- Kubernetes Events
-- Prometheus 指标上下文
-- AI 调查结果
+平台不替代 Prometheus，不替代 ELK，不默认自建 OpenSearch，也不默认全量采集 Kubernetes 容器日志。
 
-统一组织成可检索、可调查、可复用的排障产品。
+推荐定位：
+
+- Prometheus 负责指标、趋势、告警和资源水位。
+- ELK 负责网关日志、业务日志、关键系统日志和长期全文检索。
+- Kubernetes API 负责资源状态、事件和按需 Pod 日志。
+- Docker 主机通过 `node_exporter + cAdvisor` 接入 Prometheus。
+- RCA Backend 负责统一只读查询、证据聚合、资源资产视图和 AI/MCP 调用入口。
 
 ## 核心能力
 
-### 1. 全链路问题证据聚合
+### 1. 统一资源资产
 
-平台将以下信息整合到单一排障入口中：
+平台需要让 AI 和运维人员知道当前环境中有哪些资源：
 
-- OpenSearch 中的规范化日志
-- OpenSearch 中的 Kubernetes Events
-- OpenSearch 中的 incidents 与 investigations
-- Prometheus 中的 Pod / Node / kube-state 指标
-- K8s API fallback 返回的 Pod 状态与容器状态
+- Kubernetes 集群、Namespace、Node、Pod、Service、Workload。
+- Docker 主机和容器。
+- 普通服务器、CPU、内存、磁盘、网络。
+- 应用、服务、网关路由、业务标签和负责人。
 
-### 2. AI 调查与 RCA
+这些信息由 RCA Backend 归一为 Inventory 模型，提供给 UI、CLI 和 MCP。
 
-后端会把“日志 + K8s 事件 + Prometheus 上下文”拼装成统一调查输入，输出：
+### 2. 只读证据聚合
 
-- 一句话结论
-- 根因排序
-- 支持证据 / 反证
-- 关键时间线
-- 建议动作
-- 需要人工确认项
+一次 RCA 调查优先聚合以下证据：
 
-### 3. 当前问题事件单一事实源
+- Prometheus 指标。
+- Kubernetes 资源状态。
+- Kubernetes Event。
+- Kubernetes Pod 短窗口日志。
+- ELK 中的网关日志和业务日志。
+- GitLab / Argo CD 发布变更。
+- 巡检、基线和健康快照结果。
 
-当前问题事件统一以 OpenSearch `inspection-incidents-*` 为主事实源。
+Pod 日志由 Backend 通过 `pods/log` 按需读取，不长期保存到 RCA 平台。
 
-本地 JSON 工件仅作为：
+### 3. AI 调查与 MCP
 
-- 缓存
-- 回退
-- 导出中间产物
+AI 不直接访问 Kubernetes、Prometheus 或 ELK，而是通过 MCP 调用 RCA Backend 的只读工具。
 
-### 4. 调查对象推荐
+典型能力：
 
-调查对象列表会综合以下信号进行推荐排序：
+- 查询当前有多少服务器、集群、Pod、容器。
+- 查询异常 Pod、资源 TopN、最近告警。
+- 查询某个 Pod 的当前日志和 previous 日志。
+- 关联 504、慢请求、网关日志、业务日志和发布变更。
+- 生成 Evidence Pack 和调查摘要。
 
-- incident 风险等级
-- runbook 是否存在
-- investigation 历史次数
-- restart total / restart increase
-- OOMKilled / CrashLoopBackOff / NotReady 等强信号
-- 当前 source fingerprint 下的最新 incident 与 investigation 数据
+### 4. 自动巡检与基线
 
-### 5. 可视化与工作台
+自动巡检和基线应作为异步任务运行：
 
-当前包含两类入口：
+- `baseline-job`
+- `health-snapshot-job`
+- `incident-correlation-job`
+- `report-job`
+- `backup-verify-ingest-job`
 
-- OpenSearch Dashboards
-  用于 Discover、Saved Search、Dashboard 图表查看
-- 本地 RCA 页面 `dashboard-rca`
-  用于直接发起调查、查看摘要卡片、跳转日志/事件/Dashboard
+在线接口不做全量重计算，只查询预计算结果和短窗口实时证据。
 
-## 核心数据域
+### 5. 可视化工作台
 
-当前主要索引：
+RCA UI 作为统一入口，重点展示：
 
-- `logs-k8s-*`
-- `events-k8s-*`
-- `inspection-incidents-*`
-- `inspection-investigations-*`
-
-当前统一关键字段：
-
-- `cluster`
-- `namespace`
-- `pod`
-- `container`
-- `node`
-- `service`
-- `severity`
-- `logger`
-- `message`
-- `message_normalized`
-- `exception_type`
-- `exception_message`
-- `stack_language`
-
-## 典型使用方式
-
-### 场景 1：值班排障
-
-1. 打开 `Current Incidents`
-2. 选择高风险 Pod
-3. 点击 `Run RCA`
-4. 查看摘要卡片与根因排序
-5. 点击 `Open Logs / Open Events / Open Dashboard`
-
-### 场景 2：最近问题复盘
-
-1. 打开 `Investigations - Recent`
-2. 按命名空间或对象检索
-3. 查看历史调查结果与对应证据
-
-### 场景 3：在 Codex 对话中调用
-
-后端与 MCP 已经打通，后续可通过 Skill / MCP 直接触发：
-
-- 日志搜索
-- 事件搜索
-- incident 列表
-- 一键调查
+- 全局资源概览。
+- 异常 Pod / Workload / Server。
+- Prometheus 指标趋势。
+- 按需 Pod 日志。
+- ELK 网关/业务日志跳转。
+- 发布变更和调查摘要。
 
 ## 当前交付边界
 
-本轮已完成：
+默认交付：
 
-- 日志规范化与结构化异常提取
-- incidents 单一事实源
-- 调查对象推荐增强
-- RCA 摘要卡片
-- Dashboard 图表升级
-- OpenSearch retention / snapshot / disk watermark 基线
+- RCA Backend。
+- MCP Server。
+- RCA UI。
+- Kubernetes 只读 RBAC，包含 `pods/log`。
+- Prometheus 查询配置。
+- ELK 外部查询配置。
+- 自动巡检和基线任务。
 
-仍建议后续继续增强：
+可选交付：
 
-- snapshot 定时任务
-- OpenSearch 认证与安全插件
-- 更细粒度的日志 parser
-- RCA 页中文文案与交互细节进一步清洗
+- OpenSearch / OpenSearch Dashboards。
+- MinIO / 对象存储归档。
+- MySQL / PostgreSQL 状态存储。
+- eBPF / runtime security / profiling。
+
+可选组件只在明确需要长期日志检索、调查归档、深度性能或安全排查时启用。
+
+## 后续方向
+
+近期优先：
+
+- 补齐统一 Inventory API。
+- 补齐按需 Pod 日志 API。
+- 补齐 MCP 资源查询和日志查询工具。
+- 将旧的 OpenSearch 内置部署降级为 optional。
+- 自动巡检和基线任务异步化。
+
+中期方向：
+
+- 将在线高并发查询核心演进为 Go / Java `rca-core`。
+- Python 保留在 AI、MCP、报告和异步 Worker 层。
+- 所有入口统一调用 RCA Core API。

@@ -25,7 +25,7 @@
 
 - kubeconfig
 - 集群凭证
-- OpenSearch / Prometheus 接入配置
+- Prometheus / ELK / Kubernetes 接入配置
 
 ## 集群内服务
 
