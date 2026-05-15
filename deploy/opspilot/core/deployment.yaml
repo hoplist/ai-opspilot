@@ -20,7 +20,7 @@ spec:
       serviceAccountName: opspilot-core
       containers:
         - name: core
-          image: opspilot-core:0.1.0-mvp
+          image: opspilot-core:0.1.0-mvp-go
           imagePullPolicy: IfNotPresent
           env:
             - name: OPSPILOT_PORT

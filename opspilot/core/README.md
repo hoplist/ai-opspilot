@@ -12,12 +12,13 @@ Initial responsibilities:
 - Evidence Pack assembly.
 - Auth, audit, rate limit, timeout, cache, and redaction boundaries.
 
-The preferred implementation language is Go once API contracts are frozen.
+The implementation language is Go. Python is kept for future async worker work
+only when it is the better fit.
 
 ## Run MVP
 
 ```bash
-python -m opspilot.core --host 127.0.0.1 --port 18080
+go run ./opspilot/core --host 127.0.0.1 --port 18080
 ```
 
 Implemented MVP endpoints:

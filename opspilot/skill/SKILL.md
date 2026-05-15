@@ -14,13 +14,16 @@ command exists.
 Prefer:
 
 ```bash
-python -m opspilot.cli schema
-python -m opspilot.cli inventory overview
-python -m opspilot.cli k8s pods --status abnormal
-python -m opspilot.cli k8s logs pod -n <namespace> --pod <pod> --tail 300
-python -m opspilot.cli context pod -n <namespace> --pod <pod>
-python -m opspilot.cli diagnose pod -n <namespace> --pod <pod>
+opspilot schema
+opspilot inventory overview
+opspilot k8s pods --status abnormal
+opspilot k8s logs pod -n <namespace> --pod <pod> --tail 300
+opspilot context pod -n <namespace> --pod <pod>
+opspilot diagnose pod -n <namespace> --pod <pod>
 ```
+
+When running from repository source before installing the binary, replace
+`opspilot` with `go run ./opspilot/cli`.
 
 Set backend URL when needed:
 
@@ -32,18 +35,18 @@ set OPSPILOT_BACKEND_URL=http://<opspilot-core>:18080
 
 For cluster overview:
 
-1. Run `python -m opspilot.cli inventory overview`.
+1. Run `opspilot inventory overview`.
 2. Summarize counts, abnormal resources, and warnings.
 
 For abnormal Pods:
 
-1. Run `python -m opspilot.cli k8s pods --status abnormal`.
+1. Run `opspilot k8s pods --status abnormal`.
 2. Identify namespace, pod, phase, readiness, restarts, and waiting reasons.
 
 For a Pod RCA:
 
-1. Run `python -m opspilot.cli context pod -n <namespace> --pod <pod>`.
-2. If needed, run `python -m opspilot.cli diagnose pod -n <namespace> --pod <pod>`.
+1. Run `opspilot context pod -n <namespace> --pod <pod>`.
+2. If needed, run `opspilot diagnose pod -n <namespace> --pod <pod>`.
 3. Use current and previous logs only as short-window evidence.
 4. State confidence and missing evidence clearly.
 

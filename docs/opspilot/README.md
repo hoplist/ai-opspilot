@@ -29,7 +29,7 @@
 4. `pod-logs-on-demand.md`
    - Kubernetes Pod 日志按需读取设计。
 5. `backend-go-plan.md`
-   - Go `opspilot-core` 演进方案。
+   - Go `opspilot-core` / `opspilot` CLI 实现方案。
 6. `migration-plan.md`
    - 从当前 `auto_inspection` 迁移到 OpsPilot 的阶段路线。
 7. `change_records/`

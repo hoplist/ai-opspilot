@@ -61,7 +61,7 @@ flowchart LR
 
 ### opspilot-core
 
-在线主 API，后续建议使用 Go / Java 承载：
+在线主 API，使用 Go 承载：
 
 - Inventory 查询。
 - Kubernetes 资源查询。

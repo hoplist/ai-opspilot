@@ -1,6 +1,6 @@
 {
   "name": "opspilot",
-  "version": "0.1.0-draft",
+  "version": "0.1.0-mvp-go",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
   "commands": [

@@ -35,7 +35,7 @@ opspilot-core
   Go 优先，承载在线高并发只读查询。
 
 opspilot-cli
-  Go 或 Python，提供确定性命令入口。
+  Go，提供确定性命令入口。
 
 opspilot-mcp
   MCP 适配层，只暴露只读工具。
@@ -117,15 +117,15 @@ opspilot diagnose pod --namespace prod --pod xxx
 - 能生成 Pod Evidence Pack。
 - CLI 和 MCP 都能调用。
 
-当前 MVP 已先完成 `opspilot-core` 与 `opspilot CLI` 的 Python 标准库实现：
+当前 MVP 已切换为 Go 实现，`opspilot-core` 与 `opspilot CLI` 共享同一 Go 模块：
 
-- `python -m opspilot.core`
-- `python -m opspilot.cli schema`
-- `python -m opspilot.cli inventory overview`
-- `python -m opspilot.cli k8s pods --status abnormal`
-- `python -m opspilot.cli k8s logs pod -n <ns> --pod <pod>`
-- `python -m opspilot.cli context pod -n <ns> --pod <pod>`
-- `python -m opspilot.cli diagnose pod -n <ns> --pod <pod>`
+- `go run ./opspilot/core`
+- `go run ./opspilot/cli schema`
+- `go run ./opspilot/cli inventory overview`
+- `go run ./opspilot/cli k8s pods --status abnormal`
+- `go run ./opspilot/cli k8s logs pod -n <ns> --pod <pod>`
+- `go run ./opspilot/cli context pod -n <ns> --pod <pod>`
+- `go run ./opspilot/cli diagnose pod -n <ns> --pod <pod>`
 
 MCP 适配层仍待实现。
 

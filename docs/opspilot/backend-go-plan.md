@@ -1,90 +1,85 @@
-# Backend Go 化演进方案
+# Backend Go 化方案
 
 ## 结论
 
-OpsPilot 不建议一开始全量重写 Python Backend，但应该从现在开始按未来 Go `opspilot-core` 的边界设计 API。
-
-推荐拆分：
+OpsPilot 的在线入口统一切到 Go：
 
 ```text
-opspilot-core     Go / Java，在线主 API，高并发只读查询
-opspilot-worker   Python，AI 摘要、报告、巡检、基线、备份校验
-opspilot-mcp      Python 或 Go，MCP 工具适配层
-opspilot-cli      Go 或 Python，确定性命令入口
-opspilot-console  前端，只调用 opspilot-core
+opspilot-core     Go，在线只读 API，高并发查询边界
+opspilot-cli      Go，确定性命令入口，给人和 AI 使用
+opspilot-mcp      后续优先复用 CLI/Core 契约，只暴露只读工具
+opspilot-worker   后续按需保留 Python，承载异步巡检、基线、报告、备份校验和 AI 摘要
+opspilot-console  后续 Web UI，只调用 opspilot-core
 ```
 
-## 为什么不马上全量重写
+## 当前状态
 
-- 当前 Python 已经沉淀了大量数据源适配逻辑。
-- AI 摘要、报告、巡检、脚本分析更适合 Python 快速迭代。
-- 全量重写容易中断现有能力。
-- 先冻结 API 契约更重要。
+MVP 已完成 Go 版本：
+
+- `opspilot/core`：HTTP API。
+- `opspilot/cli`：确定性 CLI。
+- `opspilot/internal/k8s`：Kubernetes 只读查询和短窗口日志读取。
+- `opspilot/internal/response`：统一 JSON envelope。
+- `opspilot/contracts`：CLI schema embed。
+
+Python 不再作为在线 core/cli 的实现语言。后续只有异步分析、AI 摘要、报表生成这类任务确实更适合 Python 时，才放入 `opspilot-worker`。
 
 ## 为什么在线核心适合 Go
 
-Go 更适合承载：
+- Kubernetes API 聚合查询、Pod 日志按需读取、Prometheus/ELK 查询代理都属于高并发 I/O。
+- Go 更容易做连接池、超时、限流、并发控制和单二进制交付。
+- CLI 和 Core 可以共享契约、版本号、基础结构，减少运行时依赖。
+- 部署镜像更小，内网分发更简单。
 
-- Kubernetes API 聚合查询。
-- Pod 日志按需读取。
-- Prometheus 查询代理。
-- ELK 查询代理。
-- Inventory 资源资产查询。
-- Evidence Pack 基础组装。
-- 权限、审计、限流、缓存、超时和连接池。
+## 保留 Python 的位置
 
-这些都是高并发 I/O 场景。
+Python 只放在异步 worker 侧，适合：
 
-## 阶段路线
+- AI 摘要和报告生成。
+- 备份校验文件解析。
+- 基线快照和离线分析。
+- 第三方 SDK 较多、开发速度优先的任务。
 
-### P0：保留 Python Backend
+## 分阶段路线
 
-- 继续服务现有功能。
-- 增加超时、缓存和查询限制。
-- 重任务移到异步 Job。
+### P0：Go Core / CLI MVP
 
-### P1：冻结 API 契约
+已完成：
 
-- `/api/inventory/*`
-- `/api/k8s/logs/*`
-- `/api/context/*`
-- `/api/metrics/*`
-- `/api/release/*`
-- `/api/backup/*`
+- `/api/health`
+- `/api/inventory/overview`
+- `/api/k8s/pods`
+- `/api/k8s/logs/pod`
+- `/api/context/pod`
+- `/api/diagnose/pod`
+- `opspilot schema`
+- `opspilot inventory overview`
+- `opspilot k8s pods`
+- `opspilot k8s logs pod`
+- `opspilot context pod`
+- `opspilot diagnose pod`
 
-明确请求参数、返回 JSON、错误码和权限边界。
+### P1：补齐运维入口能力
 
-### P2：新增 Go opspilot-core
+- Prometheus 查询代理和资源 TopN。
+- ELK / OpenSearch / APISIX 日志查询代理，按需接入。
+- 服务器、Docker、Kubernetes 统一 inventory。
+- 只读审计、超时、限流、脱敏。
 
-先实现高频接口：
+### P2：MCP 与 Skill
 
-- Inventory。
-- Kubernetes Pod / Event / Workload 查询。
-- Pod logs on demand。
-- Prometheus resource query。
-- Evidence Pack 基础组装。
+- MCP 只暴露白名单只读工具。
+- Skill 先查 `opspilot schema`，再选择命令。
+- AI 不直接 `kubectl exec/delete/patch/scale`。
 
-### P3：入口切换
+### P3：Console 与 Worker
 
-- UI 切到 `opspilot-core`。
-- CLI 切到 `opspilot-core`。
-- MCP 优先调用 `opspilot-core`。
-- Python worker 只负责异步分析。
+- Console 只调用 `opspilot-core`。
+- Worker 负责定时巡检、基线、报告、备份校验和 AI 摘要。
 
-### P4：高可用和治理
+## 交付原则
 
-- 多副本部署。
-- HPA。
-- 鉴权和审计。
-- 多集群、多租户。
-- 查询缓存。
-
-## 触发条件
-
-满足以下条件时开始 P1/P2：
-
-- 多人同时使用 UI/MCP 延迟明显升高。
-- Pod 日志和 Prometheus 查询需要强限流。
-- Backend CPU 或内存随用户数明显增长。
-- 需要统一鉴权、审计和租户隔离。
-- 需要作为团队级总运维 API。
+- 默认只读。
+- 默认短窗口日志，避免全量日志采集。
+- OpenSearch、MinIO、MySQL、eBPF 都是可选模块，不再作为核心强依赖。
+- Core/CLI 先稳定，MCP/Skill/UI 再围绕契约扩展。

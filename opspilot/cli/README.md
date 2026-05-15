@@ -24,7 +24,7 @@ opspilot diagnose pod --namespace prod --pod xxx
 MVP invocation from source:
 
 ```bash
-python -m opspilot.cli schema
-python -m opspilot.cli inventory overview
-python -m opspilot.cli k8s pods --status abnormal
+go run ./opspilot/cli schema
+go run ./opspilot/cli inventory overview
+go run ./opspilot/cli k8s pods --status abnormal
 ```
