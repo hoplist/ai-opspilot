@@ -117,6 +117,18 @@ opspilot diagnose pod --namespace prod --pod xxx
 - 能生成 Pod Evidence Pack。
 - CLI 和 MCP 都能调用。
 
+当前 MVP 已先完成 `opspilot-core` 与 `opspilot CLI` 的 Python 标准库实现：
+
+- `python -m opspilot.core`
+- `python -m opspilot.cli schema`
+- `python -m opspilot.cli inventory overview`
+- `python -m opspilot.cli k8s pods --status abnormal`
+- `python -m opspilot.cli k8s logs pod -n <ns> --pod <pod>`
+- `python -m opspilot.cli context pod -n <ns> --pod <pod>`
+- `python -m opspilot.cli diagnose pod -n <ns> --pod <pod>`
+
+MCP 适配层仍待实现。
+
 ## P3：服务器与 Docker 资源
 
 目标：

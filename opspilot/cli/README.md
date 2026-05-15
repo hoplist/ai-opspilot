@@ -20,3 +20,11 @@ opspilot k8s logs pod --namespace prod --pod xxx --tail 300
 opspilot context pod --namespace prod --pod xxx
 opspilot diagnose pod --namespace prod --pod xxx
 ```
+
+MVP invocation from source:
+
+```bash
+python -m opspilot.cli schema
+python -m opspilot.cli inventory overview
+python -m opspilot.cli k8s pods --status abnormal
+```

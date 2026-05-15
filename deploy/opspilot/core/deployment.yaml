@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opspilot-core
+  namespace: opspilot
+  labels:
+    app.kubernetes.io/name: opspilot-core
+    app.kubernetes.io/part-of: opspilot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opspilot-core
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: opspilot-core
+        app.kubernetes.io/part-of: opspilot
+    spec:
+      serviceAccountName: opspilot-core
+      containers:
+        - name: core
+          image: opspilot-core:0.1.0-mvp
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OPSPILOT_PORT
+              value: "18080"
+            - name: OPSPILOT_ACCESS_LOG
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 18080
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20

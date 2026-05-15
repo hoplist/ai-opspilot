@@ -96,3 +96,20 @@ paths:
       responses:
         "200":
           description: Pod Evidence Pack
+  /api/diagnose/pod:
+    get:
+      summary: Diagnose a Pod from MVP evidence
+      parameters:
+        - name: namespace
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: pod
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pod diagnosis
