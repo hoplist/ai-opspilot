@@ -1,0 +1,42 @@
+{
+  "name": "opspilot-mcp",
+  "version": "0.1.0-draft",
+  "tools": [
+    {
+      "name": "inventory_overview",
+      "readonly": true
+    },
+    {
+      "name": "list_servers",
+      "readonly": true
+    },
+    {
+      "name": "list_clusters",
+      "readonly": true
+    },
+    {
+      "name": "list_abnormal_pods",
+      "readonly": true
+    },
+    {
+      "name": "get_pod_logs",
+      "readonly": true
+    },
+    {
+      "name": "get_pod_context",
+      "readonly": true
+    },
+    {
+      "name": "diagnose_pod",
+      "readonly": true
+    },
+    {
+      "name": "top_nodes",
+      "readonly": true
+    },
+    {
+      "name": "top_containers",
+      "readonly": true
+    }
+  ]
+}

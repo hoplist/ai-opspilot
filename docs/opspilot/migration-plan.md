@@ -1,78 +1,216 @@
-# 从 auto_inspection 迁移到 OpsPilot
+# OpsPilot 完全重构路线
 
-## 迁移原则
+## 结论
 
-- 不推倒现有能力。
-- 不影响当前 RCA Backend/MCP 运行。
-- 先隔离文档和命名，再逐步调整代码、CLI、部署和镜像。
-- 新能力优先进入 `OpsPilot` 命名空间和文档目录。
+旧的 `auto_inspection` 暂时没有生产使用约束，OpsPilot 可以按新架构完全重构。
 
-## 阶段路线
+这次不再以“兼容旧 Backend / 旧 CLI / 旧部署”为目标，而是建立一套新的项目边界：
 
-### P0：文档隔离
+```text
+opspilot/
+  core/       在线主 API
+  cli/        确定性命令入口
+  mcp/        MCP 工具适配
+  worker/     巡检、基线、报告、备份校验
+  console/    Web UI
+  contracts/  OpenAPI / JSON Schema / 工具契约
+```
 
-- 新建 `docs/opspilot/`。
-- OpsPilot 新文档只写入该目录。
-- `docs/cn/` 保留为历史和当前实现资料。
+旧代码只作为参考，不作为新实现的目录结构约束。
 
-### P1：命名统一
+## 重构原则
 
-规划命名：
+- 新代码进入 `opspilot/`。
+- 新部署进入 `deploy/opspilot/`。
+- 新文档进入 `docs/opspilot/`。
+- 旧 `auto_inspection/`、`dashboard-*`、`yaml/`、`deploy/observability/` 暂时保留，但不再继续扩展。
+- 不再默认部署 OpenSearch、MinIO、MySQL、eBPF。
+- 第一阶段只做只读能力。
+- CLI 和 Backend API 先定义 schema，再实现。
 
-- `opspilot`
-- `opspilot-core`
-- `opspilot-mcp`
-- `opspilot-skill`
-- `opspilot-console`
-- `opspilot-worker`
+## 目标分层
 
-### P2：CLI 收敛
+```text
+opspilot-core
+  Go 优先，承载在线高并发只读查询。
 
-新增或改造 CLI：
+opspilot-cli
+  Go 或 Python，提供确定性命令入口。
+
+opspilot-mcp
+  MCP 适配层，只暴露只读工具。
+
+opspilot-worker
+  Python 优先，承载异步巡检、基线、报告、备份校验和 AI 摘要。
+
+opspilot-console
+  Web UI，只调用 opspilot-core。
+```
+
+## P0：项目骨架
+
+目标：
+
+- 建立 `opspilot/` 目录。
+- 建立 `deploy/opspilot/` 目录。
+- 建立 contracts 目录。
+- 文档统一放入 `docs/opspilot/`。
+
+完成标准：
+
+- 新旧目录边界清楚。
+- 后续代码不再往旧目录继续堆。
+
+## P1：契约优先
+
+先定义接口和命令，不急着实现全部逻辑。
+
+Backend API：
+
+- `/api/health`
+- `/api/inventory/overview`
+- `/api/inventory/servers`
+- `/api/inventory/clusters`
+- `/api/inventory/containers`
+- `/api/k8s/pods`
+- `/api/k8s/logs/pod`
+- `/api/metrics/top-nodes`
+- `/api/context/pod`
+- `/api/diagnose/pod`
+
+CLI：
 
 ```bash
 opspilot schema
 opspilot inventory overview
+opspilot inventory servers
 opspilot k8s pods --status abnormal
-opspilot k8s logs pod --namespace prod --pod xxx
+opspilot k8s logs pod --namespace prod --pod xxx --tail 300
 opspilot context pod --namespace prod --pod xxx
 opspilot diagnose pod --namespace prod --pod xxx
 ```
 
-旧 CLI 可以保留一段时间作为兼容入口。
+完成标准：
 
-### P3：Backend API 契约
+- 有 OpenAPI / JSON Schema / CLI schema。
+- AI Skill 可以根据 schema 知道应该调用什么。
+- 每个接口都标注只读边界、参数限制和返回结构。
 
-先在当前 Python Backend 中整理稳定 API：
+## P2：最小可用闭环
 
-- Inventory。
-- Pod logs on demand。
-- Prometheus metrics。
-- ELK query。
-- Release context。
-- Evidence Pack。
+优先实现一条排障主链路：
 
-### P4：Go opspilot-core
+```text
+用户/AI 问某个 Pod 为什么异常
+  -> opspilot CLI / MCP
+  -> opspilot-core
+  -> Kubernetes API 查 Pod / Event / pods-log
+  -> Prometheus 查资源指标
+  -> 返回 Evidence Pack
+```
 
-按 `backend-go-plan.md` 逐步迁移在线高频接口。
+完成标准：
 
-### P5：部署清单隔离
+- 能列出集群资源。
+- 能列出异常 Pod。
+- 能按需读取 Pod 当前日志和 previous 日志。
+- 能生成 Pod Evidence Pack。
+- CLI 和 MCP 都能调用。
 
-后续新增：
+## P3：服务器与 Docker 资源
+
+目标：
+
+- 接入 Prometheus 中的 node_exporter 指标。
+- 接入 Docker/cAdvisor 指标。
+- 统一 Inventory：
+  - server
+  - docker_host
+  - container
+  - kubernetes_node
+  - workload
+
+完成标准：
+
+- AI 能回答“当前有哪些服务器”。
+- AI 能回答“哪台服务器内存最高”。
+- AI 能回答“某台 Docker 主机有多少容器”。
+
+## P4：ELK 网关/业务日志
+
+目标：
+
+- 接入外部 ELK 查询。
+- 只查网关、业务、关键系统日志。
+- 不全量采集 Kubernetes 容器日志。
+
+完成标准：
+
+- 能按 request_id / trace_id / route / service 查询业务日志。
+- 能关联 504、5xx、慢请求。
+- Evidence Pack 能包含 ELK 日志摘要和跳转信息。
+
+## P5：异步巡检和基线
+
+目标：
+
+- `baseline-job`
+- `health-snapshot-job`
+- `incident-correlation-job`
+- `backup-verify-ingest-job`
+- `report-job`
+
+完成标准：
+
+- 在线 API 不做重计算。
+- Worker 生成快照和摘要。
+- UI/CLI/MCP 只读取结果。
+
+## P6：部署和发布
+
+目标部署目录：
 
 ```text
 deploy/opspilot/
   core/
+  cli/
   mcp/
   console/
   worker/
+  rbac/
   optional/
 ```
 
-默认不带 OpenSearch、MinIO、MySQL、eBPF。
+默认部署：
 
-## 本阶段完成定义
+- `opspilot-core`
+- `opspilot-mcp`
+- `opspilot-console`
+- `opspilot-worker`
+- RBAC
+- ConfigMap / Secret 引用
 
-- OpsPilot 文档独立。
-- CLI/Skill/Backend 的职责边界清晰。
-- 后续代码改造有稳定目标。
+不默认部署：
+
+- OpenSearch
+- MinIO
+- MySQL
+- eBPF
+
+## 旧代码处理策略
+
+短期：
+
+- 保留旧代码。
+- 不继续扩展旧目录。
+- 新实现从 `opspilot/` 开始。
+
+中期：
+
+- OpsPilot 最小闭环跑通后，逐步删除旧入口脚本和旧 dashboard。
+- 只保留仍有参考价值的文档和测试样例。
+
+长期：
+
+- 仓库主入口改成 OpsPilot。
+- 旧 `auto_inspection` 作为历史分支或 archive。

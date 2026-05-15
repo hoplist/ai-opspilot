@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opspilot.local/schemas/evidence-pack.schema.json",
+  "title": "OpsPilot Evidence Pack",
+  "type": "object",
+  "required": ["target", "summary", "evidence", "warnings"],
+  "properties": {
+    "target": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "namespace": { "type": "string" },
+        "name": { "type": "string" },
+        "cluster": { "type": "string" }
+      }
+    },
+    "summary": {
+      "type": "object"
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "inventory": { "type": "object" },
+        "metrics": { "type": "array" },
+        "events": { "type": "array" },
+        "logs": { "type": "array" },
+        "release": { "type": "object" }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

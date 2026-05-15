@@ -1,0 +1,98 @@
+openapi: 3.1.0
+info:
+  title: OpsPilot Core API
+  version: 0.1.0-draft
+  description: Draft read-only API contract for OpsPilot.
+paths:
+  /api/health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+  /api/inventory/overview:
+    get:
+      summary: Return inventory overview
+      responses:
+        "200":
+          description: Inventory overview
+  /api/k8s/pods:
+    get:
+      summary: List Kubernetes Pods
+      parameters:
+        - name: namespace
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pod list
+  /api/k8s/logs/pod:
+    get:
+      summary: Read short-window Pod logs
+      parameters:
+        - name: namespace
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: pod
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: container
+          in: query
+          schema:
+            type: string
+        - name: tail_lines
+          in: query
+          schema:
+            type: integer
+            default: 300
+            maximum: 1000
+        - name: since_seconds
+          in: query
+          schema:
+            type: integer
+            default: 1800
+            maximum: 86400
+        - name: limit_bytes
+          in: query
+          schema:
+            type: integer
+            default: 1048576
+            maximum: 5242880
+        - name: previous
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Pod logs
+  /api/context/pod:
+    get:
+      summary: Return Pod Evidence Pack
+      parameters:
+        - name: namespace
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: pod
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pod Evidence Pack

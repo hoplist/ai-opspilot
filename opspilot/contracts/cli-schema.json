@@ -1,0 +1,43 @@
+{
+  "name": "opspilot",
+  "version": "0.1.0-draft",
+  "description": "Deterministic CLI schema for OpsPilot.",
+  "default_output": "json",
+  "commands": [
+    {
+      "name": "schema",
+      "readonly": true,
+      "description": "Print CLI schema."
+    },
+    {
+      "name": "inventory overview",
+      "readonly": true,
+      "description": "Return cluster, server, workload, pod, and container overview."
+    },
+    {
+      "name": "k8s pods",
+      "readonly": true,
+      "description": "List Kubernetes Pods with optional namespace, status, and query filters."
+    },
+    {
+      "name": "k8s logs pod",
+      "readonly": true,
+      "description": "Read short-window Kubernetes Pod logs through pods/log.",
+      "limits": {
+        "tail_lines_default": 300,
+        "since_seconds_default": 1800,
+        "limit_bytes_default": 1048576
+      }
+    },
+    {
+      "name": "context pod",
+      "readonly": true,
+      "description": "Return a Pod Evidence Pack."
+    },
+    {
+      "name": "diagnose pod",
+      "readonly": true,
+      "description": "Diagnose a Pod using metrics, events, short-window logs, and release context."
+    }
+  ]
+}
