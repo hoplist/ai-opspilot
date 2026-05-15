@@ -7,10 +7,11 @@ metadata:
     app.kubernetes.io/name: opspilot-core
     app.kubernetes.io/part-of: opspilot
 spec:
-  type: ClusterIP
+  type: NodePort
   selector:
     app.kubernetes.io/name: opspilot-core
   ports:
     - name: http
       port: 18080
       targetPort: http
+      nodePort: 32180

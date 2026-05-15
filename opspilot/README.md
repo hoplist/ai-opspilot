@@ -48,6 +48,11 @@ available. Outside Kubernetes it falls back to `kubectl`.
 Build the MVP image:
 
 ```bash
+$env:CGO_ENABLED="0"
+$env:GOOS="linux"
+$env:GOARCH="amd64"
+go build -trimpath -ldflags="-s -w" -o build/linux-amd64/opspilot-core ./opspilot/core
+go build -trimpath -ldflags="-s -w" -o build/linux-amd64/opspilot ./opspilot/cli
 docker build -f opspilot/Dockerfile -t opspilot-core:0.1.0-mvp-go .
 ```
 
