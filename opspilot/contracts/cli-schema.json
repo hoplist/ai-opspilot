@@ -1,6 +1,6 @@
 {
   "name": "opspilot",
-  "version": "0.1.0-mvp-go",
+  "version": "0.1.9-release-evidence",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
   "commands": [
@@ -13,6 +13,46 @@
       "name": "inventory overview",
       "readonly": true,
       "description": "Return cluster, server, workload, pod, and container overview."
+    },
+    {
+      "name": "metrics health",
+      "readonly": true,
+      "description": "Check whether OpsPilot can reach configured Prometheus datasources."
+    },
+    {
+      "name": "metrics datasources",
+      "readonly": true,
+      "description": "List configured Prometheus datasources, default source, and reachability."
+    },
+    {
+      "name": "metrics query",
+      "readonly": true,
+      "description": "Run a read-only PromQL instant query through OpsPilot Core. Supports --source."
+    },
+    {
+      "name": "metrics nodes",
+      "readonly": true,
+      "description": "Return node CPU, memory, and root filesystem usage from Prometheus. Supports --source and --source all."
+    },
+    {
+      "name": "metrics pods",
+      "readonly": true,
+      "description": "Return top Pod CPU and memory usage from Prometheus, optionally filtered by namespace. Supports --source and --source all."
+    },
+    {
+      "name": "metrics containers",
+      "readonly": true,
+      "description": "Return top Docker/container CPU and memory usage from cAdvisor metrics. Supports --source and --source all."
+    },
+    {
+      "name": "metrics pod",
+      "readonly": true,
+      "description": "Return CPU, memory, and restart metrics for one Pod. Supports --source."
+    },
+    {
+      "name": "metrics filesystems",
+      "readonly": true,
+      "description": "Return filesystem mountpoint free space, total space, and usage percent from Prometheus. Supports --source and --source all."
     },
     {
       "name": "k8s pods",
@@ -30,6 +70,46 @@
       }
     },
     {
+      "name": "docker agents",
+      "readonly": true,
+      "description": "List configured Docker node agents and reachability."
+    },
+    {
+      "name": "docker containers",
+      "readonly": true,
+      "description": "List allowed Docker containers through a node agent. Supports --host and --host all."
+    },
+    {
+      "name": "docker inspect",
+      "readonly": true,
+      "description": "Return read-only Docker inspect summary for one allowed container."
+    },
+    {
+      "name": "docker logs",
+      "readonly": true,
+      "description": "Read short-window Docker container logs through a node agent.",
+      "limits": {
+        "tail_lines_default": 300,
+        "since_seconds_default": 1800,
+        "limit_bytes_default": 1048576
+      }
+    },
+    {
+      "name": "docker stats",
+      "readonly": true,
+      "description": "Return one-shot Docker container stats through a node agent."
+    },
+    {
+      "name": "logs search",
+      "readonly": true,
+      "description": "Search collected Kubernetes logs from the configured OpenSearch/Elasticsearch backend. Supports -q and --query."
+    },
+    {
+      "name": "evidence request",
+      "readonly": true,
+      "description": "Correlate APISIX access logs with service logs by host, URI, time window, optional route mapping, and evidence strength. Supports --skip-apisix / --service-only for preliminary investigation without gateway logs."
+    },
+    {
       "name": "context pod",
       "readonly": true,
       "description": "Return a Pod Evidence Pack."
@@ -38,6 +118,36 @@
       "name": "diagnose pod",
       "readonly": true,
       "description": "Diagnose a Pod using metrics, events, short-window logs, and release context."
+    },
+    {
+      "name": "diagnose docker",
+      "readonly": true,
+      "description": "Diagnose one Docker container using inspect, stats, and short-window logs."
+    },
+    {
+      "name": "inspect pod",
+      "readonly": true,
+      "description": "Return a compact Pod inspection with status, restarts, events/context, metrics, Kubernetes log presence, ELK log presence, and evidence gaps."
+    },
+    {
+      "name": "inspect cluster",
+      "readonly": true,
+      "description": "Return a compact cluster inspection with abnormal Pods, node resources, top Pod usage, restart evidence, and filesystem mountpoints."
+    },
+    {
+      "name": "release status",
+      "readonly": true,
+      "description": "Return a read-only release evidence chain status for one configured service."
+    },
+    {
+      "name": "release evidence",
+      "readonly": true,
+      "description": "Alias for release status in the first read-only release evidence milestone."
+    },
+    {
+      "name": "release diagnose",
+      "readonly": true,
+      "description": "Alias for release status with explicit evidence gaps in the first release milestone."
     }
   ]
 }

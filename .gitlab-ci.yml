@@ -1,0 +1,120 @@
+stages:
+  - test
+  - build
+  - update-gitops
+
+variables:
+  GO_VERSION_IMAGE: "m.daocloud.io/docker.io/library/golang:1.23-alpine"
+  BUILDKIT_IMAGE: "m.daocloud.io/docker.io/moby/buildkit:rootless"
+  ALPINE_IMAGE: "m.daocloud.io/docker.io/library/alpine:3.20"
+  IMAGE_NAME: "$CI_REGISTRY_IMAGE/opspilot-core"
+  IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+  BUILDKIT_CACHE_IMAGE: "$CI_REGISTRY_IMAGE/opspilot-core:buildcache"
+  GITOPS_REPO: "http://oauth2:${GITOPS_TOKEN}@192.168.48.206:8929/platform/gitops-manifests.git"
+  GITOPS_APP_PATH: "clusters/test/apps/opspilot-core"
+  GITOPS_APP_FILE: "apps/opspilot-core-application.yaml"
+  GITOPS_CONTAINER_NAME: "core"
+
+test:go:
+  stage: test
+  image: "$GO_VERSION_IMAGE"
+  before_script:
+    - apk add --no-cache git
+  script:
+    - go test ./opspilot/...
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+build:binaries:
+  stage: build
+  image: "$GO_VERSION_IMAGE"
+  before_script:
+    - apk add --no-cache git
+  script:
+    - mkdir -p build/linux-amd64
+    - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o build/linux-amd64/opspilot-core ./opspilot/core
+    - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o build/linux-amd64/opspilot ./opspilot/cli
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - build/linux-amd64/opspilot-core
+      - build/linux-amd64/opspilot
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+build:image:
+  stage: build
+  image:
+    name: "$BUILDKIT_IMAGE"
+    entrypoint: [""]
+  needs:
+    - job: build:binaries
+      artifacts: true
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+  before_script:
+    - mkdir -p ~/.docker
+    - |
+      echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > ~/.docker/config.json
+  script:
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=opspilot \
+        --opt filename=Dockerfile \
+        --import-cache type=registry,ref=$BUILDKIT_CACHE_IMAGE,registry.insecure=true \
+        --export-cache type=registry,ref=$BUILDKIT_CACHE_IMAGE,mode=max,registry.insecure=true \
+        --output type=image,\"name=$IMAGE_NAME:$IMAGE_TAG,$IMAGE_NAME:$CI_COMMIT_REF_SLUG\",push=true,registry.insecure=true
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+update:gitops:
+  stage: update-gitops
+  image: "$ALPINE_IMAGE"
+  needs:
+    - job: build:image
+  before_script:
+    - apk add --no-cache git yq
+    - git config --global user.email "gitlab-ci@node206.local"
+    - git config --global user.name "gitlab-ci"
+  script:
+    - test -n "$GITOPS_TOKEN"
+    - git clone "$GITOPS_REPO" gitops
+    - mkdir -p "gitops/$GITOPS_APP_PATH" "gitops/apps"
+    - cp -R deploy/opspilot/rbac gitops/clusters/test/apps/opspilot-rbac
+    - cp deploy/opspilot/core/configmap.yaml "gitops/$GITOPS_APP_PATH/configmap.yaml"
+    - cp deploy/opspilot/core/deployment.yaml "gitops/$GITOPS_APP_PATH/deployment.yaml"
+    - cp deploy/opspilot/core/service.yaml "gitops/$GITOPS_APP_PATH/service.yaml"
+    - cp deploy/opspilot/core/kustomization.yaml "gitops/$GITOPS_APP_PATH/kustomization.yaml"
+    - yq -i '(.resources[] | select(. == "../rbac")) = "../opspilot-rbac"' "gitops/$GITOPS_APP_PATH/kustomization.yaml"
+    - yq -i '(.spec.template.spec.containers[] | select(.name == strenv(GITOPS_CONTAINER_NAME)).image) = strenv(IMAGE_NAME) + ":" + strenv(IMAGE_TAG)' "gitops/$GITOPS_APP_PATH/deployment.yaml"
+    - |
+      cat > "gitops/$GITOPS_APP_FILE" <<EOF
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata:
+        name: opspilot-core
+        namespace: argocd
+      spec:
+        project: cicd-apps
+        source:
+          repoURL: http://192.168.48.206:8929/platform/gitops-manifests.git
+          targetRevision: main
+          path: clusters/test/apps/opspilot-core
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: opspilot
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+      EOF
+    - cd gitops
+    - git add "$GITOPS_APP_PATH" clusters/test/apps/opspilot-rbac "$GITOPS_APP_FILE"
+    - git commit -m "deploy opspilot-core ${IMAGE_TAG}" || echo "no changes"
+    - git push origin main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"

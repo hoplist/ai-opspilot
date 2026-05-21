@@ -1,0 +1,13 @@
+services:
+  opspilot-agent:
+    image: opspilot-agent:0.1.5-docker-agent
+    container_name: opspilot-agent
+    restart: unless-stopped
+    environment:
+      OPSPILOT_AGENT_PORT: "19080"
+      OPSPILOT_AGENT_DOCKER_SOCKET: /var/run/docker.sock
+      OPSPILOT_AGENT_ALLOWED_CONTAINERS: gitlab,prometheus,cadvisor,node-exporter,opspilot-agent
+    ports:
+      - "19080:19080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro

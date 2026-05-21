@@ -1,72 +1,170 @@
-# OpsPilot Skill
+---
+name: opspilot-ops
+description: "Use when Codex needs to inspect or troubleshoot the OpsPilot-managed operations platform through the read-only OpsPilot CLI: Kubernetes inventory and Pods, ELK log search, Prometheus metrics, node206 Docker containers, APISIX/service-log evidence chains, service-only preliminary investigation, or OpsPilot health. CLI-first, no MCP."
+---
 
-Use this skill when the user asks AI to inspect infrastructure, Kubernetes Pods,
-server resources, short-window Pod logs, or RCA evidence through OpsPilot.
+# OpsPilot Ops
 
-## Core Rule
+Use the OpsPilot CLI first. Do not use MCP for this platform unless the user
+explicitly asks for it.
 
-Use deterministic OpsPilot commands first. Do not guess cluster state from memory.
-Do not run raw `kubectl`, shell, SQL, or destructive commands when an OpsPilot
-command exists.
+## Entry
 
-## Command Entry
+From `D:\code\auto_inspection`, prefer:
 
-Prefer:
-
-```bash
-opspilot schema
-opspilot inventory overview
-opspilot k8s pods --status abnormal
-opspilot k8s logs pod -n <namespace> --pod <pod> --tail 300
-opspilot context pod -n <namespace> --pod <pod>
-opspilot diagnose pod -n <namespace> --pod <pod>
+```powershell
+.\opspilot\scripts\opspilot.ps1 <command>
 ```
 
-When running from repository source before installing the binary, replace
-`opspilot` with `go run ./opspilot/cli`.
+Default backend:
 
-Set backend URL when needed:
-
-```bash
-set OPSPILOT_BACKEND_URL=http://<opspilot-core>:18080
+```text
+http://192.168.48.200:32180
 ```
 
-## Workflow
+Fallback when the wrapper is unavailable:
 
-For cluster overview:
+```powershell
+go run ./opspilot/cli --backend-url http://192.168.48.200:32180 <command>
+```
 
-1. Run `opspilot inventory overview`.
-2. Summarize counts, abnormal resources, and warnings.
+## Start Every Investigation
 
-For abnormal Pods:
+Check platform reachability before deeper work:
 
-1. Run `opspilot k8s pods --status abnormal`.
-2. Identify namespace, pod, phase, readiness, restarts, and waiting reasons.
+```powershell
+.\opspilot\scripts\opspilot.ps1 metrics health
+.\opspilot\scripts\opspilot.ps1 docker agents
+```
 
-For a Pod RCA:
+If the user asks what the platform can do:
 
-1. Run `opspilot context pod -n <namespace> --pod <pod>`.
-2. If needed, run `opspilot diagnose pod -n <namespace> --pod <pod>`.
-3. Use current and previous logs only as short-window evidence.
-4. State confidence and missing evidence clearly.
+```powershell
+.\opspilot\scripts\opspilot.ps1 schema
+```
+
+## Kubernetes Workflow
+
+For broad cluster state:
+
+```powershell
+.\opspilot\scripts\opspilot.ps1 inventory overview
+.\opspilot\scripts\opspilot.ps1 k8s pods --status abnormal
+```
+
+For one Pod:
+
+```powershell
+.\opspilot\scripts\opspilot.ps1 context pod -n <namespace> --pod <pod> --source node200-k8s
+.\opspilot\scripts\opspilot.ps1 diagnose pod -n <namespace> --pod <pod> --source node200-k8s
+```
+
+Use short-window logs only when needed:
+
+```powershell
+.\opspilot\scripts\opspilot.ps1 k8s logs pod -n <namespace> --pod <pod> --tail 300
+```
+
+## Logs
+
+Search collected Kubernetes logs:
+
+```powershell
+.\opspilot\scripts\opspilot.ps1 logs search -n opspilot --limit 20
+.\opspilot\scripts\opspilot.ps1 logs search -n ai-dev --limit 20
+```
+
+Do not treat OpenObserve as the main log backend. It currently stores only
+OpsPilot self logs in stream `opspilot_ops`.
+
+## Interface And Service Evidence
+
+If APISIX logs are not connected or the user only gives a service URI, use
+service-only mode first:
+
+```powershell
+.\opspilot\scripts\opspilot.ps1 evidence request `
+  --uri /api/hr/queryUserScheduleList `
+  --service-index workflow-server* `
+  --service-uri-field msg `
+  --service-only
+```
+
+If APISIX host and logs are available, use full evidence mode:
+
+```powershell
+.\opspilot\scripts\opspilot.ps1 evidence request `
+  --host workflow.tpo.xzoa.com `
+  --uri /api/hr/queryUserScheduleList `
+  --service-index workflow-server* `
+  --service-uri-field msg `
+  --since 900
+```
+
+Read these fields first:
+
+- `investigation_mode`: `service_only`, `gateway_and_service`, `gateway_only`, or `no_evidence`.
+- `evidence_strength`: `strong`, `medium`, `weak`, or `missing`.
+- `gaps`: missing evidence such as `apisix_log_skipped` or missing service logs.
+- `service_logs.items`: matched business or service logs.
+- `apisix.latency`: gateway latency summary when APISIX evidence exists.
+
+## Docker Host Workflow
+
+For node206 Docker containers:
+
+```powershell
+.\opspilot\scripts\opspilot.ps1 docker containers --host node206
+.\opspilot\scripts\opspilot.ps1 docker logs --host node206 --container <container> --tail 300
+.\opspilot\scripts\opspilot.ps1 diagnose docker --host node206 --container <container>
+```
+
+## Output
+
+Summarize:
+
+1. What is happening.
+2. Evidence found.
+3. Missing evidence.
+4. Most likely cause or current confidence.
+5. Next read-only check.
+
+Do not dump raw JSON unless the user asks.
 
 ## Boundaries
 
-Read-only by default:
+Allowed: read-only OpsPilot CLI commands.
 
-- inventory
-- k8s pods
-- k8s logs pod
-- context pod
-- diagnose pod
+For packaging, image builds, and deployments, use the standard release flow:
 
-Do not perform:
+```text
+node206 GitLab
+-> node206 GitLab Runner
+-> BuildKit rootless image build
+-> Push image registry
+-> Update GitOps repository
+-> node200 Argo CD automatic deployment
+```
 
-- delete
-- patch
-- rollout restart
-- scale
-- exec
-- attach
-- port-forward
-- secret value reads
+Local builds are only for CLI/unit-test validation. Release artifacts and
+cluster deployments should go through CI and GitOps.
+
+For release troubleshooting, treat the pipeline as a read-only evidence chain:
+GitLab pipeline, BuildKit job logs, Registry image tag, GitOps commit, Argo CD
+sync/health, Kubernetes rollout, Pod metrics, and logs. Always report missing
+evidence explicitly.
+
+For release status:
+
+```powershell
+.\opspilot\scripts\opspilot.ps1 --output human release status --service opspilot-core
+```
+
+Do not perform direct mutation:
+
+- `kubectl apply`, `delete`, `patch`, `scale`, `rollout restart`
+- shelling into production nodes
+- reading Kubernetes Secret values
+- changing ELK, Prometheus, OpenObserve, or Docker configuration
+
+If a fix needs mutation, report the evidence and ask for confirmation.

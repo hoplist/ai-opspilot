@@ -20,13 +20,14 @@ spec:
       serviceAccountName: opspilot-core
       containers:
         - name: core
-          image: opspilot-core:0.1.0-mvp-go
+          image: opspilot-core:0.1.9-release-evidence
           imagePullPolicy: IfNotPresent
-          env:
-            - name: OPSPILOT_PORT
-              value: "18080"
-            - name: OPSPILOT_ACCESS_LOG
-              value: "1"
+          envFrom:
+            - configMapRef:
+                name: opspilot-core-config
+            - secretRef:
+                name: opspilot-release-secrets
+                optional: true
           ports:
             - name: http
               containerPort: 18080

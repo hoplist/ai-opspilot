@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openobserve-auth
+  namespace: logging
+  labels:
+    app.kubernetes.io/name: logstash
+    app.kubernetes.io/part-of: opspilot
+type: Opaque
+stringData:
+  OPENOBSERVE_AUTH_HEADER: "Basic YWRtaW5AZXhhbXBsZS5jb206QWRtaW5AMTIzNDU2"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: logging
+  labels:
+    app.kubernetes.io/name: logstash
+    app.kubernetes.io/part-of: opspilot
+data:
+  logstash.yml: |
+    pipeline.ecs_compatibility: disabled
+    allow_superuser: true
+  pipelines.yml: |
+    - pipeline.id: k8s-container-logs
+      path.config: "/usr/share/logstash/pipeline/k8s.conf"
+  k8s.conf: |
+    input {
+      file {
+        path => ["/var/log/containers/*_opspilot_*.log", "/var/log/containers/*_ai-dev_*.log"]
+        start_position => "end"
+        sincedb_path => "/usr/share/logstash/data/sincedb"
+        mode => "tail"
+      }
+    }
+
+    filter {
+      grok {
+        match => {
+          "path" => "/var/log/containers/%{DATA:[kubernetes][pod_name]}_%{DATA:[kubernetes][namespace_name]}_%{DATA:[kubernetes][container_name]}-%{DATA:[kubernetes][container_id]}.log"
+        }
+      }
+
+      if [kubernetes][namespace_name] not in ["opspilot", "ai-dev"] {
+        drop { }
+      }
+
+      grok {
+        match => {
+          "message" => "%{TIMESTAMP_ISO8601:cri_time} %{WORD:stream} %{DATA:logtag} %{GREEDYDATA:log}"
+        }
+      }
+
+      date {
+        match => ["cri_time", "ISO8601"]
+        target => "@timestamp"
+      }
+    }
+
+    output {
+      elasticsearch {
+        hosts => ["http://elasticsearch.logging.svc.cluster.local:9200"]
+        index => "opspilot-k8s-%{+YYYY.MM.dd}"
+      }
+
+      if [kubernetes][namespace_name] == "opspilot" {
+        http {
+          url => "${OPENOBSERVE_OPSPILOT_INGEST_URL}"
+          http_method => "post"
+          format => "json_batch"
+          content_type => "application/json"
+          headers => {
+            "Authorization" => "${OPENOBSERVE_AUTH_HEADER}"
+          }
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: logstash
+  namespace: logging
+  labels:
+    app.kubernetes.io/name: logstash
+    app.kubernetes.io/part-of: opspilot
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: logstash
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: logstash
+        app.kubernetes.io/part-of: opspilot
+    spec:
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: logstash
+          image: docker.elastic.co/logstash/logstash:9.3.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+          env:
+            - name: LS_JAVA_OPTS
+              value: "-Xms256m -Xmx512m"
+            - name: OPENOBSERVE_OPSPILOT_INGEST_URL
+              value: "http://openobserve.openobserve.svc.cluster.local:5080/api/default/opspilot_ops/_json"
+            - name: OPENOBSERVE_AUTH_HEADER
+              valueFrom:
+                secretKeyRef:
+                  name: openobserve-auth
+                  key: OPENOBSERVE_AUTH_HEADER
+          ports:
+            - name: http
+              containerPort: 9600
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/logstash/config/logstash.yml
+              subPath: logstash.yml
+            - name: config
+              mountPath: /usr/share/logstash/config/pipelines.yml
+              subPath: pipelines.yml
+            - name: config
+              mountPath: /usr/share/logstash/pipeline/k8s.conf
+              subPath: k8s.conf
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: config
+          configMap:
+            name: logstash-config
+        - name: varlog
+          hostPath:
+            path: /var/log

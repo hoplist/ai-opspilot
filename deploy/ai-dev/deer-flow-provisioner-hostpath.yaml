@@ -1,0 +1,131 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-dev
+  labels:
+    app.kubernetes.io/name: ai-dev
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: deer-flow-provisioner
+  namespace: ai-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deer-flow-provisioner
+  namespace: ai-dev
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deer-flow-provisioner
+  namespace: ai-dev
+subjects:
+  - kind: ServiceAccount
+    name: deer-flow-provisioner
+    namespace: ai-dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: deer-flow-provisioner
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deer-flow-provisioner
+  namespace: ai-dev
+  labels:
+    app.kubernetes.io/name: deer-flow
+    app.kubernetes.io/component: provisioner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: deer-flow
+      app.kubernetes.io/component: provisioner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: deer-flow
+        app.kubernetes.io/component: provisioner
+    spec:
+      serviceAccountName: deer-flow-provisioner
+      nodeSelector:
+        kubernetes.io/hostname: k8s-worker-1
+      containers:
+        - name: provisioner
+          image: python:3.12-slim-bookworm
+          imagePullPolicy: IfNotPresent
+          workingDir: /app
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              python -m pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple fastapi "uvicorn[standard]" kubernetes pydantic
+              exec uvicorn app:app --host 0.0.0.0 --port 8002
+          env:
+            - name: K8S_NAMESPACE
+              value: ai-dev
+            - name: SANDBOX_IMAGE
+              value: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
+            - name: SKILLS_HOST_PATH
+              value: /data/ai-dev/DeerFlow/skills
+            - name: THREADS_HOST_PATH
+              value: /data/ai-dev/DeerFlow/threads
+            - name: NODE_HOST
+              value: "192.168.48.201"
+            - name: SANDBOX_NODE_NAME
+              value: k8s-worker-1
+            - name: SANDBOX_READY_TIMEOUT_SECONDS
+              value: "600"
+          ports:
+            - name: http
+              containerPort: 8002
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: app
+              mountPath: /app/app.py
+              readOnly: true
+      volumes:
+        - name: app
+          hostPath:
+            path: /data/ai-dev/DeerFlow/app.py
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deer-flow-provisioner
+  namespace: ai-dev
+  labels:
+    app.kubernetes.io/name: deer-flow
+    app.kubernetes.io/component: provisioner
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: deer-flow
+    app.kubernetes.io/component: provisioner
+  ports:
+    - name: http
+      port: 8002
+      targetPort: 8002
+      nodePort: 31082

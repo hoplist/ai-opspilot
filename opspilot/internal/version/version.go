@@ -1,3 +1,3 @@
 package version
 
-const Version = "0.1.0-mvp-go"
+const Version = "0.1.9-release-evidence"

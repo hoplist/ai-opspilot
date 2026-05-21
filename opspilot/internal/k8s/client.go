@@ -185,6 +185,102 @@ func (c *Client) GetPod(ctx context.Context, namespace, pod string) (map[string]
 	return c.json(ctx, path, []string{"get", "pod", pod, "-n", namespace, "-o", "json"})
 }
 
+func (c *Client) DeploymentStatus(ctx context.Context, namespace, name string) (map[string]any, error) {
+	if namespace == "" || name == "" {
+		return nil, errors.New("namespace and deployment are required")
+	}
+	path := "/apis/apps/v1/namespaces/" + url.PathEscape(namespace) + "/deployments/" + url.PathEscape(name)
+	raw, err := c.json(ctx, path, []string{"get", "deployment", name, "-n", namespace, "-o", "json"})
+	if err != nil {
+		return nil, err
+	}
+	meta := object(raw, "metadata")
+	spec := object(raw, "spec")
+	status := object(raw, "status")
+	templateSpec := object(object(spec, "template"), "spec")
+	selector := object(object(spec, "selector"), "matchLabels")
+	containers := []any{}
+	for _, rawContainer := range array(templateSpec, "containers") {
+		container := asMap(rawContainer)
+		containers = append(containers, map[string]any{
+			"name":  stringValue(container, "name"),
+			"image": stringValue(container, "image"),
+		})
+	}
+	conditions := []any{}
+	for _, rawCond := range array(status, "conditions") {
+		cond := asMap(rawCond)
+		conditions = append(conditions, map[string]any{
+			"type":    stringValue(cond, "type"),
+			"status":  stringValue(cond, "status"),
+			"reason":  stringValue(cond, "reason"),
+			"message": stringValue(cond, "message"),
+		})
+	}
+	return map[string]any{
+		"namespace":             stringValue(meta, "namespace"),
+		"name":                  stringValue(meta, "name"),
+		"generation":            intValue(meta, "generation"),
+		"observed_generation":   intValue(status, "observedGeneration"),
+		"replicas":              intValue(status, "replicas"),
+		"updated_replicas":      intValue(status, "updatedReplicas"),
+		"ready_replicas":        intValue(status, "readyReplicas"),
+		"available_replicas":    intValue(status, "availableReplicas"),
+		"unavailable_replicas":  intValue(status, "unavailableReplicas"),
+		"desired_replicas":      intValue(spec, "replicas"),
+		"selector_match_labels": selector,
+		"containers":            containers,
+		"conditions":            conditions,
+		"labels":                object(meta, "labels"),
+	}, nil
+}
+
+func (c *Client) ArgoApplicationStatus(ctx context.Context, namespace, name string) (map[string]any, error) {
+	if namespace == "" || name == "" {
+		return nil, errors.New("namespace and application are required")
+	}
+	path := "/apis/argoproj.io/v1alpha1/namespaces/" + url.PathEscape(namespace) + "/applications/" + url.PathEscape(name)
+	raw, err := c.json(ctx, path, []string{"get", "application", name, "-n", namespace, "-o", "json"})
+	if err != nil {
+		return nil, err
+	}
+	status := object(raw, "status")
+	sync := object(status, "sync")
+	health := object(status, "health")
+	operation := object(status, "operationState")
+	return map[string]any{
+		"app":             name,
+		"namespace":       namespace,
+		"sync_status":     stringValue(sync, "status"),
+		"health_status":   stringValue(health, "status"),
+		"revision":        stringValue(sync, "revision"),
+		"operation_phase": stringValue(operation, "phase"),
+		"message":         stringValue(operation, "message"),
+	}, nil
+}
+
+func (c *Client) ListPodsByLabels(ctx context.Context, namespace string, labels map[string]any, limit int) (ListResult, error) {
+	result, err := c.ListPods(ctx, namespace, "", "", 0)
+	if err != nil {
+		return ListResult{}, err
+	}
+	filtered := []map[string]any{}
+	for _, pod := range result.Items {
+		podLabels, _ := pod["labels"].(map[string]any)
+		if labelsMatch(podLabels, labels) {
+			filtered = append(filtered, pod)
+		}
+	}
+	total := len(filtered)
+	if limit < 0 {
+		limit = 0
+	}
+	if limit == 0 || limit > total {
+		limit = total
+	}
+	return ListResult{Items: filtered[:limit], ItemCount: limit, TotalCount: total, Truncated: total > limit}, nil
+}
+
 func (c *Client) ListEvents(ctx context.Context, namespace, involvedName string, limit int) (ListResult, error) {
 	if namespace == "" {
 		return ListResult{}, errors.New("namespace is required")
@@ -352,7 +448,7 @@ func (c *Client) DiagnosePod(ctx context.Context, namespace, pod string) (map[st
 		"next_steps": []string{
 			"Review Kubernetes events",
 			"Review current and previous short-window pod logs",
-			"Check Prometheus metrics once metrics adapter is enabled",
+			"Review Prometheus pod CPU, memory, and restart metrics when configured",
 		},
 	}
 	return contextPack, nil

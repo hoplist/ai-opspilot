@@ -233,6 +233,18 @@ func contains(values []string, needle string) bool {
 	return false
 }
 
+func labelsMatch(podLabels, wanted map[string]any) bool {
+	if len(wanted) == 0 {
+		return false
+	}
+	for key, value := range wanted {
+		if fmt.Sprint(podLabels[key]) != fmt.Sprint(value) {
+			return false
+		}
+	}
+	return true
+}
+
 func defaultInt(value, fallback int) int {
 	if value == 0 {
 		return fallback

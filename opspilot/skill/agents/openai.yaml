@@ -1,0 +1,7 @@
+interface:
+  display_name: "OpsPilot Ops"
+  short_description: "Read-only OpsPilot CLI workflows for Kubernetes, logs, metrics, Docker, and evidence chains."
+  default_prompt: "Use $opspilot-ops to investigate the current OpsPilot platform health and summarize the evidence."
+
+policy:
+  allow_implicit_invocation: true

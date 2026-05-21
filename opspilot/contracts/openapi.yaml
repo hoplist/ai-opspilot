@@ -16,6 +16,126 @@ paths:
       responses:
         "200":
           description: Inventory overview
+  /api/metrics/health:
+    get:
+      summary: Return Prometheus datasource reachability from OpsPilot Core
+      responses:
+        "200":
+          description: Prometheus health
+  /api/metrics/datasources:
+    get:
+      summary: List configured Prometheus datasources
+      responses:
+        "200":
+          description: Prometheus datasources and reachability
+  /api/metrics/query:
+    get:
+      summary: Run a read-only PromQL instant query
+      parameters:
+        - name: source
+          in: query
+          schema:
+            type: string
+            description: Prometheus datasource name, or all
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: PromQL vector result
+  /api/metrics/nodes:
+    get:
+      summary: Return node CPU, memory, and filesystem usage
+      parameters:
+        - name: source
+          in: query
+          schema:
+            type: string
+            description: Prometheus datasource name, or all
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Node metrics
+  /api/metrics/pods:
+    get:
+      summary: Return Pod CPU and memory usage
+      parameters:
+        - name: source
+          in: query
+          schema:
+            type: string
+            description: Prometheus datasource name, or all
+        - name: namespace
+          in: query
+          schema:
+            type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - cpu
+              - memory
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Pod metrics
+  /api/metrics/containers:
+    get:
+      summary: Return Docker/container CPU and memory usage
+      parameters:
+        - name: source
+          in: query
+          schema:
+            type: string
+            description: Prometheus datasource name, or all
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - cpu
+              - memory
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Container metrics from cAdvisor
+  /api/metrics/pod:
+    get:
+      summary: Return metrics for one Pod
+      parameters:
+        - name: source
+          in: query
+          schema:
+            type: string
+            description: Prometheus datasource name
+        - name: namespace
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: pod
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Single Pod metrics
   /api/k8s/pods:
     get:
       summary: List Kubernetes Pods
@@ -79,10 +199,196 @@ paths:
       responses:
         "200":
           description: Pod logs
+  /api/node-agents:
+    get:
+      summary: List configured Docker node agents
+      responses:
+        "200":
+          description: Node agent reachability
+  /api/docker/containers:
+    get:
+      summary: List allowed Docker containers through node agents
+      parameters:
+        - name: host
+          in: query
+          schema:
+            type: string
+            description: Node agent host, or all
+      responses:
+        "200":
+          description: Docker container list
+  /api/docker/inspect:
+    get:
+      summary: Return read-only Docker inspect summary
+      parameters:
+        - name: host
+          in: query
+          schema:
+            type: string
+        - name: container
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Docker inspect summary
+  /api/docker/logs:
+    get:
+      summary: Read short-window Docker container logs
+      parameters:
+        - name: host
+          in: query
+          schema:
+            type: string
+        - name: container
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: tail_lines
+          in: query
+          schema:
+            type: integer
+            default: 300
+            maximum: 1000
+        - name: since_seconds
+          in: query
+          schema:
+            type: integer
+            default: 1800
+            maximum: 86400
+        - name: limit_bytes
+          in: query
+          schema:
+            type: integer
+            default: 1048576
+            maximum: 5242880
+      responses:
+        "200":
+          description: Docker container logs
+  /api/docker/stats:
+    get:
+      summary: Return one-shot Docker container stats
+      parameters:
+        - name: host
+          in: query
+          schema:
+            type: string
+        - name: container
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Docker container stats
+  /api/logs/search:
+    get:
+      summary: Search collected Kubernetes logs
+      parameters:
+        - name: namespace
+          in: query
+          schema:
+            type: string
+        - name: pod
+          in: query
+          schema:
+            type: string
+        - name: container
+          in: query
+          schema:
+            type: string
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 200
+      responses:
+        "200":
+          description: Log search results
+  /api/evidence/request:
+    get:
+      summary: Correlate APISIX access logs with service logs for one request shape
+      parameters:
+        - name: host
+          in: query
+          schema:
+            type: string
+            description: Gateway host/domain, for example workflow.tpo.xzoa.com. Optional for service-only investigation.
+        - name: uri
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Request URI to match in APISIX logs
+        - name: at
+          in: query
+          schema:
+            type: string
+            description: Center time as RFC3339 or yyyy-mm-dd HH:MM[:SS]
+        - name: since_seconds
+          in: query
+          schema:
+            type: integer
+            default: 900
+            description: Lookback window when at is empty
+        - name: window_seconds
+          in: query
+          schema:
+            type: integer
+            default: 300
+            description: Seconds before and after at
+        - name: include_options
+          in: query
+          schema:
+            type: boolean
+            default: false
+            description: Include CORS OPTIONS requests
+        - name: skip_apisix
+          in: query
+          schema:
+            type: boolean
+            default: false
+            description: Skip APISIX lookup and continue with service logs only
+        - name: apisix_index
+          in: query
+          schema:
+            type: string
+            description: Override APISIX index pattern
+        - name: service_index
+          in: query
+          schema:
+            type: string
+            description: Override service log index pattern
+        - name: service_uri_field
+          in: query
+          schema:
+            type: string
+            description: Override service log field containing URI text
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        "200":
+          description: Evidence chain with APISIX latency summary, service log matches, strength, and gaps
   /api/context/pod:
     get:
       summary: Return Pod Evidence Pack
       parameters:
+        - name: source
+          in: query
+          schema:
+            type: string
+            description: Prometheus datasource name for metric evidence
         - name: namespace
           in: query
           required: true
@@ -100,6 +406,11 @@ paths:
     get:
       summary: Diagnose a Pod from MVP evidence
       parameters:
+        - name: source
+          in: query
+          schema:
+            type: string
+            description: Prometheus datasource name for metric evidence
         - name: namespace
           in: query
           required: true
@@ -113,3 +424,31 @@ paths:
       responses:
         "200":
           description: Pod diagnosis
+  /api/release/status:
+    get:
+      summary: Return read-only release evidence status for one configured service
+      parameters:
+        - name: service
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Release evidence status
+  /api/diagnose/docker:
+    get:
+      summary: Diagnose a Docker container from node-agent evidence
+      parameters:
+        - name: host
+          in: query
+          schema:
+            type: string
+        - name: container
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Docker container diagnosis

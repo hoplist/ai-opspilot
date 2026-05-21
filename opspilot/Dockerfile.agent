@@ -1,0 +1,11 @@
+FROM alpine:3.20
+
+COPY build/linux-amd64/opspilot-agent /usr/local/bin/opspilot-agent
+
+ENV OPSPILOT_AGENT_HOST=0.0.0.0
+ENV OPSPILOT_AGENT_PORT=19080
+ENV OPSPILOT_AGENT_DOCKER_SOCKET=/var/run/docker.sock
+
+EXPOSE 19080
+
+ENTRYPOINT ["/usr/local/bin/opspilot-agent"]

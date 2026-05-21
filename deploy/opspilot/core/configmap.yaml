@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opspilot-core-config
+  namespace: opspilot
+  labels:
+    app.kubernetes.io/name: opspilot-core
+    app.kubernetes.io/part-of: opspilot
+data:
+  OPSPILOT_PORT: "18080"
+  OPSPILOT_ACCESS_LOG: "1"
+  OPSPILOT_PROMETHEUS_DEFAULT_SOURCE: "node200-k8s"
+  OPSPILOT_PROMETHEUS_DATASOURCES: "node200-k8s=http://opspilot-prometheus-server.monitoring.svc.cluster.local,node206-host=http://192.168.48.206:9090"
+  OPSPILOT_NODE_AGENT_DEFAULT_HOST: "node206"
+  OPSPILOT_NODE_AGENTS: "node206=http://192.168.48.206:19080"
+  OPSPILOT_LOGSEARCH_URL: "http://elasticsearch.logging.svc.cluster.local:9200"
+  OPSPILOT_LOGSEARCH_INDEX: "opspilot-k8s-*"
+  OPSPILOT_APISIX_INDEX: "apisix-*"
+  OPSPILOT_GITLAB_URL: "http://192.168.48.206:8929"
+  OPSPILOT_GITOPS_PROJECT: "platform/gitops-manifests"
+  OPSPILOT_GITOPS_REF: "main"
+  OPSPILOT_RELEASE_SERVICES: "opspilot-core=namespace:opspilot,deployment:opspilot-core,container:core,source:node200-k8s,image:192.168.48.206:5050/platform/opspilot/opspilot-core,gitlab:platform/opspilot,gitops:clusters/test/apps/opspilot-core/deployment.yaml,argocd:opspilot-core"
