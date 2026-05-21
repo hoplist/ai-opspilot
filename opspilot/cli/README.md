@@ -43,6 +43,7 @@ go run ./opspilot/cli evidence request --uri /api/hr/queryUserScheduleList --ser
 go run ./opspilot/cli inspect pod -n ai-dev --pod sandbox-errno36-test --source node200-k8s --output human
 go run ./opspilot/cli inspect cluster --source all --output human
 go run ./opspilot/cli release status --service opspilot-core --output human
+go run ./opspilot/cli onboard service --config opspilot.service.yaml --write
 ```
 
 Build a local binary:

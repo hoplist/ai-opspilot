@@ -75,6 +75,8 @@ func run(args []string, out io.Writer) error {
 		endpoint, values = diagnoseCommand(args[1:])
 	case "inspect", "check":
 		return inspectCommand(opts, args[1:], out)
+	case "onboard":
+		return onboardCommand(args[1:], out)
 	default:
 		return fmt.Errorf("unknown command: %s", args[0])
 	}

@@ -1,6 +1,6 @@
 {
   "name": "opspilot",
-  "version": "0.1.9-release-evidence",
+  "version": "0.1.10-service-onboarding",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
   "commands": [
@@ -148,6 +148,11 @@
       "name": "release diagnose",
       "readonly": true,
       "description": "Alias for release status with explicit evidence gaps in the first release milestone."
+    },
+    {
+      "name": "onboard service",
+      "readonly": false,
+      "description": "Generate missing Dockerfile, GitLab CI include, Kubernetes manifests, and OpsPilot release mapping from opspilot.service.yaml. Existing files are skipped unless --force is used."
     }
   ]
 }

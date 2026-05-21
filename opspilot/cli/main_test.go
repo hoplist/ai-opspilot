@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -65,5 +67,86 @@ func TestEvidenceRequestServiceOnlyCommand(t *testing.T) {
 	}
 	if values.Get("host") != "" {
 		t.Fatalf("host = %s", values.Get("host"))
+	}
+}
+
+func TestOnboardServicePlan(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "opspilot.service.yaml")
+	config := `name: skillshub-api
+gitlabProject: platform/skillshub-api
+language: go
+build:
+  entry: ./cmd/skillshub-api
+  output: build/skillshub-api
+runtime:
+  port: 8080
+  healthPath: /health
+deploy:
+  namespace: skillshub
+  replicas: 2
+  container: skillshub-api
+dockerfile:
+  mode: existing
+  path: Dockerfile
+ci:
+  mode: include
+release:
+  prometheusSource: node200-k8s
+`
+	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"onboard", "service", "--config", configPath}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload onboardResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Service != "skillshub-api" || payload.Mode != "plan" {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("platform/skillshub-api")) {
+		t.Fatalf("release mapping missing project: %s", out.String())
+	}
+}
+
+func TestOnboardServiceWriteSkipsExisting(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	config := `name: demo-api
+dockerfile:
+  mode: generate
+`
+	if err := os.WriteFile("opspilot.service.yaml", []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("Dockerfile", []byte("FROM custom\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"onboard", "service", "--write"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile("Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "FROM custom\n" {
+		t.Fatalf("Dockerfile was overwritten: %s", string(body))
+	}
+	if _, err := os.Stat(filepath.Join("deploy", "k8s", "deployment.yaml")); err != nil {
+		t.Fatal(err)
 	}
 }
