@@ -106,8 +106,8 @@ func (r *Registry) Status(ctx context.Context, serviceName string, client *k8s.C
 		warnings = append(warnings, "deployment: "+err.Error())
 	} else {
 		evidence["kubernetes"] = deployment
-		if service.Image == "" {
-			service.Image = firstDeploymentImage(deployment)
+		if deploymentImage := firstDeploymentImage(deployment); deploymentImage != "" {
+			service.Image = deploymentImage
 		}
 		desired := intFromAny(deployment["desired_replicas"])
 		ready := intFromAny(deployment["ready_replicas"])

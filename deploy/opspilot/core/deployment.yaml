@@ -18,6 +18,8 @@ spec:
         app.kubernetes.io/part-of: opspilot
     spec:
       serviceAccountName: opspilot-core
+      imagePullSecrets:
+        - name: gitlab-registry-pull
       containers:
         - name: core
           image: opspilot-core:0.1.9-release-evidence
