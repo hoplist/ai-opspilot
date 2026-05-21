@@ -1,4 +1,4 @@
-FROM alpine:3.20
+FROM m.daocloud.io/docker.io/library/alpine:3.20
 
 COPY build/linux-amd64/opspilot-core /usr/local/bin/opspilot-core
 COPY build/linux-amd64/opspilot /usr/local/bin/opspilot
