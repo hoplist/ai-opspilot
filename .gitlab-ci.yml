@@ -82,7 +82,9 @@ update:gitops:
     - test -n "$GITOPS_TOKEN"
     - git clone "$GITOPS_REPO" gitops
     - mkdir -p "gitops/$GITOPS_APP_PATH" "gitops/apps"
-    - cp -R deploy/opspilot/rbac gitops/clusters/test/apps/opspilot-rbac
+    - rm -rf gitops/clusters/test/apps/opspilot-rbac
+    - mkdir -p gitops/clusters/test/apps/opspilot-rbac
+    - cp -R deploy/opspilot/rbac/. gitops/clusters/test/apps/opspilot-rbac/
     - cp deploy/opspilot/core/configmap.yaml "gitops/$GITOPS_APP_PATH/configmap.yaml"
     - cp deploy/opspilot/core/deployment.yaml "gitops/$GITOPS_APP_PATH/deployment.yaml"
     - cp deploy/opspilot/core/service.yaml "gitops/$GITOPS_APP_PATH/service.yaml"
