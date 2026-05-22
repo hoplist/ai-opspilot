@@ -43,3 +43,22 @@ deployment must go through the CI/GitOps release flow above.
 
 OpsPilot integrates with this flow as a read-only evidence chain. See
 [release-evidence-chain.md](release-evidence-chain.md).
+
+## History And Rollback
+
+OpsPilot can now read release history from the GitOps repository and submit a
+rollback as a GitOps commit:
+
+```powershell
+.\opspilot\scripts\opspilot.ps1 --output human release history --service opspilot-core --limit 10
+.\opspilot\scripts\opspilot.ps1 --output human release rollback --service opspilot-core --to <tag-or-gitops-revision> --confirm
+```
+
+The rollback command changes only the configured GitOps manifest image and
+commits it to the configured GitOps branch. It does not run `kubectl`, does not
+call `argocd app sync`, and does not mutate live Kubernetes resources directly.
+node200 Argo CD remains responsible for reconciling the committed desired state.
+
+The GitLab token configured for OpsPilot release operations must be able to
+read the service/GitOps history. Rollback additionally requires write access to
+the GitOps repository.

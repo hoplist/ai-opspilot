@@ -70,6 +70,27 @@ func TestEvidenceRequestServiceOnlyCommand(t *testing.T) {
 	}
 }
 
+func TestReleaseHistoryCommand(t *testing.T) {
+	endpoint, values := releaseCommand([]string{"history", "--service", "opspilot-core", "--limit", "5"})
+	if endpoint != "/api/release/history" {
+		t.Fatalf("endpoint = %s", endpoint)
+	}
+	if values.Get("service") != "opspilot-core" || values.Get("limit") != "5" {
+		t.Fatalf("values = %#v", values)
+	}
+}
+
+func TestReleaseRollbackRequiresConfirm(t *testing.T) {
+	var out bytes.Buffer
+	err := run([]string{"release", "rollback", "--service", "opspilot-core", "--to", "abc123"}, &out)
+	if err == nil {
+		t.Fatal("expected rollback without --confirm to fail")
+	}
+	if err.Error() != "release rollback requires --confirm" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestOnboardServicePlan(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "opspilot.service.yaml")

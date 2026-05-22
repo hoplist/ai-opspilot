@@ -1,6 +1,6 @@
 {
   "name": "opspilot",
-  "version": "0.1.12-containerd-registry-auth",
+  "version": "0.1.13-release-history-rollback",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
   "commands": [
@@ -162,6 +162,16 @@
         "tail_lines_default": 200,
         "limit_bytes_default": 131072
       }
+    },
+    {
+      "name": "release history",
+      "readonly": true,
+      "description": "List GitOps release history for one configured service, including revision, image tag, current marker, author, date, and commit message."
+    },
+    {
+      "name": "release rollback",
+      "readonly": false,
+      "description": "Rollback a configured service by committing a previous tag, full image, or GitOps revision to the GitOps repository. Requires --confirm and does not mutate Kubernetes directly."
     },
     {
       "name": "onboard service",

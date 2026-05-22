@@ -74,6 +74,12 @@ func run(args []string, out io.Writer) error {
 		if len(args) > 1 && args[1] == "logs" {
 			return runReleaseLogs(opts, args[2:], out)
 		}
+		if len(args) > 1 && args[1] == "history" {
+			return runReleaseHistory(opts, args[2:], out)
+		}
+		if len(args) > 1 && args[1] == "rollback" {
+			return runReleaseRollback(opts, args[2:], out)
+		}
 		endpoint, values = releaseCommand(args[1:])
 	case "context":
 		endpoint, values = podRefCommand(args[1:], "/api/context/pod")
@@ -259,6 +265,12 @@ func releaseCommand(args []string) (string, url.Values) {
 			"tail_lines":  []string{strconv.Itoa(*tail)},
 			"limit_bytes": []string{strconv.Itoa(*limitBytes)},
 		}
+	case "history":
+		fs := flag.NewFlagSet("release history", flag.ExitOnError)
+		service := fs.String("service", "", "release service name")
+		limit := fs.Int("limit", 10, "history item limit")
+		_ = fs.Parse(args[1:])
+		return "/api/release/history", url.Values{"service": []string{*service}, "limit": []string{strconv.Itoa(*limit)}}
 	default:
 		fail("unknown release command: " + args[0])
 	}
@@ -843,6 +855,104 @@ func runReleaseLogs(opts globalOptions, args []string, out io.Writer) error {
 	})
 }
 
+func runReleaseHistory(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("release history", flag.ExitOnError)
+	service := fs.String("service", "", "release service name")
+	limit := fs.Int("limit", 10, "history item limit")
+	_ = fs.Parse(args)
+	if *service == "" && fs.NArg() > 0 {
+		*service = fs.Arg(0)
+	}
+	if *service == "" {
+		return fmt.Errorf("release history requires --service")
+	}
+	body, err := get(opts.backendURL, "/api/release/history", url.Values{"service": []string{*service}, "limit": []string{strconv.Itoa(*limit)}})
+	if err != nil {
+		return err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return err
+	}
+	data := mapValue(payload, "data")
+	return writeOutput(out, opts.output, data, func(w io.Writer) error {
+		fmt.Fprintf(w, "Release history: %s\n", stringValue(data["service"]))
+		if image := stringValue(data["current_image"]); image != "" {
+			fmt.Fprintf(w, "Current image: %s\n", image)
+		}
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "CURRENT\tREVISION\tDATE\tTAG\tMESSAGE")
+		for _, item := range mapsFromItems(data["items"]) {
+			current := ""
+			if boolValue(item["current"]) {
+				current = "*"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+				current,
+				stringValue(item["short_revision"]),
+				shortTime(stringValue(item["committed_at"])),
+				stringValue(item["tag"]),
+				oneLine(stringValue(item["message"]), 80),
+			)
+		}
+		return tw.Flush()
+	})
+}
+
+func runReleaseRollback(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("release rollback", flag.ExitOnError)
+	service := fs.String("service", "", "release service name")
+	target := fs.String("to", "", "target tag, full image, or GitOps revision")
+	fs.StringVar(target, "target", "", "target tag, full image, or GitOps revision")
+	confirm := fs.Bool("confirm", false, "confirm GitOps rollback commit")
+	_ = fs.Parse(args)
+	if *service == "" && fs.NArg() > 0 {
+		*service = fs.Arg(0)
+	}
+	if *target == "" && fs.NArg() > 1 {
+		*target = fs.Arg(1)
+	}
+	if *service == "" {
+		return fmt.Errorf("release rollback requires --service")
+	}
+	if *target == "" {
+		return fmt.Errorf("release rollback requires --to")
+	}
+	if !*confirm {
+		return fmt.Errorf("release rollback requires --confirm")
+	}
+	body, err := post(opts.backendURL, "/api/release/rollback", url.Values{
+		"service": []string{*service},
+		"to":      []string{*target},
+		"confirm": []string{strconv.FormatBool(*confirm)},
+	})
+	if err != nil {
+		return err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return err
+	}
+	data := mapValue(payload, "data")
+	return writeOutput(out, opts.output, data, func(w io.Writer) error {
+		fmt.Fprintf(w, "Rollback: %s status=%s\n", stringValue(data["service"]), stringValue(data["status"]))
+		fmt.Fprintf(w, "Previous: %s\n", stringValue(data["previous_image"]))
+		fmt.Fprintf(w, "Target: %s\n", stringValue(data["target_image"]))
+		fmt.Fprintf(w, "GitOps: %s %s branch=%s\n",
+			stringValue(data["gitops_project"]), stringValue(data["gitops_path"]), stringValue(data["branch"]))
+		if commit := stringValue(data["commit_short_id"]); commit != "" {
+			fmt.Fprintf(w, "Commit: %s %s\n", commit, stringValue(data["commit_message"]))
+		}
+		if reason := stringValue(data["reason"]); reason != "" {
+			fmt.Fprintf(w, "Reason: %s\n", reason)
+		}
+		if checks := stringList(data["next_checks"]); len(checks) > 0 {
+			fmt.Fprintf(w, "Next: %s\n", strings.Join(checks, "; "))
+		}
+		return nil
+	})
+}
+
 func fetchInspectCluster(backendURL, source string, limit int) (inspectClusterResult, error) {
 	result := inspectClusterResult{Raw: map[string]any{}}
 	abnormal, _ := getJSONMap(backendURL, "/api/k8s/pods", url.Values{"status": {"abnormal"}, "limit": {strconv.Itoa(limit)}})
@@ -1060,6 +1170,52 @@ func get(baseURL, endpoint string, values url.Values) ([]byte, error) {
 		return body, nil
 	}
 	return nil, fmt.Errorf("backend returned non-json response")
+}
+
+func post(baseURL, endpoint string, values url.Values) ([]byte, error) {
+	clean := url.Values{}
+	for key, vals := range values {
+		if len(vals) > 0 && vals[0] != "" {
+			clean.Set(key, vals[0])
+		}
+	}
+	target := strings.TrimRight(baseURL, "/") + endpoint
+	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(clean.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("backend returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if json.Valid(body) {
+		return body, nil
+	}
+	return nil, fmt.Errorf("backend returned non-json response")
+}
+
+func shortTime(value string) string {
+	if len(value) >= len("2006-01-02T15:04:05") {
+		return strings.ReplaceAll(value[:16], "T", " ")
+	}
+	return value
+}
+
+func oneLine(value string, limit int) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	if limit <= 3 {
+		return value[:limit]
+	}
+	return value[:limit-3] + "..."
 }
 
 func env(key, fallback string) string {

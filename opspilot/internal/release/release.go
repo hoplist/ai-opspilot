@@ -22,6 +22,18 @@ type Service struct {
 	ArgoCD     string `json:"argocd_app,omitempty"`
 }
 
+type HistoryItem struct {
+	Revision      string `json:"revision"`
+	ShortRevision string `json:"short_revision"`
+	CommittedAt   string `json:"committed_at,omitempty"`
+	AuthorName    string `json:"author_name,omitempty"`
+	Message       string `json:"message,omitempty"`
+	WebURL        string `json:"web_url,omitempty"`
+	Image         string `json:"image,omitempty"`
+	Tag           string `json:"tag,omitempty"`
+	Current       bool   `json:"current"`
+}
+
 type Registry struct {
 	services    map[string]Service
 	order       []string
@@ -241,6 +253,185 @@ func (r *Registry) JobTrace(ctx context.Context, serviceName string, jobID int64
 		"truncated_bytes": truncatedBytes,
 		"truncated_lines": truncatedLines,
 	}, warnings, nil
+}
+
+func (r *Registry) History(ctx context.Context, serviceName string, limit int) (map[string]any, []string, error) {
+	service, ok := r.services[serviceName]
+	if !ok {
+		return nil, nil, fmt.Errorf("unknown release service: %s", serviceName)
+	}
+	warnings := []string{}
+	if service.GitOps == "" {
+		return nil, warnings, fmt.Errorf("gitops path mapping is missing for release service: %s", serviceName)
+	}
+	gitopsProject := r.gitopsProject(service)
+	ref := gitopsRef(r.datasources.GitOpsRef)
+	client := newGitLabClient(r.datasources.GitLabURL, r.datasources.GitLabToken)
+	if !client.configured() {
+		return nil, warnings, fmt.Errorf("gitlab url or token is not configured")
+	}
+	currentImage := ""
+	if raw, err := client.rawFile(ctx, gitopsProject, service.GitOps, ref); err != nil {
+		warnings = append(warnings, "gitops current file: "+err.Error())
+	} else {
+		currentImage = desiredImageFromManifest(raw, service.Container)
+	}
+	commits, err := client.fileCommits(ctx, gitopsProject, service.GitOps, ref, limit)
+	if err != nil {
+		return nil, warnings, err
+	}
+	items := []HistoryItem{}
+	for _, commit := range commits {
+		revision := fmt.Sprint(commit["id"])
+		raw, err := client.rawFile(ctx, gitopsProject, service.GitOps, revision)
+		if err != nil {
+			warnings = append(warnings, "gitops history "+shortRevision(revision)+": "+err.Error())
+		}
+		image := desiredImageFromManifest(raw, service.Container)
+		_, tag := splitImageNameTag(image)
+		items = append(items, HistoryItem{
+			Revision:      revision,
+			ShortRevision: firstNonEmpty(fmt.Sprint(commit["short_id"]), shortRevision(revision)),
+			CommittedAt:   firstNonEmpty(fmt.Sprint(commit["committed_date"]), fmt.Sprint(commit["created_at"])),
+			AuthorName:    fmt.Sprint(commit["author_name"]),
+			Message:       firstNonEmpty(fmt.Sprint(commit["title"]), strings.TrimSpace(fmt.Sprint(commit["message"]))),
+			WebURL:        fmt.Sprint(commit["web_url"]),
+			Image:         image,
+			Tag:           tag,
+			Current:       currentImage != "" && image == currentImage,
+		})
+	}
+	return map[string]any{
+		"service":        service.Name,
+		"gitops_project": gitopsProject,
+		"gitops_path":    service.GitOps,
+		"ref":            ref,
+		"current_image":  currentImage,
+		"items":          items,
+		"item_count":     len(items),
+	}, warnings, nil
+}
+
+func (r *Registry) Rollback(ctx context.Context, serviceName, target string, confirm bool) (map[string]any, []string, error) {
+	service, ok := r.services[serviceName]
+	if !ok {
+		return nil, nil, fmt.Errorf("unknown release service: %s", serviceName)
+	}
+	warnings := []string{}
+	if !confirm {
+		return nil, warnings, fmt.Errorf("rollback requires --confirm")
+	}
+	if target == "" {
+		return nil, warnings, fmt.Errorf("rollback target is required")
+	}
+	if service.GitOps == "" {
+		return nil, warnings, fmt.Errorf("gitops path mapping is missing for release service: %s", serviceName)
+	}
+	gitopsProject := r.gitopsProject(service)
+	branch := gitopsRef(r.datasources.GitOpsRef)
+	client := newGitLabClient(r.datasources.GitLabURL, r.datasources.GitLabToken)
+	if !client.configured() {
+		return nil, warnings, fmt.Errorf("gitlab url or token is not configured")
+	}
+	raw, err := client.rawFile(ctx, gitopsProject, service.GitOps, branch)
+	if err != nil {
+		return nil, warnings, err
+	}
+	previousImage := desiredImageFromManifest(raw, service.Container)
+	if previousImage == "" {
+		return nil, warnings, fmt.Errorf("current gitops image not found in %s", service.GitOps)
+	}
+	targetImage, resolvedBy, err := r.resolveRollbackImage(ctx, client, service, gitopsProject, branch, previousImage, target)
+	if err != nil {
+		return nil, warnings, err
+	}
+	if targetImage == "" {
+		return nil, warnings, fmt.Errorf("rollback target image could not be resolved")
+	}
+	if targetImage == previousImage {
+		return map[string]any{
+			"service":        service.Name,
+			"status":         "noop",
+			"reason":         "already_at_target",
+			"previous_image": previousImage,
+			"target_image":   targetImage,
+			"resolved_by":    resolvedBy,
+			"gitops_project": gitopsProject,
+			"gitops_path":    service.GitOps,
+			"branch":         branch,
+			"next_checks":    []string{"check release status after Argo CD reconciliation window"},
+		}, warnings, nil
+	}
+	updated, oldImage, err := replaceImageInManifest(raw, service.Container, targetImage)
+	if err != nil {
+		return nil, warnings, err
+	}
+	if oldImage != previousImage {
+		warnings = append(warnings, "gitops image changed while preparing rollback")
+		previousImage = oldImage
+	}
+	message := fmt.Sprintf("Rollback %s to %s via OpsPilot", service.Name, target)
+	commit, err := client.commitFileUpdate(ctx, gitopsProject, branch, service.GitOps, updated, message)
+	if err != nil {
+		return nil, warnings, err
+	}
+	return map[string]any{
+		"service":         service.Name,
+		"status":          "submitted",
+		"previous_image":  previousImage,
+		"target_image":    targetImage,
+		"target":          target,
+		"resolved_by":     resolvedBy,
+		"gitops_project":  gitopsProject,
+		"gitops_path":     service.GitOps,
+		"branch":          branch,
+		"commit_id":       commit["id"],
+		"commit_short_id": firstNonEmpty(fmt.Sprint(commit["short_id"]), shortRevision(fmt.Sprint(commit["id"]))),
+		"commit_message":  message,
+		"web_url":         commit["web_url"],
+		"next_checks": []string{
+			"wait for node200 Argo CD to sync GitOps main",
+			"run release status to verify GitOps, Argo CD, rollout, pods, metrics, and logs",
+		},
+	}, warnings, nil
+}
+
+func (r *Registry) gitopsProject(service Service) string {
+	if r.datasources.GitOpsProject != "" {
+		return r.datasources.GitOpsProject
+	}
+	return service.GitLab
+}
+
+func (r *Registry) resolveRollbackImage(ctx context.Context, client *gitLabClient, service Service, gitopsProject, branch, currentImage, target string) (string, string, error) {
+	target = strings.TrimSpace(target)
+	commits, err := client.fileCommits(ctx, gitopsProject, service.GitOps, branch, 100)
+	if err == nil {
+		for _, commit := range commits {
+			revision := fmt.Sprint(commit["id"])
+			short := firstNonEmpty(fmt.Sprint(commit["short_id"]), shortRevision(revision))
+			if target != revision && target != short && !(len(target) >= 7 && strings.HasPrefix(revision, target)) {
+				continue
+			}
+			raw, err := client.rawFile(ctx, gitopsProject, service.GitOps, revision)
+			if err != nil {
+				return "", "", err
+			}
+			image := desiredImageFromManifest(raw, service.Container)
+			if image == "" {
+				return "", "", fmt.Errorf("image not found at gitops revision %s", target)
+			}
+			return image, "gitops_revision", nil
+		}
+	}
+	if looksLikeImage(target) {
+		return target, "image", nil
+	}
+	image, err := imageWithTag(currentImage, target)
+	if err != nil {
+		return "", "", err
+	}
+	return image, "tag", nil
 }
 
 func addGitLabEvidence(ctx context.Context, datasources Datasources, service Service, evidence *map[string]any, warnings, gaps *[]string) {

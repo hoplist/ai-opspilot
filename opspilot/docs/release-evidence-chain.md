@@ -62,6 +62,8 @@ opspilot release evidence --service opspilot-core --commit <sha>
 opspilot release diagnose --service opspilot-core
 opspilot release jobs --service opspilot-core
 opspilot release logs --service opspilot-core --job build-image --tail 200
+opspilot release history --service opspilot-core --limit 10
+opspilot release rollback --service opspilot-core --to <tag-or-revision> --confirm
 ```
 
 Initial service mapping is configured through:
@@ -146,10 +148,10 @@ Required eventually:
 
 - OpsPilot release commands are read-only by default.
 - OpsPilot should not push images.
-- OpsPilot should not mutate GitOps repositories unless a future explicit
-  write-capable workflow is approved.
+- OpsPilot mutates GitOps only for explicit `release rollback --confirm`.
 - OpsPilot should not call `argocd app sync` automatically.
-- Rollback should start as `rollback-plan`, not an automatic rollback.
+- Rollback should commit desired state to GitOps and then rely on Argo CD to
+  reconcile the cluster.
 
 ## First Milestone
 
@@ -179,6 +181,33 @@ opspilot release logs --service <service> --job-id <gitlab-job-id> --tail 200 --
 The log command reads GitLab job trace through the GitLab API and returns only a
 bounded tail by default. Full GitLab remains the source of truth for complete
 CI logs, retries, artifacts, and permissions.
+
+## Release History And Rollback
+
+Release history is sourced from commits that touched the configured GitOps
+manifest path. For each revision, OpsPilot reads the manifest at that commit and
+extracts the configured container image/tag. This makes the GitOps repository
+the source of truth for both normal deploys and rollback decisions.
+
+Rollback accepts:
+
+- a tag, such as `b4fee69c`, which reuses the current image repository and
+  swaps only the tag;
+- a full image, such as
+  `192.168.48.206:5050/platform/opspilot/opspilot-core:b4fee69c`;
+- a GitOps revision or short revision from `release history`, which resolves to
+  the image stored in that historical manifest.
+
+Rollback requires `--confirm`. It submits a Git commit to the configured GitOps
+project/ref and returns the previous image, target image, GitOps path, commit
+id, and next checks. Operators should then run:
+
+```powershell
+opspilot release status --service <service>
+```
+
+to confirm GitOps, Argo CD sync/health, Kubernetes rollout, Pod evidence,
+metrics, and logs.
 
 Create the token as an optional Kubernetes Secret in the `opspilot` namespace:
 

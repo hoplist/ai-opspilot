@@ -1,6 +1,7 @@
 package release
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -185,6 +186,75 @@ func (c *gitLabClient) rawFile(ctx context.Context, project, filePath, ref strin
 	return string(body), nil
 }
 
+func (c *gitLabClient) fileCommits(ctx context.Context, project, filePath, ref string, limit int) ([]map[string]any, error) {
+	if !c.configured() {
+		return nil, errors.New("gitlab url or token is not configured")
+	}
+	if project == "" {
+		return nil, errors.New("gitops project is not configured")
+	}
+	if filePath == "" {
+		return nil, errors.New("gitops file path is not configured")
+	}
+	if ref == "" {
+		ref = "main"
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	query := url.Values{}
+	query.Set("path", filePath)
+	query.Set("ref_name", ref)
+	query.Set("per_page", fmt.Sprint(limit))
+	endpoint := c.apiPath("projects", project, "repository/commits") + "?" + query.Encode()
+	var commits []map[string]any
+	if err := c.getJSON(ctx, endpoint, &commits); err != nil {
+		return nil, err
+	}
+	return commits, nil
+}
+
+func (c *gitLabClient) commitFileUpdate(ctx context.Context, project, branch, filePath, content, commitMessage string) (map[string]any, error) {
+	if !c.configured() {
+		return nil, errors.New("gitlab url or token is not configured")
+	}
+	if project == "" {
+		return nil, errors.New("gitops project is not configured")
+	}
+	if branch == "" {
+		branch = "main"
+	}
+	if filePath == "" {
+		return nil, errors.New("gitops file path is not configured")
+	}
+	if commitMessage == "" {
+		return nil, errors.New("commit message is not configured")
+	}
+	payload := map[string]any{
+		"branch":         branch,
+		"commit_message": commitMessage,
+		"actions": []map[string]string{
+			{
+				"action":    "update",
+				"file_path": filePath,
+				"content":   content,
+			},
+		},
+	}
+	body, err := c.doJSON(ctx, http.MethodPost, c.apiPath("projects", project, "repository/commits"), payload)
+	if err != nil {
+		return nil, err
+	}
+	var commit map[string]any
+	if err := json.Unmarshal(body, &commit); err != nil {
+		return nil, err
+	}
+	return commit, nil
+}
+
 func (c *gitLabClient) apiPath(parts ...string) string {
 	escaped := []string{"/api/v4"}
 	for i, part := range parts {
@@ -203,6 +273,29 @@ func (c *gitLabClient) apiPath(parts ...string) string {
 		escaped = append(escaped, path.Clean(part))
 	}
 	return strings.Join(escaped, "/")
+}
+
+func (c *gitLabClient) doJSON(ctx context.Context, method, endpoint string, payload any) ([]byte, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	responseBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("gitlab api %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
+	}
+	return responseBody, nil
 }
 
 func (c *gitLabClient) getJSON(ctx context.Context, endpoint string, target any) error {
@@ -246,20 +339,165 @@ func splitImageNameTag(image string) (string, string) {
 
 func desiredImageFromManifest(text, container string) string {
 	lines := strings.Split(text, "\n")
-	inTargetContainer := container == ""
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		nameLine := trimmed
-		if strings.HasPrefix(nameLine, "- ") {
-			nameLine = strings.TrimSpace(strings.TrimPrefix(nameLine, "- "))
+	if container == "" {
+		for _, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), "image:") {
+				return imageFromLine(line)
+			}
 		}
-		if strings.HasPrefix(nameLine, "name:") {
-			name := strings.Trim(strings.TrimSpace(strings.TrimPrefix(nameLine, "name:")), `"'`)
-			inTargetContainer = container == "" || name == container
+		return ""
+	}
+	start := -1
+	startIndent := 0
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "- ") {
 			continue
 		}
-		if inTargetContainer && strings.HasPrefix(trimmed, "image:") {
-			return strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "image:")), `"'`)
+		afterDash := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
+		if !strings.HasPrefix(afterDash, "name:") {
+			continue
+		}
+		name := strings.Trim(strings.TrimSpace(strings.TrimPrefix(afterDash, "name:")), `"'`)
+		if name == container {
+			start = i
+			startIndent = leadingSpaceCount(line)
+			break
+		}
+	}
+	if start < 0 {
+		return ""
+	}
+	for i := start + 1; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if leadingSpaceCount(line) <= startIndent && strings.HasPrefix(trimmed, "- ") {
+			break
+		}
+		if leadingSpaceCount(line) < startIndent {
+			break
+		}
+		if strings.HasPrefix(trimmed, "image:") {
+			return imageFromLine(line)
+		}
+	}
+	return ""
+}
+
+func replaceImageInManifest(text, container, targetImage string) (string, string, error) {
+	if targetImage == "" {
+		return "", "", errors.New("target image is empty")
+	}
+	lines := strings.Split(text, "\n")
+	if container == "" {
+		for i, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), "image:") {
+				oldImage := imageFromLine(line)
+				lines[i] = leadingWhitespace(line) + "image: " + targetImage
+				return strings.Join(lines, "\n"), oldImage, nil
+			}
+		}
+		return "", "", errors.New("image field not found in manifest")
+	}
+	start := -1
+	startIndent := 0
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "- ") {
+			continue
+		}
+		afterDash := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
+		if !strings.HasPrefix(afterDash, "name:") {
+			continue
+		}
+		name := strings.Trim(strings.TrimSpace(strings.TrimPrefix(afterDash, "name:")), `"'`)
+		if name != container {
+			continue
+		}
+		start = i
+		startIndent = leadingSpaceCount(line)
+		break
+	}
+	if start < 0 {
+		return "", "", fmt.Errorf("container %q not found in manifest", container)
+	}
+	for i := start + 1; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if leadingSpaceCount(line) <= startIndent && strings.HasPrefix(trimmed, "- ") {
+			break
+		}
+		if leadingSpaceCount(line) < startIndent {
+			break
+		}
+		if strings.HasPrefix(trimmed, "image:") {
+			oldImage := imageFromLine(line)
+			lines[i] = leadingWhitespace(line) + "image: " + targetImage
+			return strings.Join(lines, "\n"), oldImage, nil
+		}
+	}
+	return "", "", fmt.Errorf("image field for container %q not found in manifest", container)
+}
+
+func imageWithTag(currentImage, tag string) (string, error) {
+	if currentImage == "" {
+		return "", errors.New("current image is empty")
+	}
+	if tag == "" {
+		return "", errors.New("target tag is empty")
+	}
+	if strings.Contains(currentImage, "@") {
+		base, _, _ := strings.Cut(currentImage, "@")
+		return base + ":" + tag, nil
+	}
+	lastSlash := strings.LastIndex(currentImage, "/")
+	lastColon := strings.LastIndex(currentImage, ":")
+	if lastColon <= lastSlash {
+		return currentImage + ":" + tag, nil
+	}
+	return currentImage[:lastColon+1] + tag, nil
+}
+
+func looksLikeImage(value string) bool {
+	return strings.Contains(value, "@") || (strings.Contains(value, "/") && strings.LastIndex(value, ":") > strings.LastIndex(value, "/"))
+}
+
+func imageFromLine(line string) string {
+	trimmed := strings.TrimSpace(line)
+	return strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "image:")), `"'`)
+}
+
+func leadingWhitespace(line string) string {
+	return line[:leadingSpaceCount(line)]
+}
+
+func leadingSpaceCount(line string) int {
+	for i, r := range line {
+		if r != ' ' && r != '\t' {
+			return i
+		}
+	}
+	return len(line)
+}
+
+func shortRevision(revision string) string {
+	if len(revision) <= 8 {
+		return revision
+	}
+	return revision[:8]
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && value != "<nil>" {
+			return value
 		}
 	}
 	return ""

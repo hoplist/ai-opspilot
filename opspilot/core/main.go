@@ -215,6 +215,27 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 			intQueryAliases(r, []string{"tail_lines", "tail"}, 200),
 		)
 	}))
+	mux.HandleFunc("/api/release/history", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		if !releaseRegistry.Configured() {
+			return nil, nil, fmt.Errorf("release services are not configured")
+		}
+		q := r.URL.Query()
+		return releaseRegistry.History(ctx, required(q.Get("service"), "service"), intQuery(r, "limit", 10))
+	}))
+	mux.HandleFunc("/api/release/rollback", wrapPost(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		if !releaseRegistry.Configured() {
+			return nil, nil, fmt.Errorf("release services are not configured")
+		}
+		if err := r.ParseForm(); err != nil {
+			return nil, nil, requestError{message: "form body is invalid"}
+		}
+		return releaseRegistry.Rollback(
+			ctx,
+			required(r.Form.Get("service"), "service"),
+			required(r.Form.Get("to"), "to"),
+			boolForm(r, "confirm"),
+		)
+	}))
 	mux.HandleFunc("/api/diagnose/docker", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		req := nodeagent.LogRequest{
@@ -252,6 +273,14 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 type handlerFunc func(context.Context, *http.Request) (any, []string, error)
 
 func wrap(fn handlerFunc) http.HandlerFunc {
+	return wrapMethod(http.MethodGet, fn)
+}
+
+func wrapPost(fn handlerFunc) http.HandlerFunc {
+	return wrapMethod(http.MethodPost, fn)
+}
+
+func wrapMethod(method string, fn handlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			rec := recover()
@@ -270,8 +299,8 @@ func wrap(fn handlerFunc) http.HandlerFunc {
 			}
 			writeJSON(w, status, response.Error(code, err.Error()))
 		}()
-		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, response.Error("METHOD_NOT_ALLOWED", "only GET is supported"))
+		if r.Method != method {
+			writeJSON(w, http.StatusMethodNotAllowed, response.Error("METHOD_NOT_ALLOWED", "only "+method+" is supported"))
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -353,6 +382,11 @@ func intQueryAliases(r *http.Request, names []string, fallback int) int {
 
 func boolQuery(r *http.Request, name string) bool {
 	raw := r.URL.Query().Get(name)
+	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
+}
+
+func boolForm(r *http.Request, name string) bool {
+	raw := r.Form.Get(name)
 	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
 }
 
