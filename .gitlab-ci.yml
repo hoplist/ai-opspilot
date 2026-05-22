@@ -1,4 +1,5 @@
 stages:
+  - preflight
   - test
   - build
   - update-gitops
@@ -14,6 +15,18 @@ variables:
   GITOPS_APP_PATH: "clusters/test/apps/opspilot-core"
   GITOPS_APP_FILE: "apps/opspilot-core-application.yaml"
   GITOPS_CONTAINER_NAME: "core"
+
+preflight:onboarding:
+  stage: preflight
+  image: "$ALPINE_IMAGE"
+  script:
+    - test -f opspilot/Dockerfile
+    - grep -Eq 'buildctl-daemonless.sh|BUILDKIT_IMAGE' .gitlab-ci.yml
+    - test -f deploy/opspilot/core/deployment.yaml
+    - test -f deploy/opspilot/core/service.yaml
+    - test -f deploy/opspilot/core/kustomization.yaml
+  rules:
+    - if: $CI_COMMIT_BRANCH
 
 test:go:
   stage: test

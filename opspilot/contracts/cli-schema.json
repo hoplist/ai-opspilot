@@ -167,6 +167,21 @@
       "name": "onboard service",
       "readonly": false,
       "description": "Generate missing Dockerfile, GitLab CI include, Kubernetes manifests, and OpsPilot release mapping from opspilot.service.yaml. Existing files are skipped unless --force is used."
+    },
+    {
+      "name": "onboard check",
+      "readonly": true,
+      "description": "Check whether a service repository has Dockerfile, BuildKit GitLab CI, deploy/k8s manifests, and release mapping readiness."
+    },
+    {
+      "name": "onboard detect",
+      "readonly": true,
+      "description": "Detect service onboarding config from a repository, including language, Dockerfile, port, build entry, and namespace catalog mapping."
+    },
+    {
+      "name": "onboard generate",
+      "readonly": false,
+      "description": "Generate opspilot.service.yaml, GitLab CI include, Dockerfile when missing, deploy/k8s manifests, and release mapping from repository detection and namespace catalog."
     }
   ]
 }

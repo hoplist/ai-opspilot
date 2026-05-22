@@ -1,4 +1,5 @@
 stages:
+  - preflight
   - test
   - build
   - update-gitops
@@ -17,6 +18,18 @@ variables:
   GITOPS_CONTAINER_NAME: "$CI_PROJECT_NAME"
   DEPLOY_NAMESPACE: "$CI_PROJECT_NAME"
   REGISTRY_INSECURE: "true"
+
+preflight:onboarding:
+  stage: preflight
+  image: "$ALPINE_IMAGE"
+  script:
+    - test -f "$DOCKERFILE_PATH"
+    - test -f deploy/k8s/deployment.yaml
+    - test -f deploy/k8s/service.yaml
+    - test -f deploy/k8s/kustomization.yaml
+    - grep -Eq 'buildkit-gitops|buildctl-daemonless.sh|BUILDKIT_IMAGE' .gitlab-ci.yml
+  rules:
+    - if: $CI_COMMIT_BRANCH
 
 test:go:
   stage: test

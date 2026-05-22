@@ -150,3 +150,181 @@ dockerfile:
 		t.Fatal(err)
 	}
 }
+
+func TestOnboardCheckDetectsReadyRepository(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	config := `name: demo-api
+language: go
+dockerfile:
+  path: Dockerfile
+`
+	if err := os.WriteFile("opspilot.service.yaml", []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("Dockerfile", []byte("FROM scratch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(".gitlab-ci.yml", []byte("include:\n  - file: /ci/templates/buildkit-gitops.go.yml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join("deploy", "k8s"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"deployment.yaml", "service.yaml", "kustomization.yaml"} {
+		if err := os.WriteFile(filepath.Join("deploy", "k8s", name), []byte("ok\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if err := run([]string{"onboard", "check"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload onboardCheckResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Ready {
+		t.Fatalf("expected ready check: %s", out.String())
+	}
+}
+
+func TestOnboardCheckFailsWhenBuildKitMissing(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("opspilot.service.yaml", []byte("name: demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err = run([]string{"onboard", "check"}, &out)
+	if err == nil {
+		t.Fatal("expected check to fail")
+	}
+	if !bytes.Contains(out.Bytes(), []byte("buildkit_ci")) {
+		t.Fatalf("expected buildkit gap: %s", out.String())
+	}
+}
+
+func TestOnboardDetectUsesNamespaceCatalog(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("go.mod", []byte("module example.com/skillshub-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join("cmd", "skillshub-api"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("cmd", "skillshub-api", "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("Dockerfile", []byte("FROM scratch\nEXPOSE 9090\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	catalog := `namespaceMappings:
+  platform/skillshub-*: skillshub
+`
+	if err := os.WriteFile("opspilot.namespaces.yaml", []byte(catalog), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"onboard", "detect", "--project", "platform/skillshub-api"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload onboardDetectResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Config.Namespace != "skillshub" || payload.Config.Port != 9090 || payload.Config.BuildEntry != "./cmd/skillshub-api" {
+		t.Fatalf("payload = %#v", payload.Config)
+	}
+}
+
+func TestOnboardGenerateRequiresNamespaceMapping(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("go.mod", []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err = run([]string{"onboard", "generate", "--project", "platform/demo-api", "--write"}, &out)
+	if err == nil {
+		t.Fatal("expected namespace mapping error")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("namespace mapping missing")) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestOnboardGenerateWritesDetectedFiles(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("go.mod", []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	catalog := `namespaceMappings:
+  platform/demo-*: demo
+`
+	if err := os.WriteFile("opspilot.namespaces.yaml", []byte(catalog), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"onboard", "generate", "--project", "platform/demo-api", "--write"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"opspilot.service.yaml",
+		"Dockerfile",
+		filepath.Join("deploy", "k8s", "deployment.yaml"),
+		filepath.Join("deploy", "k8s", "service.yaml"),
+		filepath.Join("deploy", "k8s", "kustomization.yaml"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("missing generated file %s: %v", path, err)
+		}
+	}
+}
