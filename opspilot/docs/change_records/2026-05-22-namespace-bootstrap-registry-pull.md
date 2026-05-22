@@ -8,9 +8,10 @@ Added a platform-owned namespace bootstrap package:
 deploy/opspilot/bootstrap
 ```
 
-It deploys `opspilot-namespace-bootstrap`, a CronJob that copies the platform
-GitLab Registry pull secret from `opspilot/gitlab-registry-pull` into every
-namespace labelled:
+It deploys `opspilot-namespace-bootstrap`, a CronJob that runs the OpsPilot CLI
+command `opspilot bootstrap namespace-secrets`. The command copies the
+platform GitLab Registry pull secret from `opspilot/gitlab-registry-pull` into
+every namespace labelled:
 
 ```text
 opspilot.io/managed=true
@@ -32,7 +33,8 @@ registry write permission.
 
 The bootstrap ServiceAccount is separate from `opspilot-core` and has only the
 Kubernetes permissions needed to list namespaces and create/update the pull
-Secret.
+Secret. The CronJob reuses the released OpsPilot image, avoiding a dependency
+on an external kubectl utility image.
 
 ## GitOps
 

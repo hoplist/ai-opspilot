@@ -1,6 +1,7 @@
 # OpsPilot Namespace Bootstrap
 
-This package copies the platform GitLab Registry pull secret from
+This package runs the OpsPilot CLI command `opspilot bootstrap
+namespace-secrets` to copy the platform GitLab Registry pull secret from
 `opspilot/gitlab-registry-pull` into generated namespaces labelled
 `opspilot.io/managed=true`.
 

@@ -109,6 +109,7 @@ update:gitops:
     - yq -i '(.resources[] | select(. == "../rbac")) = "../opspilot-rbac"' "gitops/$GITOPS_APP_PATH/kustomization.yaml"
     - yq -i '(.resources[] | select(. == "../bootstrap")) = "../opspilot-bootstrap"' "gitops/$GITOPS_APP_PATH/kustomization.yaml"
     - yq -i '(.spec.template.spec.containers[] | select(.name == strenv(GITOPS_CONTAINER_NAME)).image) = strenv(IMAGE_NAME) + ":" + strenv(IMAGE_TAG)' "gitops/$GITOPS_APP_PATH/deployment.yaml"
+    - yq -i '(.spec.jobTemplate.spec.template.spec.containers[] | select(.name == "namespace-bootstrap").image) = strenv(IMAGE_NAME) + ":" + strenv(IMAGE_TAG)' gitops/clusters/test/apps/opspilot-bootstrap/cronjob.yaml
     - |
       cat > "gitops/$GITOPS_APP_FILE" <<EOF
       apiVersion: argoproj.io/v1alpha1

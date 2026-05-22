@@ -224,4 +224,5 @@ operator-managed namespace bootstrap step.
 In the test cluster, OpsPilot provides this bootstrap through
 `opspilot-namespace-bootstrap`. It copies `opspilot/gitlab-registry-pull` into
 namespaces labelled `opspilot.io/managed=true`. The source Secret should use a
-GitLab credential with `read_registry` only.
+GitLab credential with `read_registry` only. The bootstrap job runs from the
+released OpsPilot image via `opspilot bootstrap namespace-secrets`.
