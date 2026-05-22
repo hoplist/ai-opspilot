@@ -220,3 +220,8 @@ images.
 Do not commit registry credentials into a service repository or GitOps app
 directory. Use a platform-owned initializer, external secret flow, or an
 operator-managed namespace bootstrap step.
+
+In the test cluster, OpsPilot provides this bootstrap through
+`opspilot-namespace-bootstrap`. It copies `opspilot/gitlab-registry-pull` into
+namespaces labelled `opspilot.io/managed=true`. The source Secret should use a
+GitLab credential with `read_registry` only.
