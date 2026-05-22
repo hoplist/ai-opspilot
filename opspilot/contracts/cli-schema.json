@@ -1,6 +1,6 @@
 {
   "name": "opspilot",
-  "version": "0.1.10-service-onboarding",
+  "version": "0.1.11-devex-namespace-onboarding",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
   "commands": [
@@ -171,17 +171,17 @@
     {
       "name": "onboard check",
       "readonly": true,
-      "description": "Check whether a service repository has Dockerfile, BuildKit GitLab CI, deploy/k8s manifests, and release mapping readiness."
+      "description": "Check whether a service repository has Dockerfile, BuildKit GitLab CI, namespace.yaml, deploy/k8s manifests, and release mapping readiness. Supports --repo and --config."
     },
     {
       "name": "onboard detect",
       "readonly": true,
-      "description": "Detect service onboarding config from a repository, including language, Dockerfile, port, build entry, and namespace catalog mapping."
+      "description": "Detect service onboarding config from a repository, including language, Dockerfile, port, build entry, tpo/devex ownership, and project-level namespace mapping."
     },
     {
       "name": "onboard generate",
       "readonly": false,
-      "description": "Generate opspilot.service.yaml, GitLab CI include, Dockerfile when missing, deploy/k8s manifests, and release mapping from repository detection and namespace catalog."
+      "description": "Generate opspilot.service.yaml, GitLab CI include, Dockerfile when missing, namespace.yaml, deploy/k8s manifests, and release mapping from repository detection and project-level namespace automation."
     }
   ]
 }

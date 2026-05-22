@@ -16,6 +16,7 @@ variables:
   GITOPS_APP_PATH: "clusters/test/apps/$CI_PROJECT_NAME"
   GITOPS_APP_FILE: "apps/$CI_PROJECT_NAME-application.yaml"
   GITOPS_CONTAINER_NAME: "$CI_PROJECT_NAME"
+  ARGOCD_APP_NAME: "$CI_PROJECT_NAME"
   DEPLOY_NAMESPACE: "$CI_PROJECT_NAME"
   REGISTRY_INSECURE: "true"
 
@@ -24,6 +25,7 @@ preflight:onboarding:
   image: "$ALPINE_IMAGE"
   script:
     - test -f "$DOCKERFILE_PATH"
+    - test -f deploy/k8s/namespace.yaml
     - test -f deploy/k8s/deployment.yaml
     - test -f deploy/k8s/service.yaml
     - test -f deploy/k8s/kustomization.yaml
@@ -113,7 +115,7 @@ update:gitops:
       apiVersion: argoproj.io/v1alpha1
       kind: Application
       metadata:
-        name: ${APP_NAME}
+        name: ${ARGOCD_APP_NAME}
         namespace: argocd
       spec:
         project: cicd-apps
@@ -131,8 +133,14 @@ update:gitops:
           syncOptions:
             - CreateNamespace=true
       EOF
+    - |
+      if [ ! -f gitops/apps/kustomization.yaml ]; then
+        printf "resources:\n" > gitops/apps/kustomization.yaml
+      fi
+      app_file="$(basename "$GITOPS_APP_FILE")"
+      grep -qxF "  - ${app_file}" gitops/apps/kustomization.yaml || printf "  - %s\n" "$app_file" >> gitops/apps/kustomization.yaml
     - cd gitops
-    - git add "$GITOPS_APP_PATH" "$GITOPS_APP_FILE"
+    - git add "$GITOPS_APP_PATH" "$GITOPS_APP_FILE" apps/kustomization.yaml
     - git commit -m "deploy ${APP_NAME} ${IMAGE_TAG}" || echo "no changes"
     - git push origin main
   rules:

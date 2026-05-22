@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,12 +16,16 @@ import (
 type onboardServiceConfig struct {
 	Name          string `json:"name"`
 	GitLabProject string `json:"gitlab_project"`
+	Organization  string `json:"organization,omitempty"`
+	Group         string `json:"group,omitempty"`
+	Project       string `json:"project,omitempty"`
 	Language      string `json:"language"`
 	BuildEntry    string `json:"build_entry"`
 	BuildOutput   string `json:"build_output"`
 	Port          int    `json:"port"`
 	HealthPath    string `json:"health_path"`
 	Namespace     string `json:"namespace"`
+	NamespaceSrc  string `json:"namespace_source,omitempty"`
 	Replicas      int    `json:"replicas"`
 	Container     string `json:"container"`
 	DockerMode    string `json:"dockerfile_mode"`
@@ -67,10 +73,35 @@ type onboardDetectResult struct {
 	Next    []string             `json:"next"`
 }
 
+type namespaceResolution struct {
+	Namespace    string
+	Source       string
+	Organization string
+	Group        string
+	Project      string
+	Service      string
+}
+
+const (
+	defaultOrganization    = "tpo"
+	defaultGroup           = "devex"
+	defaultNamespacePrefix = "cicd"
+)
+
+var projectSuffixes = map[string]bool{
+	"admin":   true,
+	"api":     true,
+	"core":    true,
+	"job":     true,
+	"service": true,
+	"web":     true,
+	"worker":  true,
+}
+
 func onboardDetectCommand(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("onboard detect", flag.ExitOnError)
 	repo := fs.String("repo", ".", "repository path")
-	project := fs.String("project", "", "GitLab project path, for example platform/skillshub-api")
+	project := fs.String("project", "", "GitLab project path, for example tpo/devex/skillshub/skillshub-api")
 	catalog := fs.String("namespace-catalog", "opspilot.namespaces.yaml", "namespace catalog path")
 	_ = fs.Parse(args)
 	result, err := withRepo(*repo, func() (onboardDetectResult, error) {
@@ -90,7 +121,7 @@ func onboardDetectCommand(args []string, out io.Writer) error {
 func onboardGenerateCommand(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("onboard generate", flag.ExitOnError)
 	repo := fs.String("repo", ".", "repository path")
-	project := fs.String("project", "", "GitLab project path, for example platform/skillshub-api")
+	project := fs.String("project", "", "GitLab project path, for example tpo/devex/skillshub/skillshub-api")
 	catalog := fs.String("namespace-catalog", "opspilot.namespaces.yaml", "namespace catalog path")
 	write := fs.Bool("write", false, "write generated files")
 	force := fs.Bool("force", false, "overwrite existing generated files")
@@ -99,9 +130,6 @@ func onboardGenerateCommand(args []string, out io.Writer) error {
 		detected, err := detectOnboardRepository(*project, *catalog)
 		if err != nil {
 			return onboardResult{}, err
-		}
-		if containsString(detected.Gaps, "namespace_mapping_missing") {
-			return onboardResult{}, fmt.Errorf("namespace mapping missing; add project pattern to namespace catalog or pass a matching --project")
 		}
 		cfg := detected.Config
 		files := append([]generatedFile{{path: "opspilot.service.yaml", body: serviceConfigTemplate(cfg)}}, onboardFiles(cfg)...)
@@ -191,16 +219,22 @@ type onboardCheckResult struct {
 
 func onboardCheckCommand(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("onboard check", flag.ExitOnError)
+	repo := fs.String("repo", ".", "repository path")
 	configPath := fs.String("config", "opspilot.service.yaml", "service onboarding config")
 	_ = fs.Parse(args)
-	cfg, err := readOnboardServiceConfig(*configPath)
+	result, err := withRepo(*repo, func() (onboardCheckResult, error) {
+		cfg, err := readOnboardServiceConfig(*configPath)
+		if err != nil {
+			return onboardCheckResult{}, err
+		}
+		if err := cfg.defaults(); err != nil {
+			return onboardCheckResult{}, err
+		}
+		return checkOnboardRepository(cfg), nil
+	})
 	if err != nil {
 		return err
 	}
-	if err := cfg.defaults(); err != nil {
-		return err
-	}
-	result := checkOnboardRepository(cfg)
 	body, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return err
@@ -219,6 +253,7 @@ func checkOnboardRepository(cfg onboardServiceConfig) onboardCheckResult {
 	items := []onboardCheckItem{
 		checkFile("dockerfile", cfg.DockerPath, true, "Dockerfile used by BuildKit"),
 		checkCI(cfg.Language),
+		checkFile("namespace", filepath.Join("deploy", "k8s", "namespace.yaml"), true, "Kubernetes Namespace manifest"),
 		checkFile("deployment", filepath.Join("deploy", "k8s", "deployment.yaml"), true, "Kubernetes Deployment manifest"),
 		checkFile("service", filepath.Join("deploy", "k8s", "service.yaml"), true, "Kubernetes Service manifest"),
 		checkFile("kustomization", filepath.Join("deploy", "k8s", "kustomization.yaml"), true, "Kustomize entrypoint"),
@@ -269,7 +304,7 @@ func nextOnboardAction(item onboardCheckItem) string {
 		return "create Dockerfile or set dockerfile.mode: generate then run opspilot onboard service --write"
 	case "buildkit_ci":
 		return "generate .gitlab-ci.yml with opspilot onboard service --write or include /ci/templates/buildkit-gitops.<language>.yml"
-	case "deployment", "service", "kustomization":
+	case "namespace", "deployment", "service", "kustomization":
 		return "generate deploy/k8s manifests with opspilot onboard service --write"
 	case "release_mapping":
 		return "copy opspilot.release-service.txt into OpsPilot release service config"
@@ -299,6 +334,7 @@ func onboardFiles(cfg onboardServiceConfig) []generatedFile {
 		files = append(files, generatedFile{path: ".gitlab-ci.yml", body: gitlabCIIncludeTemplate(cfg)})
 	}
 	files = append(files,
+		generatedFile{path: filepath.Join("deploy", "k8s", "namespace.yaml"), body: namespaceTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "deployment.yaml"), body: deploymentTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "service.yaml"), body: serviceTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "kustomization.yaml"), body: kustomizationTemplate()},
@@ -322,16 +358,20 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 	if port == 0 {
 		port = 8080
 	}
-	namespace, namespaceMatched := resolveNamespace(project, name, catalogPath)
+	namespace := resolveNamespace(project, name, catalogPath)
 	cfg := onboardServiceConfig{
 		Name:          name,
 		GitLabProject: project,
+		Organization:  namespace.Organization,
+		Group:         namespace.Group,
+		Project:       namespace.Project,
 		Language:      language,
 		BuildEntry:    detectBuildEntry(language, name),
 		BuildOutput:   "build/" + name,
 		Port:          port,
 		HealthPath:    "/health",
-		Namespace:     namespace,
+		Namespace:     namespace.Namespace,
+		NamespaceSrc:  namespace.Source,
 		Replicas:      1,
 		Container:     name,
 		DockerMode:    "existing",
@@ -340,7 +380,7 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 		PromSource:    "node200-k8s",
 	}
 	if cfg.GitLabProject == "" {
-		cfg.GitLabProject = "platform/" + cfg.Name
+		cfg.GitLabProject = defaultGitLabProject(cfg)
 	}
 	if cfg.DockerPath == "" {
 		cfg.DockerPath = "Dockerfile"
@@ -349,17 +389,13 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 	files := map[string]bool{
 		"dockerfile":     fileExists(cfg.DockerPath),
 		"gitlab_ci":      fileExists(".gitlab-ci.yml"),
+		"namespace":      fileExists(filepath.Join("deploy", "k8s", "namespace.yaml")),
 		"deployment":     fileExists(filepath.Join("deploy", "k8s", "deployment.yaml")),
 		"service":        fileExists(filepath.Join("deploy", "k8s", "service.yaml")),
 		"kustomization":  fileExists(filepath.Join("deploy", "k8s", "kustomization.yaml")),
 		"releaseMapping": fileExists("opspilot.release-service.txt"),
 	}
 	result := onboardDetectResult{Service: cfg.Name, Ready: true, Config: cfg, Files: files}
-	if !namespaceMatched {
-		result.Ready = false
-		result.Gaps = append(result.Gaps, "namespace_mapping_missing")
-		result.Next = append(result.Next, "add project pattern to namespace catalog")
-	}
 	if !files["dockerfile"] {
 		result.Ready = false
 		result.Gaps = append(result.Gaps, "dockerfile_missing")
@@ -370,7 +406,7 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 		result.Gaps = append(result.Gaps, "gitlab_ci_missing")
 		result.Next = append(result.Next, "generate .gitlab-ci.yml with BuildKit include")
 	}
-	if !files["deployment"] || !files["service"] || !files["kustomization"] {
+	if !files["namespace"] || !files["deployment"] || !files["service"] || !files["kustomization"] {
 		result.Ready = false
 		result.Gaps = append(result.Gaps, "deploy_yaml_missing")
 		result.Next = append(result.Next, "generate deploy/k8s manifests")
@@ -451,19 +487,154 @@ func detectBuildEntry(language, name string) string {
 	return "./cmd/" + name
 }
 
-func resolveNamespace(project, name, catalogPath string) (string, bool) {
+func resolveNamespace(project, name, catalogPath string) namespaceResolution {
+	resolved := inferOwnership(project, name)
 	mappings, err := readNamespaceCatalog(catalogPath)
 	if err == nil {
-		targets := []string{project, "platform/" + name, name}
+		targets := []string{
+			project,
+			defaultGitLabProject(onboardServiceConfig{
+				Name:         resolved.Service,
+				Organization: resolved.Organization,
+				Group:        resolved.Group,
+				Project:      resolved.Project,
+			}),
+			"platform/" + resolved.Service,
+			resolved.Service,
+		}
 		for _, target := range targets {
 			for pattern, namespace := range mappings {
 				if globMatch(pattern, target) {
-					return namespace, true
+					resolved.Namespace = namespace
+					resolved.Source = "catalog"
+					return resolved
 				}
 			}
 		}
 	}
-	return "", false
+	resolved.Namespace = defaultNamespace(resolved.Group, resolved.Project)
+	resolved.Source = "auto_project"
+	return resolved
+}
+
+func inferOwnership(project, name string) namespaceResolution {
+	service := sanitizeDNSLabel(firstNonEmpty(serviceNameFromProject(project), name))
+	projectPath := strings.Trim(project, "/")
+	parts := []string{}
+	if projectPath != "" {
+		for _, part := range strings.Split(projectPath, "/") {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				parts = append(parts, trimmed)
+			}
+		}
+	}
+
+	resolved := namespaceResolution{
+		Organization: defaultOrganization,
+		Group:        defaultGroup,
+		Service:      service,
+	}
+	switch {
+	case len(parts) >= 4 && parts[0] == defaultOrganization:
+		resolved.Organization = sanitizeDNSLabel(parts[0])
+		resolved.Group = sanitizeDNSLabel(parts[1])
+		resolved.Project = projectNameFromService(parts[2])
+		resolved.Service = sanitizeDNSLabel(parts[len(parts)-1])
+	case len(parts) >= 3 && parts[0] == defaultOrganization:
+		resolved.Organization = sanitizeDNSLabel(parts[0])
+		resolved.Group = sanitizeDNSLabel(parts[1])
+		resolved.Service = sanitizeDNSLabel(parts[len(parts)-1])
+	case len(parts) >= 2:
+		resolved.Service = sanitizeDNSLabel(parts[len(parts)-1])
+	}
+	if resolved.Project == "" {
+		resolved.Project = projectNameFromService(resolved.Service)
+	}
+	if resolved.Service == "" {
+		resolved.Service = sanitizeDNSLabel(name)
+	}
+	if resolved.Project == "" {
+		resolved.Project = projectNameFromService(resolved.Service)
+	}
+	return resolved
+}
+
+func projectNameFromService(service string) string {
+	service = sanitizeDNSLabel(service)
+	if service == "" {
+		return ""
+	}
+	parts := strings.Split(service, "-")
+	if len(parts) > 1 && projectSuffixes[parts[len(parts)-1]] {
+		parts = parts[:len(parts)-1]
+	}
+	return sanitizeDNSLabel(strings.Join(parts, "-"))
+}
+
+func defaultNamespace(group, project string) string {
+	return sanitizeDNSLabel(defaultNamespacePrefix + "-" + firstNonEmpty(group, defaultGroup) + "-" + project)
+}
+
+func defaultGitLabProject(c onboardServiceConfig) string {
+	org := firstNonEmpty(c.Organization, defaultOrganization)
+	group := firstNonEmpty(c.Group, defaultGroup)
+	project := firstNonEmpty(c.Project, projectNameFromService(c.Name))
+	service := firstNonEmpty(c.Name, c.Container)
+	return strings.Join([]string{org, group, project, service}, "/")
+}
+
+func gitOpsAppPath(c onboardServiceConfig) string {
+	return "clusters/test/apps/" + strings.Join([]string{
+		firstNonEmpty(c.Group, defaultGroup),
+		firstNonEmpty(c.Project, projectNameFromService(c.Name)),
+		c.Name,
+	}, "/")
+}
+
+func argoAppName(c onboardServiceConfig) string {
+	return sanitizeDNSLabel(strings.Join([]string{
+		firstNonEmpty(c.Group, defaultGroup),
+		firstNonEmpty(c.Project, projectNameFromService(c.Name)),
+		c.Name,
+	}, "-"))
+}
+
+func sanitizeDNSLabel(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		valid := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if valid {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return ""
+	}
+	if len(out) <= 63 {
+		return out
+	}
+	sum := sha1.Sum([]byte(out))
+	suffix := "-" + hex.EncodeToString(sum[:])[:6]
+	out = strings.Trim(out[:63-len(suffix)], "-") + suffix
+	return strings.Trim(out, "-")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func readNamespaceCatalog(path string) (map[string]string, error) {
@@ -535,6 +706,11 @@ func writeGeneratedFile(path, body string, force bool) (string, error) {
 func serviceConfigTemplate(c onboardServiceConfig) string {
 	return fmt.Sprintf(`name: %s
 gitlabProject: %s
+ownership:
+  organization: %s
+  group: %s
+  project: %s
+
 language: %s
 
 build:
@@ -547,6 +723,7 @@ runtime:
 
 deploy:
   namespace: %s
+  namespaceSource: %s
   replicas: %d
   container: %s
 
@@ -559,7 +736,7 @@ ci:
 
 release:
   prometheusSource: %s
-`, c.Name, c.GitLabProject, c.Language, c.BuildEntry, c.BuildOutput, c.Port, c.HealthPath, c.Namespace, c.Replicas, c.Container, c.DockerMode, c.DockerPath, c.CIMode, c.PromSource)
+`, c.Name, c.GitLabProject, c.Organization, c.Group, c.Project, c.Language, c.BuildEntry, c.BuildOutput, c.Port, c.HealthPath, c.Namespace, firstNonEmpty(c.NamespaceSrc, "manual"), c.Replicas, c.Container, c.DockerMode, c.DockerPath, c.CIMode, c.PromSource)
 }
 
 func readOnboardServiceConfig(path string) (onboardServiceConfig, error) {
@@ -571,12 +748,16 @@ func readOnboardServiceConfig(path string) (onboardServiceConfig, error) {
 	return onboardServiceConfig{
 		Name:          values["name"],
 		GitLabProject: values["gitlabProject"],
+		Organization:  values["ownership.organization"],
+		Group:         values["ownership.group"],
+		Project:       values["ownership.project"],
 		Language:      values["language"],
 		BuildEntry:    values["build.entry"],
 		BuildOutput:   values["build.output"],
 		Port:          intFromString(values["runtime.port"], 0),
 		HealthPath:    values["runtime.healthPath"],
 		Namespace:     values["deploy.namespace"],
+		NamespaceSrc:  values["deploy.namespaceSource"],
 		Replicas:      intFromString(values["deploy.replicas"], 0),
 		Container:     values["deploy.container"],
 		DockerMode:    values["dockerfile.mode"],
@@ -594,8 +775,18 @@ func (c *onboardServiceConfig) defaults() error {
 	if c.Language == "" {
 		c.Language = "go"
 	}
+	resolved := inferOwnership(c.GitLabProject, c.Name)
+	if c.Organization == "" {
+		c.Organization = resolved.Organization
+	}
+	if c.Group == "" {
+		c.Group = resolved.Group
+	}
+	if c.Project == "" {
+		c.Project = resolved.Project
+	}
 	if c.GitLabProject == "" {
-		c.GitLabProject = "platform/" + c.Name
+		c.GitLabProject = defaultGitLabProject(*c)
 	}
 	if c.BuildEntry == "" {
 		c.BuildEntry = "./cmd/" + c.Name
@@ -610,7 +801,11 @@ func (c *onboardServiceConfig) defaults() error {
 		c.HealthPath = "/health"
 	}
 	if c.Namespace == "" {
-		c.Namespace = c.Name
+		c.Namespace = defaultNamespace(c.Group, c.Project)
+		c.NamespaceSrc = "auto_project"
+	}
+	if c.NamespaceSrc == "" {
+		c.NamespaceSrc = "manual"
 	}
 	if c.Replicas == 0 {
 		c.Replicas = 1
@@ -693,20 +888,34 @@ ENTRYPOINT ["/usr/local/bin/%s"]
 
 func gitlabCIIncludeTemplate(c onboardServiceConfig) string {
 	return fmt.Sprintf(`include:
-  - project: platform/opspilot
+  - project: tpo/devex/opspilot/opspilot-core
     ref: main
     file: /ci/templates/buildkit-gitops.%s.yml
 
 variables:
   APP_NAME: "%s"
+  ARGOCD_APP_NAME: "%s"
   BUILD_ENTRY: "%s"
   BUILD_OUTPUT: "%s"
   DOCKERFILE_PATH: "%s"
-  GITOPS_APP_PATH: "clusters/test/apps/%s"
+  GITOPS_APP_PATH: "%s"
   GITOPS_APP_FILE: "apps/%s-application.yaml"
   GITOPS_CONTAINER_NAME: "%s"
   DEPLOY_NAMESPACE: "%s"
-`, c.Language, c.Name, c.BuildEntry, c.BuildOutput, c.DockerPath, c.Name, c.Name, c.Container, c.Namespace)
+`, c.Language, c.Name, argoAppName(c), c.BuildEntry, c.BuildOutput, c.DockerPath, gitOpsAppPath(c), argoAppName(c), c.Container, c.Namespace)
+}
+
+func namespaceTemplate(c onboardServiceConfig) string {
+	return fmt.Sprintf(`apiVersion: v1
+kind: Namespace
+metadata:
+  name: %s
+  labels:
+    opspilot.io/managed: "true"
+    opspilot.io/organization: %s
+    opspilot.io/group: %s
+    opspilot.io/project: %s
+`, c.Namespace, c.Organization, c.Group, c.Project)
 }
 
 func deploymentTemplate(c onboardServiceConfig) string {
@@ -769,6 +978,7 @@ spec:
 
 func kustomizationTemplate() string {
 	return `resources:
+  - namespace.yaml
   - deployment.yaml
   - service.yaml
 `
@@ -776,7 +986,7 @@ func kustomizationTemplate() string {
 
 func releaseMapping(c onboardServiceConfig) string {
 	image := "192.168.48.206:5050/" + c.GitLabProject + "/" + c.Name
-	gitops := "clusters/test/apps/" + c.Name + "/deployment.yaml"
+	gitops := gitOpsAppPath(c) + "/deployment.yaml"
 	return fmt.Sprintf("%s=namespace:%s,deployment:%s,container:%s,source:%s,image:%s,gitlab:%s,gitops:%s,argocd:%s",
-		c.Name, c.Namespace, c.Name, c.Container, c.PromSource, image, c.GitLabProject, gitops, c.Name)
+		c.Name, c.Namespace, c.Name, c.Container, c.PromSource, image, c.GitLabProject, gitops, argoAppName(c))
 }

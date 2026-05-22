@@ -74,7 +74,11 @@ func TestOnboardServicePlan(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "opspilot.service.yaml")
 	config := `name: skillshub-api
-gitlabProject: platform/skillshub-api
+gitlabProject: tpo/devex/skillshub/skillshub-api
+ownership:
+  organization: tpo
+  group: devex
+  project: skillshub
 language: go
 build:
   entry: ./cmd/skillshub-api
@@ -83,7 +87,7 @@ runtime:
   port: 8080
   healthPath: /health
 deploy:
-  namespace: skillshub
+  namespace: cicd-devex-skillshub
   replicas: 2
   container: skillshub-api
 dockerfile:
@@ -108,7 +112,7 @@ release:
 	if payload.Service != "skillshub-api" || payload.Mode != "plan" {
 		t.Fatalf("payload = %#v", payload)
 	}
-	if !bytes.Contains(out.Bytes(), []byte("platform/skillshub-api")) {
+	if !bytes.Contains(out.Bytes(), []byte("tpo/devex/skillshub/skillshub-api")) {
 		t.Fatalf("release mapping missing project: %s", out.String())
 	}
 }
@@ -149,6 +153,9 @@ dockerfile:
 	if _, err := os.Stat(filepath.Join("deploy", "k8s", "deployment.yaml")); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join("deploy", "k8s", "namespace.yaml")); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestOnboardCheckDetectsReadyRepository(t *testing.T) {
@@ -180,7 +187,7 @@ dockerfile:
 	if err := os.MkdirAll(filepath.Join("deploy", "k8s"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"deployment.yaml", "service.yaml", "kustomization.yaml"} {
+	for _, name := range []string{"namespace.yaml", "deployment.yaml", "service.yaml", "kustomization.yaml"} {
 		if err := os.WriteFile(filepath.Join("deploy", "k8s", name), []byte("ok\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -248,20 +255,20 @@ func TestOnboardDetectUsesNamespaceCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalog := `namespaceMappings:
-  platform/skillshub-*: skillshub
+  tpo/devex/skillshub/*: cicd-devex-skillshub
 `
 	if err := os.WriteFile("opspilot.namespaces.yaml", []byte(catalog), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := run([]string{"onboard", "detect", "--project", "platform/skillshub-api"}, &out); err != nil {
+	if err := run([]string{"onboard", "detect", "--project", "tpo/devex/skillshub/skillshub-api"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var payload onboardDetectResult
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Config.Namespace != "skillshub" || payload.Config.Port != 9090 || payload.Config.BuildEntry != "./cmd/skillshub-api" {
+	if payload.Config.Namespace != "cicd-devex-skillshub" || payload.Config.NamespaceSrc != "catalog" || payload.Config.Port != 9090 || payload.Config.BuildEntry != "./cmd/skillshub-api" {
 		t.Fatalf("payload = %#v", payload.Config)
 	}
 	if payload.Ready {
@@ -269,7 +276,7 @@ func TestOnboardDetectUsesNamespaceCatalog(t *testing.T) {
 	}
 }
 
-func TestOnboardGenerateRequiresNamespaceMapping(t *testing.T) {
+func TestOnboardGenerateAutoNamespacesByProject(t *testing.T) {
 	dir := t.TempDir()
 	wd, err := os.Getwd()
 	if err != nil {
@@ -285,12 +292,22 @@ func TestOnboardGenerateRequiresNamespaceMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	err = run([]string{"onboard", "generate", "--project", "platform/demo-api", "--write"}, &out)
-	if err == nil {
-		t.Fatal("expected namespace mapping error")
+	if err := run([]string{"onboard", "generate", "--project", "tpo/devex/demo/demo-api", "--write"}, &out); err != nil {
+		t.Fatal(err)
 	}
-	if !bytes.Contains([]byte(err.Error()), []byte("namespace mapping missing")) {
-		t.Fatalf("err = %v", err)
+	var payload onboardResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("namespace:cicd-devex-demo")) {
+		t.Fatalf("expected auto namespace in release mapping: %s", out.String())
+	}
+	body, err := os.ReadFile("opspilot.service.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte("namespaceSource: auto_project")) {
+		t.Fatalf("expected auto namespace source: %s", string(body))
 	}
 }
 
@@ -310,18 +327,19 @@ func TestOnboardGenerateWritesDetectedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalog := `namespaceMappings:
-  platform/demo-*: demo
+  tpo/devex/demo/*: cicd-devex-demo
 `
 	if err := os.WriteFile("opspilot.namespaces.yaml", []byte(catalog), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := run([]string{"onboard", "generate", "--project", "platform/demo-api", "--write"}, &out); err != nil {
+	if err := run([]string{"onboard", "generate", "--project", "tpo/devex/demo/demo-api", "--write"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
 		"opspilot.service.yaml",
 		"Dockerfile",
+		filepath.Join("deploy", "k8s", "namespace.yaml"),
 		filepath.Join("deploy", "k8s", "deployment.yaml"),
 		filepath.Join("deploy", "k8s", "service.yaml"),
 		filepath.Join("deploy", "k8s", "kustomization.yaml"),
