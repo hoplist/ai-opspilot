@@ -361,14 +361,17 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 		result.Next = append(result.Next, "add project pattern to namespace catalog")
 	}
 	if !files["dockerfile"] {
+		result.Ready = false
 		result.Gaps = append(result.Gaps, "dockerfile_missing")
 		result.Next = append(result.Next, "generate a simple Dockerfile or add a project-owned Dockerfile")
 	}
 	if !files["gitlab_ci"] {
+		result.Ready = false
 		result.Gaps = append(result.Gaps, "gitlab_ci_missing")
 		result.Next = append(result.Next, "generate .gitlab-ci.yml with BuildKit include")
 	}
 	if !files["deployment"] || !files["service"] || !files["kustomization"] {
+		result.Ready = false
 		result.Gaps = append(result.Gaps, "deploy_yaml_missing")
 		result.Next = append(result.Next, "generate deploy/k8s manifests")
 	}

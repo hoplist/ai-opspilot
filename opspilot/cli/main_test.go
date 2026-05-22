@@ -264,6 +264,9 @@ func TestOnboardDetectUsesNamespaceCatalog(t *testing.T) {
 	if payload.Config.Namespace != "skillshub" || payload.Config.Port != 9090 || payload.Config.BuildEntry != "./cmd/skillshub-api" {
 		t.Fatalf("payload = %#v", payload.Config)
 	}
+	if payload.Ready {
+		t.Fatalf("detect should not be ready while release files are missing: %#v", payload.Gaps)
+	}
 }
 
 func TestOnboardGenerateRequiresNamespaceMapping(t *testing.T) {
