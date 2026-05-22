@@ -209,3 +209,14 @@ If the repository is missing release files, generate them:
 ```powershell
 opspilot onboard service --config opspilot.service.yaml --write
 ```
+
+## Registry Pull Secret
+
+Generated Deployments reference `gitlab-registry-pull` because normal service
+images are stored in the GitLab Registry. A freshly generated namespace must
+receive that Secret from platform bootstrap before Pods can pull private
+images.
+
+Do not commit registry credentials into a service repository or GitOps app
+directory. Use a platform-owned initializer, external secret flow, or an
+operator-managed namespace bootstrap step.
