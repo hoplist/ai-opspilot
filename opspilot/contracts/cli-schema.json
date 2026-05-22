@@ -1,6 +1,6 @@
 {
   "name": "opspilot",
-  "version": "0.1.11-devex-namespace-onboarding",
+  "version": "0.1.12-containerd-registry-auth",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
   "commands": [
@@ -182,11 +182,6 @@
       "name": "onboard generate",
       "readonly": false,
       "description": "Generate opspilot.service.yaml, GitLab CI include, Dockerfile when missing, namespace.yaml, deploy/k8s manifests, and release mapping from repository detection and project-level namespace automation."
-    },
-    {
-      "name": "bootstrap namespace-secrets",
-      "readonly": false,
-      "description": "In-cluster platform bootstrap command that copies the GitLab Registry pull secret into OpsPilot-managed namespaces."
     }
   ]
 }

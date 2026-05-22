@@ -25,7 +25,6 @@ preflight:onboarding:
     - test -f deploy/opspilot/core/deployment.yaml
     - test -f deploy/opspilot/core/service.yaml
     - test -f deploy/opspilot/core/kustomization.yaml
-    - test -f deploy/opspilot/bootstrap/cronjob.yaml
   rules:
     - if: $CI_COMMIT_BRANCH
 
@@ -99,17 +98,13 @@ update:gitops:
     - rm -rf gitops/clusters/test/apps/opspilot-rbac
     - rm -rf gitops/clusters/test/apps/opspilot-bootstrap
     - mkdir -p gitops/clusters/test/apps/opspilot-rbac
-    - mkdir -p gitops/clusters/test/apps/opspilot-bootstrap
     - cp -R deploy/opspilot/rbac/. gitops/clusters/test/apps/opspilot-rbac/
-    - cp -R deploy/opspilot/bootstrap/. gitops/clusters/test/apps/opspilot-bootstrap/
     - cp deploy/opspilot/core/configmap.yaml "gitops/$GITOPS_APP_PATH/configmap.yaml"
     - cp deploy/opspilot/core/deployment.yaml "gitops/$GITOPS_APP_PATH/deployment.yaml"
     - cp deploy/opspilot/core/service.yaml "gitops/$GITOPS_APP_PATH/service.yaml"
     - cp deploy/opspilot/core/kustomization.yaml "gitops/$GITOPS_APP_PATH/kustomization.yaml"
     - yq -i '(.resources[] | select(. == "../rbac")) = "../opspilot-rbac"' "gitops/$GITOPS_APP_PATH/kustomization.yaml"
-    - yq -i '(.resources[] | select(. == "../bootstrap")) = "../opspilot-bootstrap"' "gitops/$GITOPS_APP_PATH/kustomization.yaml"
     - yq -i '(.spec.template.spec.containers[] | select(.name == strenv(GITOPS_CONTAINER_NAME)).image) = strenv(IMAGE_NAME) + ":" + strenv(IMAGE_TAG)' "gitops/$GITOPS_APP_PATH/deployment.yaml"
-    - yq -i '(.spec.jobTemplate.spec.template.spec.containers[] | select(.name == "namespace-bootstrap").image) = strenv(IMAGE_NAME) + ":" + strenv(IMAGE_TAG)' gitops/clusters/test/apps/opspilot-bootstrap/cronjob.yaml
     - |
       cat > "gitops/$GITOPS_APP_FILE" <<EOF
       apiVersion: argoproj.io/v1alpha1
@@ -134,7 +129,8 @@ update:gitops:
             - CreateNamespace=true
       EOF
     - cd gitops
-    - git add "$GITOPS_APP_PATH" clusters/test/apps/opspilot-rbac clusters/test/apps/opspilot-bootstrap "$GITOPS_APP_FILE"
+    - git add "$GITOPS_APP_PATH" clusters/test/apps/opspilot-rbac "$GITOPS_APP_FILE"
+    - git add -A clusters/test/apps/opspilot-bootstrap || true
     - git commit -m "deploy opspilot-core ${IMAGE_TAG}" || echo "no changes"
     - git push origin main
   rules:

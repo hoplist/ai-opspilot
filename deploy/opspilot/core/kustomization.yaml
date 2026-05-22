@@ -1,6 +1,5 @@
 resources:
   - ../rbac
-  - ../bootstrap
   - configmap.yaml
   - deployment.yaml
   - service.yaml

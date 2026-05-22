@@ -348,4 +348,11 @@ func TestOnboardGenerateWritesDetectedFiles(t *testing.T) {
 			t.Fatalf("missing generated file %s: %v", path, err)
 		}
 	}
+	deployment, err := os.ReadFile(filepath.Join("deploy", "k8s", "deployment.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(deployment, []byte("imagePullSecrets")) {
+		t.Fatalf("generated deployment should rely on node/containerd registry auth, not imagePullSecrets: %s", string(deployment))
+	}
 }

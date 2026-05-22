@@ -86,13 +86,10 @@ End-to-end result:
 - Kubernetes reported `deployment/demo-api` as `1/1` available.
 - OpsPilot `k8s pods --namespace cicd-devex-demo` saw the demo Pod as Ready.
 
-## Follow-up Gap
+## Registry Pull Note
 
-The first demo rollout exposed one environment bootstrap gap: a newly generated
-namespace does not automatically receive `gitlab-registry-pull`. The Pod
-entered `ImagePullBackOff` until a project-scoped `read_registry` deploy token
-was created and stored as a Kubernetes pull secret in `cicd-devex-demo`.
-
-This should become a platform-owned namespace bootstrap step, not a developer
-task. The service generator should continue to avoid committing registry
-credentials into GitOps.
+The first demo rollout temporarily used a namespace-local pull Secret while the
+demo image still lived in GitLab Registry. The target test environment uses an
+internal private registry with credentials configured in `containerd`, so the
+default onboarding flow no longer generates `imagePullSecrets` and does not
+bootstrap per-namespace registry Secrets.

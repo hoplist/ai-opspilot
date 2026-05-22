@@ -936,8 +936,6 @@ spec:
       labels:
         app.kubernetes.io/name: %s
     spec:
-      imagePullSecrets:
-        - name: gitlab-registry-pull
       containers:
         - name: %s
           image: placeholder

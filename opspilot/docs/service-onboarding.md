@@ -210,19 +210,15 @@ If the repository is missing release files, generate them:
 opspilot onboard service --config opspilot.service.yaml --write
 ```
 
-## Registry Pull Secret
+## Registry Auth
 
-Generated Deployments reference `gitlab-registry-pull` because normal service
-images are stored in the GitLab Registry. A freshly generated namespace must
-receive that Secret from platform bootstrap before Pods can pull private
-images.
+Generated Deployments do not create or reference a per-namespace
+`imagePullSecret`.
+
+In the test environment, image pull authentication is owned by the node
+runtime. Configure the internal private registry and credentials in
+`containerd`, then service manifests stay clean and new namespaces do not need
+registry Secret bootstrap.
 
 Do not commit registry credentials into a service repository or GitOps app
-directory. Use a platform-owned initializer, external secret flow, or an
-operator-managed namespace bootstrap step.
-
-In the test cluster, OpsPilot provides this bootstrap through
-`opspilot-namespace-bootstrap`. It copies `opspilot/gitlab-registry-pull` into
-namespaces labelled `opspilot.io/managed=true`. The source Secret should use a
-GitLab credential with `read_registry` only. The bootstrap job runs from the
-released OpsPilot image via `opspilot bootstrap namespace-secrets`.
+directory.
