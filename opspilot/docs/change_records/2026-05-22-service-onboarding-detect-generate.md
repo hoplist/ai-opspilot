@@ -69,3 +69,11 @@ repository:
 The simulation found and fixed one readiness issue: `onboard detect` now marks
 repositories as not ready while Dockerfile, BuildKit CI, or deploy YAML files
 are still missing.
+
+## Real Cluster Trial
+
+A real `platform/demo-api` GitLab project was created and pushed through the
+generated onboarding files. The first run reached `build:image` and exposed a
+shared-template issue: BuildKit rejected the generic template's dual image tag
+output for the generated service image. The shared Go template now pushes only
+the commit image tag used by GitOps.

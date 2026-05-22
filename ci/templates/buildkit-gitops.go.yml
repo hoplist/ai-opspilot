@@ -85,7 +85,7 @@ build:image:
         --opt build-arg:NO_PROXY="${NO_PROXY:-}" \
         --import-cache type=registry,ref="$BUILDKIT_CACHE_IMAGE",registry.insecure="$REGISTRY_INSECURE" \
         --export-cache type=registry,ref="$BUILDKIT_CACHE_IMAGE",mode=max,registry.insecure="$REGISTRY_INSECURE" \
-        --output type=image,"name=$IMAGE_NAME:$IMAGE_TAG,$IMAGE_NAME:$CI_COMMIT_REF_SLUG",push=true,registry.insecure="$REGISTRY_INSECURE"
+        --output type=image,"name=$IMAGE_NAME:$IMAGE_TAG",push=true,registry.insecure="$REGISTRY_INSECURE"
   rules:
     - if: $CI_COMMIT_BRANCH
 
