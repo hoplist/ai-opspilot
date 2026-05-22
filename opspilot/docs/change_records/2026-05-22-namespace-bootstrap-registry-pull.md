@@ -36,6 +36,10 @@ Kubernetes permissions needed to list namespaces and create/update the pull
 Secret. The CronJob reuses the released OpsPilot image, avoiding a dependency
 on an external kubectl utility image.
 
+The CronJob uses `concurrencyPolicy: Replace`, `activeDeadlineSeconds: 120`,
+and `backoffLimit: 1` so a stuck image pull or failed run cannot block future
+namespace bootstrap attempts.
+
 ## GitOps
 
 The OpsPilot release pipeline now copies:

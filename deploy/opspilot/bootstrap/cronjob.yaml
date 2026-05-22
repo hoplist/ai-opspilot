@@ -8,11 +8,13 @@ metadata:
     app.kubernetes.io/part-of: opspilot
 spec:
   schedule: "*/2 * * * *"
-  concurrencyPolicy: Forbid
+  concurrencyPolicy: Replace
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      activeDeadlineSeconds: 120
+      backoffLimit: 1
       ttlSecondsAfterFinished: 600
       template:
         metadata:
