@@ -46,3 +46,17 @@ func TestSplitImageNameTag(t *testing.T) {
 		t.Fatalf("name=%q tag=%q", name, tag)
 	}
 }
+
+func TestLimitTailBytes(t *testing.T) {
+	got, truncated := limitTailBytes("abcdef", 3)
+	if got != "def" || !truncated {
+		t.Fatalf("got=%q truncated=%t", got, truncated)
+	}
+}
+
+func TestLimitTailLines(t *testing.T) {
+	got, truncated := limitTailLines("one\ntwo\nthree", 2)
+	if got != "two\nthree" || !truncated {
+		t.Fatalf("got=%q truncated=%t", got, truncated)
+	}
+}

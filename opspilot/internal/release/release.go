@@ -174,6 +174,75 @@ func (r *Registry) Status(ctx context.Context, serviceName string, client *k8s.C
 	}, warnings, nil
 }
 
+func (r *Registry) Jobs(ctx context.Context, serviceName string) (map[string]any, []string, error) {
+	service, ok := r.services[serviceName]
+	if !ok {
+		return nil, nil, fmt.Errorf("unknown release service: %s", serviceName)
+	}
+	warnings := []string{}
+	if service.GitLab == "" {
+		return nil, warnings, fmt.Errorf("gitlab project mapping is missing for release service: %s", serviceName)
+	}
+	client := newGitLabClient(r.datasources.GitLabURL, r.datasources.GitLabToken)
+	jobs, err := client.latestPipelineJobs(ctx, service.GitLab)
+	if err != nil {
+		return nil, warnings, err
+	}
+	jobs["service"] = service.Name
+	return jobs, warnings, nil
+}
+
+func (r *Registry) JobTrace(ctx context.Context, serviceName string, jobID int64, jobName string, limitBytes, tailLines int) (map[string]any, []string, error) {
+	service, ok := r.services[serviceName]
+	if !ok {
+		return nil, nil, fmt.Errorf("unknown release service: %s", serviceName)
+	}
+	warnings := []string{}
+	if service.GitLab == "" {
+		return nil, warnings, fmt.Errorf("gitlab project mapping is missing for release service: %s", serviceName)
+	}
+	client := newGitLabClient(r.datasources.GitLabURL, r.datasources.GitLabToken)
+	selectedJobID := jobID
+	selectedJobName := jobName
+	if selectedJobID == 0 {
+		jobs, err := client.latestPipelineJobs(ctx, service.GitLab)
+		if err != nil {
+			return nil, warnings, err
+		}
+		for _, item := range anySlice(jobs["items"]) {
+			job, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if jobName == "" || fmt.Sprint(job["name"]) == jobName {
+				selectedJobID = int64FromAny(job["id"])
+				selectedJobName = fmt.Sprint(job["name"])
+				break
+			}
+		}
+	}
+	if selectedJobID == 0 {
+		return nil, warnings, fmt.Errorf("gitlab job not found for release service: %s", serviceName)
+	}
+	trace, err := client.jobTrace(ctx, service.GitLab, selectedJobID)
+	if err != nil {
+		return nil, warnings, err
+	}
+	trace, truncatedBytes := limitTailBytes(trace, limitBytes)
+	trace, truncatedLines := limitTailLines(trace, tailLines)
+	return map[string]any{
+		"service":         service.Name,
+		"project":         service.GitLab,
+		"job_id":          selectedJobID,
+		"job_name":        selectedJobName,
+		"text":            trace,
+		"bytes":           len(trace),
+		"truncated":       truncatedBytes || truncatedLines,
+		"truncated_bytes": truncatedBytes,
+		"truncated_lines": truncatedLines,
+	}, warnings, nil
+}
+
 func addGitLabEvidence(ctx context.Context, datasources Datasources, service Service, evidence *map[string]any, warnings, gaps *[]string) {
 	client := newGitLabClient(datasources.GitLabURL, datasources.GitLabToken)
 	if !client.configured() {
@@ -328,6 +397,51 @@ func intFromAny(value any) int {
 	default:
 		return 0
 	}
+}
+
+func int64FromAny(value any) int64 {
+	switch v := value.(type) {
+	case int:
+		return int64(v)
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
+func anySlice(value any) []any {
+	if slice, ok := value.([]any); ok {
+		return slice
+	}
+	if maps, ok := value.([]map[string]any); ok {
+		out := make([]any, 0, len(maps))
+		for _, item := range maps {
+			out = append(out, item)
+		}
+		return out
+	}
+	return []any{}
+}
+
+func limitTailBytes(text string, limit int) (string, bool) {
+	if limit <= 0 || len(text) <= limit {
+		return text, false
+	}
+	return text[len(text)-limit:], true
+}
+
+func limitTailLines(text string, tail int) (string, bool) {
+	if tail <= 0 {
+		return text, false
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) <= tail {
+		return text, false
+	}
+	return strings.Join(lines[len(lines)-tail:], "\n"), true
 }
 
 func unique(values []string) []string {

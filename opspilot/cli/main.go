@@ -68,6 +68,12 @@ func run(args []string, out io.Writer) error {
 		if len(args) > 1 && args[1] == "status" {
 			return runReleaseStatus(opts, args[2:], out)
 		}
+		if len(args) > 1 && args[1] == "jobs" {
+			return runReleaseJobs(opts, args[2:], out)
+		}
+		if len(args) > 1 && args[1] == "logs" {
+			return runReleaseLogs(opts, args[2:], out)
+		}
 		endpoint, values = releaseCommand(args[1:])
 	case "context":
 		endpoint, values = podRefCommand(args[1:], "/api/context/pod")
@@ -233,6 +239,26 @@ func releaseCommand(args []string) (string, url.Values) {
 		service := fs.String("service", "", "release service name")
 		_ = fs.Parse(args[1:])
 		return "/api/release/status", url.Values{"service": []string{*service}}
+	case "jobs":
+		fs := flag.NewFlagSet("release jobs", flag.ExitOnError)
+		service := fs.String("service", "", "release service name")
+		_ = fs.Parse(args[1:])
+		return "/api/release/jobs", url.Values{"service": []string{*service}}
+	case "logs":
+		fs := flag.NewFlagSet("release logs", flag.ExitOnError)
+		service := fs.String("service", "", "release service name")
+		job := fs.String("job", "", "GitLab job name")
+		jobID := fs.String("job-id", "", "GitLab job id")
+		tail := fs.Int("tail", 200, "tail lines")
+		limitBytes := fs.Int("limit-bytes", 128*1024, "limit bytes")
+		_ = fs.Parse(args[1:])
+		return "/api/release/logs", url.Values{
+			"service":     []string{*service},
+			"job":         []string{*job},
+			"job_id":      []string{*jobID},
+			"tail_lines":  []string{strconv.Itoa(*tail)},
+			"limit_bytes": []string{strconv.Itoa(*limitBytes)},
+		}
 	default:
 		fail("unknown release command: " + args[0])
 	}
@@ -741,6 +767,78 @@ func runReleaseStatus(opts globalOptions, args []string, out io.Writer) error {
 		if checks := stringList(data["next_checks"]); len(checks) > 0 {
 			fmt.Fprintf(w, "Next: %s\n", strings.Join(checks, "; "))
 		}
+		return nil
+	})
+}
+
+func runReleaseJobs(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("release jobs", flag.ExitOnError)
+	service := fs.String("service", "", "release service name")
+	_ = fs.Parse(args)
+	if *service == "" && fs.NArg() > 0 {
+		*service = fs.Arg(0)
+	}
+	if *service == "" {
+		return fmt.Errorf("release jobs requires --service")
+	}
+	body, err := get(opts.backendURL, "/api/release/jobs", url.Values{"service": []string{*service}})
+	if err != nil {
+		return err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return err
+	}
+	data := mapValue(payload, "data")
+	return writeOutput(out, opts.output, data, func(w io.Writer) error {
+		fmt.Fprintf(w, "Release jobs: %s\n", stringValue(data["service"]))
+		if pipeline := mapValue(data, "pipeline"); pipeline != nil {
+			fmt.Fprintf(w, "Pipeline: %s id=%d ref=%s sha=%s\n",
+				stringValue(pipeline["status"]), intValue(pipeline["id"]), stringValue(pipeline["ref"]), stringValue(pipeline["sha"]))
+		}
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "ID\tSTAGE\tNAME\tSTATUS\tDURATION\tFAILURE")
+		for _, job := range mapsFromItems(data["items"]) {
+			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%.1fs\t%s\n",
+				intValue(job["id"]), stringValue(job["stage"]), stringValue(job["name"]), stringValue(job["status"]), floatValue(job["duration"]), stringValue(job["failure_reason"]))
+		}
+		return tw.Flush()
+	})
+}
+
+func runReleaseLogs(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("release logs", flag.ExitOnError)
+	service := fs.String("service", "", "release service name")
+	job := fs.String("job", "", "GitLab job name")
+	jobID := fs.String("job-id", "", "GitLab job id")
+	tail := fs.Int("tail", 200, "tail lines")
+	limitBytes := fs.Int("limit-bytes", 128*1024, "limit bytes")
+	_ = fs.Parse(args)
+	if *service == "" && fs.NArg() > 0 {
+		*service = fs.Arg(0)
+	}
+	if *service == "" {
+		return fmt.Errorf("release logs requires --service")
+	}
+	body, err := get(opts.backendURL, "/api/release/logs", url.Values{
+		"service":     []string{*service},
+		"job":         []string{*job},
+		"job_id":      []string{*jobID},
+		"tail_lines":  []string{strconv.Itoa(*tail)},
+		"limit_bytes": []string{strconv.Itoa(*limitBytes)},
+	})
+	if err != nil {
+		return err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return err
+	}
+	data := mapValue(payload, "data")
+	return writeOutput(out, opts.output, data, func(w io.Writer) error {
+		fmt.Fprintf(w, "Release log: %s job=%s id=%d truncated=%t\n",
+			stringValue(data["service"]), stringValue(data["job_name"]), intValue(data["job_id"]), boolValue(data["truncated"]))
+		fmt.Fprintln(w, stringValue(data["text"]))
 		return nil
 	})
 }

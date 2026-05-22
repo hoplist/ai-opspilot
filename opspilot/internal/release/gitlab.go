@@ -66,6 +66,63 @@ func (c *gitLabClient) latestPipeline(ctx context.Context, project string) (map[
 	}, nil
 }
 
+func (c *gitLabClient) latestPipelineJobs(ctx context.Context, project string) (map[string]any, error) {
+	pipeline, err := c.latestPipeline(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	id := fmt.Sprint(pipeline["id"])
+	if id == "" || id == "<nil>" {
+		return map[string]any{"project": project, "pipeline": pipeline, "items": []any{}, "item_count": 0}, nil
+	}
+	endpoint := c.apiPath("projects", project, "pipelines", id, "jobs") + "?per_page=100"
+	var rawJobs []map[string]any
+	if err := c.getJSON(ctx, endpoint, &rawJobs); err != nil {
+		return nil, err
+	}
+	jobs := make([]map[string]any, 0, len(rawJobs))
+	for _, job := range rawJobs {
+		jobs = append(jobs, map[string]any{
+			"id":             job["id"],
+			"name":           job["name"],
+			"stage":          job["stage"],
+			"status":         job["status"],
+			"ref":            job["ref"],
+			"tag":            job["tag"],
+			"web_url":        job["web_url"],
+			"created_at":     job["created_at"],
+			"started_at":     job["started_at"],
+			"finished_at":    job["finished_at"],
+			"duration":       job["duration"],
+			"failure_reason": job["failure_reason"],
+		})
+	}
+	return map[string]any{
+		"project":    project,
+		"pipeline":   pipeline,
+		"items":      jobs,
+		"item_count": len(jobs),
+	}, nil
+}
+
+func (c *gitLabClient) jobTrace(ctx context.Context, project string, jobID int64) (string, error) {
+	if !c.configured() {
+		return "", errors.New("gitlab url or token is not configured")
+	}
+	if project == "" {
+		return "", errors.New("gitlab project is not configured")
+	}
+	if jobID == 0 {
+		return "", errors.New("gitlab job id is not configured")
+	}
+	endpoint := c.apiPath("projects", project, "jobs", fmt.Sprint(jobID), "trace")
+	body, err := c.get(ctx, endpoint)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
 func (c *gitLabClient) registryTag(ctx context.Context, project, image string) (map[string]any, error) {
 	if !c.configured() {
 		return nil, errors.New("gitlab url or token is not configured")

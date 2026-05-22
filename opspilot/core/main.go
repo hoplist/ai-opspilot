@@ -194,6 +194,27 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 		q := r.URL.Query()
 		return releaseRegistry.Status(ctx, required(q.Get("service"), "service"), client, promRegistry, logClient)
 	}))
+	mux.HandleFunc("/api/release/jobs", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		if !releaseRegistry.Configured() {
+			return nil, nil, fmt.Errorf("release services are not configured")
+		}
+		q := r.URL.Query()
+		return releaseRegistry.Jobs(ctx, required(q.Get("service"), "service"))
+	}))
+	mux.HandleFunc("/api/release/logs", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		if !releaseRegistry.Configured() {
+			return nil, nil, fmt.Errorf("release services are not configured")
+		}
+		q := r.URL.Query()
+		return releaseRegistry.JobTrace(
+			ctx,
+			required(q.Get("service"), "service"),
+			int64Query(r, "job_id", 0),
+			q.Get("job"),
+			intQuery(r, "limit_bytes", 128*1024),
+			intQueryAliases(r, []string{"tail_lines", "tail"}, 200),
+		)
+	}))
 	mux.HandleFunc("/api/diagnose/docker", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		req := nodeagent.LogRequest{
@@ -303,6 +324,18 @@ func intQuery(r *http.Request, name string, fallback int) int {
 		return fallback
 	}
 	value, err := strconv.Atoi(raw)
+	if err != nil {
+		panic(requestError{message: name + " must be an integer"})
+	}
+	return value
+}
+
+func int64Query(r *http.Request, name string, fallback int64) int64 {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
 		panic(requestError{message: name + " must be an integer"})
 	}

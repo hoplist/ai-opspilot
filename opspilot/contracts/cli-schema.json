@@ -150,6 +150,20 @@
       "description": "Alias for release status with explicit evidence gaps in the first release milestone."
     },
     {
+      "name": "release jobs",
+      "readonly": true,
+      "description": "List GitLab jobs from the latest pipeline for a configured release service."
+    },
+    {
+      "name": "release logs",
+      "readonly": true,
+      "description": "Read bounded GitLab job trace logs by --job or --job-id for a configured release service.",
+      "limits": {
+        "tail_lines_default": 200,
+        "limit_bytes_default": 131072
+      }
+    },
+    {
       "name": "onboard service",
       "readonly": false,
       "description": "Generate missing Dockerfile, GitLab CI include, Kubernetes manifests, and OpsPilot release mapping from opspilot.service.yaml. Existing files are skipped unless --force is used."

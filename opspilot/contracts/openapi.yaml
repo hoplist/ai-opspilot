@@ -436,6 +436,48 @@ paths:
       responses:
         "200":
           description: Release evidence status
+  /api/release/jobs:
+    get:
+      summary: List GitLab jobs from the latest pipeline for one configured release service
+      parameters:
+        - name: service
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: GitLab pipeline job list
+  /api/release/logs:
+    get:
+      summary: Read bounded GitLab job trace logs for one configured release service
+      parameters:
+        - name: service
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: job
+          in: query
+          schema:
+            type: string
+        - name: job_id
+          in: query
+          schema:
+            type: integer
+        - name: tail
+          in: query
+          schema:
+            type: integer
+            default: 200
+        - name: limit_bytes
+          in: query
+          schema:
+            type: integer
+            default: 131072
+      responses:
+        "200":
+          description: GitLab job trace tail
   /api/diagnose/docker:
     get:
       summary: Diagnose a Docker container from node-agent evidence

@@ -60,6 +60,8 @@ First read-only commands:
 opspilot release status --service opspilot-core
 opspilot release evidence --service opspilot-core --commit <sha>
 opspilot release diagnose --service opspilot-core
+opspilot release jobs --service opspilot-core
+opspilot release logs --service opspilot-core --job build-image --tail 200
 ```
 
 Initial service mapping is configured through:
@@ -162,6 +164,21 @@ Implement `release status` as a read-only aggregator:
 7. Query matching Pods.
 8. Query Pod logs and metrics.
 9. Report unavailable GitLab/Registry/GitOps evidence as explicit gaps.
+
+## Build Failure Logs
+
+When the GitLab pipeline fails before an image reaches the registry, operators
+can inspect the build stage without leaving OpsPilot:
+
+```powershell
+opspilot release jobs --service <service> --output human
+opspilot release logs --service <service> --job <job-name> --tail 200 --output human
+opspilot release logs --service <service> --job-id <gitlab-job-id> --tail 200 --output human
+```
+
+The log command reads GitLab job trace through the GitLab API and returns only a
+bounded tail by default. Full GitLab remains the source of truth for complete
+CI logs, retries, artifacts, and permissions.
 
 Create the token as an optional Kubernetes Secret in the `opspilot` namespace:
 
