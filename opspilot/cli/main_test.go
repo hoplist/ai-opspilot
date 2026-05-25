@@ -377,3 +377,74 @@ func TestOnboardGenerateWritesDetectedFiles(t *testing.T) {
 		t.Fatalf("generated deployment should rely on node/containerd registry auth, not imagePullSecrets: %s", string(deployment))
 	}
 }
+
+func TestRepoPreflightDetectsMissingReleaseFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := run([]string{"repo", "preflight", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out)
+	if err == nil {
+		t.Fatal("expected repo preflight to fail")
+	}
+	var payload repoPreflightResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Ready || !payload.Autofixable {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if !containsString(payload.Gaps, "dockerfile") || !containsString(payload.Gaps, "gitlab_ci") {
+		t.Fatalf("expected dockerfile and gitlab_ci gaps: %#v", payload.Gaps)
+	}
+}
+
+func TestRepoAutofixWritesPlatformFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"repo", "autofix", "--repo", dir, "--project", "tpo/devex/demo/demo-api", "--write"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"opspilot.service.yaml",
+		"Dockerfile",
+		".gitlab-ci.yml",
+		filepath.Join("deploy", "k8s", "namespace.yaml"),
+		filepath.Join("deploy", "k8s", "deployment.yaml"),
+		filepath.Join("deploy", "k8s", "service.yaml"),
+		filepath.Join("deploy", "k8s", "kustomization.yaml"),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, path)); err != nil {
+			t.Fatalf("missing generated file %s: %v", path, err)
+		}
+	}
+	out.Reset()
+	if err := run([]string{"repo", "preflight", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out); err != nil {
+		t.Fatalf("preflight after autofix failed: %v\n%s", err, out.String())
+	}
+}
+
+func TestRepoAutofixForceReplacesRiskyDockerfile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM alpine:latest\nRUN curl http://localhost/install.sh | sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"repo", "autofix", "--repo", dir, "--project", "tpo/devex/demo/demo-api", "--write", "--force"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(body, []byte("localhost")) || bytes.Contains(body, []byte(":latest")) {
+		t.Fatalf("risky Dockerfile was not replaced: %s", string(body))
+	}
+}

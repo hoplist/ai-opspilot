@@ -89,6 +89,8 @@ func run(args []string, out io.Writer) error {
 		return inspectCommand(opts, args[1:], out)
 	case "onboard":
 		return onboardCommand(args[1:], out)
+	case "repo":
+		return repoCommand(opts, args[1:], out)
 	default:
 		return fmt.Errorf("unknown command: %s", args[0])
 	}

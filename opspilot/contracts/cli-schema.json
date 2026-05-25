@@ -1,6 +1,6 @@
 {
   "name": "opspilot",
-  "version": "0.1.13-release-history-rollback",
+  "version": "0.1.14-auto-repo-governance",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
   "commands": [
@@ -192,6 +192,16 @@
       "name": "onboard generate",
       "readonly": false,
       "description": "Generate opspilot.service.yaml, GitLab CI include, Dockerfile when missing, namespace.yaml, deploy/k8s manifests, and release mapping from repository detection and project-level namespace automation."
+    },
+    {
+      "name": "repo preflight",
+      "readonly": true,
+      "description": "Run automated repository governance checks for Dockerfile, platform GitLab CI include, deploy/k8s manifests, namespace ownership, port, and health evidence. Intended for CI gating."
+    },
+    {
+      "name": "repo autofix",
+      "readonly": false,
+      "description": "Generate or replace platform-managed Dockerfile, .gitlab-ci.yml include, deploy/k8s manifests, opspilot.service.yaml, and release mapping. Use --write to mutate files and --force to replace existing generated surfaces."
     }
   ]
 }

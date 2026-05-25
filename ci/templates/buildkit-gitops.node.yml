@@ -1,0 +1,126 @@
+stages:
+  - preflight
+  - test
+  - build
+  - update-gitops
+
+variables:
+  NODE_VERSION_IMAGE: "m.daocloud.io/docker.io/library/node:20-alpine"
+  BUILDKIT_IMAGE: "m.daocloud.io/docker.io/moby/buildkit:rootless"
+  ALPINE_IMAGE: "m.daocloud.io/docker.io/library/alpine:3.20"
+  APP_NAME: "$CI_PROJECT_NAME"
+  DOCKERFILE_PATH: "Dockerfile"
+  GITOPS_REPO: "http://oauth2:${GITOPS_TOKEN}@192.168.48.206:8929/platform/gitops-manifests.git"
+  GITOPS_APP_PATH: "clusters/test/apps/$CI_PROJECT_NAME"
+  GITOPS_APP_FILE: "apps/$CI_PROJECT_NAME-application.yaml"
+  GITOPS_CONTAINER_NAME: "$CI_PROJECT_NAME"
+  ARGOCD_APP_NAME: "$CI_PROJECT_NAME"
+  DEPLOY_NAMESPACE: "$CI_PROJECT_NAME"
+  REGISTRY_INSECURE: "true"
+
+preflight:onboarding:
+  stage: preflight
+  image: "$ALPINE_IMAGE"
+  script:
+    - test -f "$DOCKERFILE_PATH"
+    - test -f deploy/k8s/namespace.yaml
+    - test -f deploy/k8s/deployment.yaml
+    - test -f deploy/k8s/service.yaml
+    - test -f deploy/k8s/kustomization.yaml
+    - grep -Eq 'buildkit-gitops|buildctl-daemonless.sh|BUILDKIT_IMAGE' .gitlab-ci.yml
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+test:node:
+  stage: test
+  image: "$NODE_VERSION_IMAGE"
+  script:
+    - if [ -f package-lock.json ]; then npm ci; else npm install; fi
+    - npm test --if-present
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+build:image:
+  stage: build
+  image:
+    name: "$BUILDKIT_IMAGE"
+    entrypoint: [""]
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+    IMAGE_NAME: "$CI_REGISTRY_IMAGE/$APP_NAME"
+    IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+    BUILDKIT_CACHE_IMAGE: "$CI_REGISTRY_IMAGE/$APP_NAME:buildcache"
+  before_script:
+    - mkdir -p ~/.docker
+    - |
+      echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > ~/.docker/config.json
+  script:
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=. \
+        --opt filename="$DOCKERFILE_PATH" \
+        --opt build-arg:HTTP_PROXY="${HTTP_PROXY:-}" \
+        --opt build-arg:HTTPS_PROXY="${HTTPS_PROXY:-}" \
+        --opt build-arg:NO_PROXY="${NO_PROXY:-}" \
+        --import-cache type=registry,ref="$BUILDKIT_CACHE_IMAGE",registry.insecure="$REGISTRY_INSECURE" \
+        --export-cache type=registry,ref="$BUILDKIT_CACHE_IMAGE",mode=max,registry.insecure="$REGISTRY_INSECURE" \
+        --output type=image,"name=$IMAGE_NAME:$IMAGE_TAG",push=true,registry.insecure="$REGISTRY_INSECURE"
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+update:gitops:
+  stage: update-gitops
+  image: "$ALPINE_IMAGE"
+  needs:
+    - job: build:image
+  variables:
+    IMAGE_NAME: "$CI_REGISTRY_IMAGE/$APP_NAME"
+    IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+  before_script:
+    - apk add --no-cache git yq
+    - git config --global user.email "gitlab-ci@node206.local"
+    - git config --global user.name "gitlab-ci"
+  script:
+    - test -n "$GITOPS_TOKEN"
+    - git clone "$GITOPS_REPO" gitops
+    - rm -rf "gitops/$GITOPS_APP_PATH"
+    - mkdir -p "gitops/$GITOPS_APP_PATH" "gitops/apps"
+    - cp -R deploy/k8s/. "gitops/$GITOPS_APP_PATH/"
+    - yq -i '(.spec.template.spec.containers[] | select(.name == strenv(GITOPS_CONTAINER_NAME)).image) = strenv(IMAGE_NAME) + ":" + strenv(IMAGE_TAG)' "gitops/$GITOPS_APP_PATH/deployment.yaml"
+    - |
+      cat > "gitops/$GITOPS_APP_FILE" <<EOF
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata:
+        name: ${ARGOCD_APP_NAME}
+        namespace: argocd
+      spec:
+        project: cicd-apps
+        source:
+          repoURL: http://192.168.48.206:8929/platform/gitops-manifests.git
+          targetRevision: main
+          path: ${GITOPS_APP_PATH}
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${DEPLOY_NAMESPACE}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+      EOF
+    - |
+      if [ ! -f gitops/apps/kustomization.yaml ]; then
+        printf "resources:\n" > gitops/apps/kustomization.yaml
+      fi
+      app_file="$(basename "$GITOPS_APP_FILE")"
+      grep -qxF "  - ${app_file}" gitops/apps/kustomization.yaml || printf "  - %s\n" "$app_file" >> gitops/apps/kustomization.yaml
+    - cd gitops
+    - git add "$GITOPS_APP_PATH" "$GITOPS_APP_FILE" apps/kustomization.yaml
+    - git commit -m "deploy ${APP_NAME} ${IMAGE_TAG}" || echo "no changes"
+    - git push origin main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"

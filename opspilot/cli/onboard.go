@@ -872,6 +872,39 @@ func intFromString(raw string, fallback int) int {
 }
 
 func dockerfileTemplate(c onboardServiceConfig) string {
+	switch c.Language {
+	case "node":
+		return fmt.Sprintf(`FROM m.daocloud.io/docker.io/library/node:20-alpine
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY . .
+
+EXPOSE %d
+
+CMD ["npm", "start"]
+`, c.Port)
+	case "python":
+		return fmt.Sprintf(`FROM m.daocloud.io/docker.io/library/python:3.12-alpine
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+WORKDIR /app
+COPY . .
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
+
+EXPOSE %d
+
+CMD ["python", "app.py"]
+`, c.Port)
+	}
 	return fmt.Sprintf(`FROM m.daocloud.io/docker.io/library/alpine:3.20
 
 ARG HTTP_PROXY

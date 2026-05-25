@@ -109,6 +109,33 @@ The check verifies:
 This command is intended for local onboarding and as a future GitLab CI
 preflight job before BuildKit runs.
 
+## Automated Governance
+
+For fully automated repository normalization, use the higher-level `repo`
+commands. They do not require a platform-owner approval step; they either pass,
+auto-generate controlled files, or fail with a policy reason that can be fixed
+by the next automated run.
+
+```powershell
+opspilot repo preflight --repo . --project tpo/devex/skillshub/skillshub-api
+opspilot repo autofix --repo . --project tpo/devex/skillshub/skillshub-api --write
+opspilot repo autofix --repo . --project tpo/devex/skillshub/skillshub-api --write --force
+```
+
+`repo preflight` checks:
+
+- Dockerfile presence and obvious local-only or unsafe patterns.
+- `.gitlab-ci.yml` usage of the platform BuildKit/GitOps template.
+- `deploy/k8s/namespace.yaml`, Deployment, Service, and Kustomize entrypoint.
+- inferred namespace ownership from the GitLab project path.
+- Deployment namespace, probes, and disallowed fields such as `hostPath`,
+  `hostNetwork`, and `privileged`.
+- health path defaults.
+
+`repo autofix --write` writes missing platform-managed files. Add `--force`
+when the repository already contains a local Dockerfile, local CI, or manifests
+that must be replaced by the platform standard.
+
 ## Config
 
 ```yaml
@@ -204,10 +231,18 @@ the workload manifests, and whether `.gitlab-ci.yml` references BuildKit. The
 same template writes the service manifests into GitOps and registers the Argo
 Application in the app-of-apps `apps/kustomization.yaml`.
 
+Initial platform templates are available for:
+
+```text
+ci/templates/buildkit-gitops.go.yml
+ci/templates/buildkit-gitops.node.yml
+ci/templates/buildkit-gitops.python.yml
+```
+
 If the repository is missing release files, generate them:
 
 ```powershell
-opspilot onboard service --config opspilot.service.yaml --write
+opspilot repo autofix --project tpo/devex/skillshub/skillshub-api --write
 ```
 
 ## Registry Auth
