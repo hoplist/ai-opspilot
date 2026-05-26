@@ -67,6 +67,8 @@ Detection infers:
 - Go build entry from `cmd/<service>/main.go` or root `main.go`.
 - ownership from the GitLab path.
 - namespace from the platform catalog or the project namespace convention.
+- middleware intent from dependency and config signals such as MySQL, Redis,
+  RabbitMQ, MinIO/S3, OpenSearch/Elasticsearch, and Kafka clients.
 
 ## Auto Generate
 
@@ -131,6 +133,7 @@ opspilot repo autofix --repo . --project tpo/devex/skillshub/skillshub-api --wri
 - Deployment namespace, probes, and disallowed fields such as `hostPath`,
   `hostNetwork`, and `privileged`.
 - health path defaults.
+- middleware intent, using shared test-environment instances by default.
 
 `repo autofix --write` writes missing platform-managed files. Add `--force`
 when the repository already contains a local Dockerfile, local CI, or manifests
@@ -169,9 +172,66 @@ dockerfile:
 ci:
   mode: include
 
+middleware:
+  mysql:
+    kind: mysql
+    display: MySQL database
+    mode: shared-database
+    allocation: database-user
+    resource: devex_skillshub_skillshub_api_mysql
+    secret: skillshub-api-mysql-conn
+    env: DATABASE_URL
+    reason: detected MySQL database dependency; use shared-database and allocate database-user
+
 release:
   prometheusSource: node200-k8s
 ```
+
+## Middleware
+
+OpsPilot does not default to one middleware Pod per service in the test
+environment. It detects dependencies and records a platform-owned allocation
+intent:
+
+```text
+MySQL/PostgreSQL  -> shared instance, database + user
+Redis             -> shared instance, key prefix or DB index
+RabbitMQ          -> shared instance, vhost + user
+MinIO/S3          -> shared instance, bucket + access key
+OpenSearch        -> shared instance, index prefix
+Kafka             -> shared instance, topic prefix + ACL user
+```
+
+`repo preflight` reports detected middleware evidence, and `repo autofix` or
+`onboard generate` persists the intent in `opspilot.service.yaml`. This first
+step does not inject Secret references into the Deployment, because runtime
+provisioning of databases/users/vhosts/buckets must happen before the
+application can safely consume those Secrets.
+
+When provisioning is added, failures should be written as structured error
+events so OpsPilot and AI assistants can read them directly:
+
+```json
+{
+  "source": "middleware",
+  "stage": "provision",
+  "service": "skillshub-api",
+  "namespace": "cicd-devex-skillshub",
+  "resource": "mysql/devex_skillshub_skillshub_api_mysql",
+  "message": "failed to create database user"
+}
+```
+
+The runtime location is controlled by `OPSPILOT_ERROR_EVENT_DIR`, defaulting to
+`/var/lib/opspilot/error-events`, and can be queried with:
+
+```powershell
+opspilot errors recent --source middleware --service skillshub-api
+```
+
+Dedicated middleware instances should be explicit exceptions for load testing,
+version compatibility testing, strong isolation, or middleware-specific
+configuration differences.
 
 ## Modes
 

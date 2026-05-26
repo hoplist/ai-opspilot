@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/errorevidence"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/logsearch"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/nodeagent"
@@ -52,8 +53,9 @@ func main() {
 		GitOpsProject: env("OPSPILOT_GITOPS_PROJECT", ""),
 		GitOpsRef:     env("OPSPILOT_GITOPS_REF", "main"),
 	})
+	errorCollector := errorevidence.NewCollector(env("OPSPILOT_ERROR_EVENT_DIR", "/var/lib/opspilot/error-events"))
 	mux := http.NewServeMux()
-	registerRoutes(mux, client, promRegistry, agentRegistry, logClient, releaseRegistry)
+	registerRoutes(mux, client, promRegistry, agentRegistry, logClient, releaseRegistry, errorCollector)
 	addr := *host + ":" + *port
 	fmt.Printf("opspilot-core %s listening on http://%s\n", version.Version, addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
@@ -62,7 +64,7 @@ func main() {
 	}
 }
 
-func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry) {
+func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, errorCollector *errorevidence.Collector) {
 	mux.HandleFunc("/api/health", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return map[string]any{
 			"version":    version.Version,
@@ -75,6 +77,15 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 				"services":   releaseRegistry.Services(),
 			},
 		}, nil, nil
+	}))
+	mux.HandleFunc("/api/errors/recent", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		return errorCollector.Recent(ctx, client, releaseRegistry, promRegistry, logClient, errorevidence.Request{
+			Source:    q.Get("source"),
+			Service:   q.Get("service"),
+			Namespace: q.Get("namespace"),
+			Limit:     intQuery(r, "limit", 20),
+		})
 	}))
 	mux.HandleFunc("/api/inventory/overview", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return client.InventoryOverview(ctx, intQuery(r, "limit", 10)), nil, nil

@@ -64,6 +64,8 @@ func run(args []string, out io.Writer) error {
 		endpoint, values = logsCommand(args[1:])
 	case "evidence":
 		endpoint, values = evidenceCommand(args[1:])
+	case "errors":
+		endpoint, values = errorsCommand(args[1:])
 	case "release":
 		if len(args) > 1 && args[1] == "status" {
 			return runReleaseStatus(opts, args[2:], out)
@@ -103,6 +105,25 @@ func run(args []string, out io.Writer) error {
 		_, err = fmt.Fprintln(out)
 	}
 	return err
+}
+
+func errorsCommand(args []string) (string, url.Values) {
+	if len(args) == 0 || args[0] != "recent" {
+		fail("expected: errors recent")
+	}
+	fs := flag.NewFlagSet("errors recent", flag.ExitOnError)
+	source := fs.String("source", "", "error source: kubernetes, argocd, release, middleware")
+	service := fs.String("service", "", "service name")
+	namespace := fs.String("namespace", "", "namespace")
+	fs.StringVar(namespace, "n", "", "namespace")
+	limit := fs.Int("limit", 20, "result limit")
+	_ = fs.Parse(args[1:])
+	return "/api/errors/recent", url.Values{
+		"source":    []string{*source},
+		"service":   []string{*service},
+		"namespace": []string{*namespace},
+		"limit":     []string{strconv.Itoa(*limit)},
+	}
 }
 
 func evidenceCommand(args []string) (string, url.Values) {

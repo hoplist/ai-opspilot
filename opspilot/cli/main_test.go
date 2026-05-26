@@ -70,6 +70,22 @@ func TestEvidenceRequestServiceOnlyCommand(t *testing.T) {
 	}
 }
 
+func TestErrorsRecentCommand(t *testing.T) {
+	endpoint, values := errorsCommand([]string{
+		"recent",
+		"--source", "middleware",
+		"--service", "orders-api",
+		"--namespace", "cicd-devex-orders",
+		"--limit", "5",
+	})
+	if endpoint != "/api/errors/recent" {
+		t.Fatalf("endpoint = %s", endpoint)
+	}
+	if values.Get("source") != "middleware" || values.Get("service") != "orders-api" || values.Get("namespace") != "cicd-devex-orders" || values.Get("limit") != "5" {
+		t.Fatalf("values = %#v", values)
+	}
+}
+
 func TestReleaseHistoryCommand(t *testing.T) {
 	endpoint, values := releaseCommand([]string{"history", "--service", "opspilot-core", "--limit", "5"})
 	if endpoint != "/api/release/history" {
@@ -297,6 +313,53 @@ func TestOnboardDetectUsesNamespaceCatalog(t *testing.T) {
 	}
 }
 
+func TestOnboardDetectsSharedMiddlewareIntent(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	goMod := `module example.com/orders-api
+
+require (
+	github.com/go-sql-driver/mysql v1.8.1
+	github.com/redis/go-redis/v9 v9.7.0
+)
+`
+	if err := os.WriteFile("go.mod", []byte(goMod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(".env.example", []byte("MYSQL_DSN=\nREDIS_URL=\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"onboard", "detect", "--project", "tpo/devex/orders/orders-api"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload onboardDetectResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Config.Middleware) != 2 {
+		t.Fatalf("middleware = %#v", payload.Config.Middleware)
+	}
+	if payload.Config.Middleware[0].Kind != "mysql" || payload.Config.Middleware[0].Mode != "shared-database" {
+		t.Fatalf("mysql intent = %#v", payload.Config.Middleware[0])
+	}
+	if payload.Config.Middleware[1].Kind != "redis" || payload.Config.Middleware[1].Mode != "shared-cache" {
+		t.Fatalf("redis intent = %#v", payload.Config.Middleware[1])
+	}
+	if payload.Config.Middleware[0].Secret != "orders-api-mysql-conn" {
+		t.Fatalf("secret = %s", payload.Config.Middleware[0].Secret)
+	}
+}
+
 func TestOnboardGenerateAutoNamespacesByProject(t *testing.T) {
 	dir := t.TempDir()
 	wd, err := os.Getwd()
@@ -329,6 +392,43 @@ func TestOnboardGenerateAutoNamespacesByProject(t *testing.T) {
 	}
 	if !bytes.Contains(body, []byte("namespaceSource: auto_project")) {
 		t.Fatalf("expected auto namespace source: %s", string(body))
+	}
+}
+
+func TestOnboardGenerateWritesMiddlewareIntent(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("package.json", []byte(`{"dependencies":{"mysql2":"^3.0.0","ioredis":"^5.0.0"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"onboard", "generate", "--project", "tpo/devex/orders/orders-api", "--write"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile("opspilot.service.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range [][]byte{
+		[]byte("middleware:"),
+		[]byte("mysql:"),
+		[]byte("mode: shared-database"),
+		[]byte("secret: orders-api-mysql-conn"),
+		[]byte("redis:"),
+		[]byte("mode: shared-cache"),
+	} {
+		if !bytes.Contains(body, expected) {
+			t.Fatalf("generated config missing %s:\n%s", expected, string(body))
+		}
 	}
 }
 
@@ -425,6 +525,28 @@ func TestRepoAutofixWritesPlatformFiles(t *testing.T) {
 	out.Reset()
 	if err := run([]string{"repo", "preflight", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out); err != nil {
 		t.Fatalf("preflight after autofix failed: %v\n%s", err, out.String())
+	}
+}
+
+func TestRepoPreflightReportsMiddlewareIntent(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/orders-api\nrequire github.com/go-sql-driver/mysql v1.8.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	_ = run([]string{"repo", "preflight", "--repo", dir, "--project", "tpo/devex/orders/orders-api"}, &out)
+	var payload repoPreflightResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range payload.Items {
+		if item.Name == "middleware_mysql" && item.Status == "pass" && bytes.Contains([]byte(item.Message), []byte("shared-database")) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("middleware item missing: %#v", payload.Items)
 	}
 }
 

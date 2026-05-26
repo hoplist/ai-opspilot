@@ -7,31 +7,56 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
 
 type onboardServiceConfig struct {
-	Name          string `json:"name"`
-	GitLabProject string `json:"gitlab_project"`
-	Organization  string `json:"organization,omitempty"`
-	Group         string `json:"group,omitempty"`
-	Project       string `json:"project,omitempty"`
-	Language      string `json:"language"`
-	BuildEntry    string `json:"build_entry"`
-	BuildOutput   string `json:"build_output"`
-	Port          int    `json:"port"`
-	HealthPath    string `json:"health_path"`
-	Namespace     string `json:"namespace"`
-	NamespaceSrc  string `json:"namespace_source,omitempty"`
-	Replicas      int    `json:"replicas"`
-	Container     string `json:"container"`
-	DockerMode    string `json:"dockerfile_mode"`
-	DockerPath    string `json:"dockerfile_path"`
-	CIMode        string `json:"ci_mode"`
-	PromSource    string `json:"prometheus_source"`
+	Name          string                    `json:"name"`
+	GitLabProject string                    `json:"gitlab_project"`
+	Organization  string                    `json:"organization,omitempty"`
+	Group         string                    `json:"group,omitempty"`
+	Project       string                    `json:"project,omitempty"`
+	Language      string                    `json:"language"`
+	BuildEntry    string                    `json:"build_entry"`
+	BuildOutput   string                    `json:"build_output"`
+	Port          int                       `json:"port"`
+	HealthPath    string                    `json:"health_path"`
+	Namespace     string                    `json:"namespace"`
+	NamespaceSrc  string                    `json:"namespace_source,omitempty"`
+	Replicas      int                       `json:"replicas"`
+	Container     string                    `json:"container"`
+	DockerMode    string                    `json:"dockerfile_mode"`
+	DockerPath    string                    `json:"dockerfile_path"`
+	CIMode        string                    `json:"ci_mode"`
+	PromSource    string                    `json:"prometheus_source"`
+	Middleware    []onboardMiddlewareConfig `json:"middleware,omitempty"`
+}
+
+type onboardMiddlewareConfig struct {
+	Name       string   `json:"name"`
+	Kind       string   `json:"kind"`
+	Display    string   `json:"display"`
+	Mode       string   `json:"mode"`
+	Allocation string   `json:"allocation"`
+	Resource   string   `json:"resource"`
+	Secret     string   `json:"secret"`
+	Env        []string `json:"env"`
+	Reason     string   `json:"reason,omitempty"`
+	Evidence   []string `json:"evidence,omitempty"`
+}
+
+type middlewareCatalogEntry struct {
+	Kind       string
+	Display    string
+	Mode       string
+	Allocation string
+	Env        []string
+	Tokens     []string
 }
 
 type onboardWriteResult struct {
@@ -96,6 +121,85 @@ var projectSuffixes = map[string]bool{
 	"service": true,
 	"web":     true,
 	"worker":  true,
+}
+
+var middlewareCatalog = []middlewareCatalogEntry{
+	{
+		Kind:       "mysql",
+		Display:    "MySQL database",
+		Mode:       "shared-database",
+		Allocation: "database-user",
+		Env:        []string{"DATABASE_URL"},
+		Tokens: []string{
+			"go-sql-driver/mysql", "mysql2", "mysqlclient", "pymysql", "mysql-connector",
+			"jdbc:mysql", "mysql_", "mysql://",
+		},
+	},
+	{
+		Kind:       "postgres",
+		Display:    "PostgreSQL database",
+		Mode:       "shared-database",
+		Allocation: "database-user-schema",
+		Env:        []string{"DATABASE_URL"},
+		Tokens: []string{
+			"lib/pq", "pgx", "psycopg", "asyncpg", "node-postgres", "postgresql",
+			"jdbc:postgresql", "postgres://", "postgres_", "pghost",
+		},
+	},
+	{
+		Kind:       "redis",
+		Display:    "Redis cache",
+		Mode:       "shared-cache",
+		Allocation: "key-prefix",
+		Env:        []string{"REDIS_URL"},
+		Tokens: []string{
+			"go-redis", "ioredis", "redis-py", "redis_url", "redis.host",
+			"redis_host", "redis://",
+		},
+	},
+	{
+		Kind:       "rabbitmq",
+		Display:    "RabbitMQ message queue",
+		Mode:       "shared-broker",
+		Allocation: "vhost-user",
+		Env:        []string{"AMQP_URL"},
+		Tokens: []string{
+			"rabbitmq", "amqplib", "pika", "spring.rabbitmq", "amqp_url", "rabbitmq_url",
+			"amqp://",
+		},
+	},
+	{
+		Kind:       "s3",
+		Display:    "S3 compatible object storage",
+		Mode:       "shared-object-storage",
+		Allocation: "bucket-access-key",
+		Env:        []string{"S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY"},
+		Tokens: []string{
+			"minio", "boto3", "@aws-sdk/client-s3", "aws-sdk", "s3_endpoint", "s3_bucket",
+			"aws_access_key_id",
+		},
+	},
+	{
+		Kind:       "opensearch",
+		Display:    "OpenSearch/Elasticsearch search",
+		Mode:       "shared-search",
+		Allocation: "index-prefix",
+		Env:        []string{"OPENSEARCH_URL"},
+		Tokens: []string{
+			"opensearch", "elasticsearch", "elastic_client", "elasticsearch_url",
+			"opensearch_url",
+		},
+	},
+	{
+		Kind:       "kafka",
+		Display:    "Kafka streaming",
+		Mode:       "shared-streaming",
+		Allocation: "topic-prefix-acl",
+		Env:        []string{"KAFKA_BROKERS"},
+		Tokens: []string{
+			"kafka", "sarama", "confluent-kafka", "kafka_brokers", "spring.kafka",
+		},
+	},
 }
 
 func onboardDetectCommand(args []string, out io.Writer) error {
@@ -259,6 +363,7 @@ func checkOnboardRepository(cfg onboardServiceConfig) onboardCheckResult {
 		checkFile("kustomization", filepath.Join("deploy", "k8s", "kustomization.yaml"), true, "Kustomize entrypoint"),
 		checkFile("release_mapping", "opspilot.release-service.txt", false, "OpsPilot release service mapping"),
 	}
+	items = append(items, checkOnboardMiddleware(cfg)...)
 	result := onboardCheckResult{Service: cfg.Name, Ready: true, Items: items}
 	for _, item := range items {
 		if item.OK {
@@ -271,6 +376,27 @@ func checkOnboardRepository(cfg onboardServiceConfig) onboardCheckResult {
 		result.Next = append(result.Next, nextOnboardAction(item))
 	}
 	return result
+}
+
+func checkOnboardMiddleware(cfg onboardServiceConfig) []onboardCheckItem {
+	if len(cfg.Middleware) == 0 {
+		return []onboardCheckItem{{
+			Name:     "middleware",
+			OK:       true,
+			Required: false,
+			Message:  "none configured",
+		}}
+	}
+	items := make([]onboardCheckItem, 0, len(cfg.Middleware))
+	for _, item := range cfg.Middleware {
+		items = append(items, onboardCheckItem{
+			Name:     "middleware_" + item.Name,
+			OK:       true,
+			Required: false,
+			Message:  fmt.Sprintf("%s uses %s allocation=%s secret=%s", item.Display, item.Mode, item.Allocation, item.Secret),
+		})
+	}
+	return items
 }
 
 func checkFile(name, path string, required bool, message string) onboardCheckItem {
@@ -386,6 +512,7 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 		cfg.DockerPath = "Dockerfile"
 		cfg.DockerMode = "generate"
 	}
+	cfg.Middleware = detectMiddlewareRequirements(cfg)
 	files := map[string]bool{
 		"dockerfile":     fileExists(cfg.DockerPath),
 		"gitlab_ci":      fileExists(".gitlab-ci.yml"),
@@ -704,7 +831,7 @@ func writeGeneratedFile(path, body string, force bool) (string, error) {
 }
 
 func serviceConfigTemplate(c onboardServiceConfig) string {
-	return fmt.Sprintf(`name: %s
+	base := fmt.Sprintf(`name: %s
 gitlabProject: %s
 ownership:
   organization: %s
@@ -734,9 +861,33 @@ dockerfile:
 ci:
   mode: %s
 
+%s
 release:
   prometheusSource: %s
-`, c.Name, c.GitLabProject, c.Organization, c.Group, c.Project, c.Language, c.BuildEntry, c.BuildOutput, c.Port, c.HealthPath, c.Namespace, firstNonEmpty(c.NamespaceSrc, "manual"), c.Replicas, c.Container, c.DockerMode, c.DockerPath, c.CIMode, c.PromSource)
+`, c.Name, c.GitLabProject, c.Organization, c.Group, c.Project, c.Language, c.BuildEntry, c.BuildOutput, c.Port, c.HealthPath, c.Namespace, firstNonEmpty(c.NamespaceSrc, "manual"), c.Replicas, c.Container, c.DockerMode, c.DockerPath, c.CIMode, middlewareConfigTemplate(c.Middleware), c.PromSource)
+	return base
+}
+
+func middlewareConfigTemplate(items []onboardMiddlewareConfig) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("middleware:\n")
+	for _, item := range items {
+		b.WriteString(fmt.Sprintf("  %s:\n", item.Name))
+		b.WriteString(fmt.Sprintf("    kind: %s\n", item.Kind))
+		b.WriteString(fmt.Sprintf("    display: %s\n", item.Display))
+		b.WriteString(fmt.Sprintf("    mode: %s\n", item.Mode))
+		b.WriteString(fmt.Sprintf("    allocation: %s\n", item.Allocation))
+		b.WriteString(fmt.Sprintf("    resource: %s\n", item.Resource))
+		b.WriteString(fmt.Sprintf("    secret: %s\n", item.Secret))
+		b.WriteString(fmt.Sprintf("    env: %s\n", strings.Join(item.Env, ",")))
+		if item.Reason != "" {
+			b.WriteString(fmt.Sprintf("    reason: %s\n", item.Reason))
+		}
+	}
+	return b.String()
 }
 
 func readOnboardServiceConfig(path string) (onboardServiceConfig, error) {
@@ -745,7 +896,7 @@ func readOnboardServiceConfig(path string) (onboardServiceConfig, error) {
 		return onboardServiceConfig{}, err
 	}
 	values := parseSimpleYAML(string(body))
-	return onboardServiceConfig{
+	cfg := onboardServiceConfig{
 		Name:          values["name"],
 		GitLabProject: values["gitlabProject"],
 		Organization:  values["ownership.organization"],
@@ -764,7 +915,9 @@ func readOnboardServiceConfig(path string) (onboardServiceConfig, error) {
 		DockerPath:    values["dockerfile.path"],
 		CIMode:        values["ci.mode"],
 		PromSource:    values["release.prometheusSource"],
-	}, nil
+	}
+	cfg.Middleware = middlewareFromValues(values)
+	return cfg, nil
 }
 
 func (c *onboardServiceConfig) defaults() error {
@@ -825,12 +978,17 @@ func (c *onboardServiceConfig) defaults() error {
 	if c.PromSource == "" {
 		c.PromSource = "node200-k8s"
 	}
+	c.Middleware = normalizeMiddlewareRequirements(*c, c.Middleware)
 	return nil
 }
 
 func parseSimpleYAML(raw string) map[string]string {
 	out := map[string]string{}
-	section := ""
+	type frame struct {
+		indent int
+		key    string
+	}
+	stack := []frame{}
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimRight(line, " \t\r")
 		trimmed := strings.TrimSpace(line)
@@ -844,20 +1002,56 @@ func parseSimpleYAML(raw string) map[string]string {
 		}
 		key = strings.TrimSpace(key)
 		value = strings.Trim(strings.TrimSpace(value), `"'`)
-		if indent == 0 && value == "" {
-			section = key
+		for len(stack) > 0 && indent <= stack[len(stack)-1].indent {
+			stack = stack[:len(stack)-1]
+		}
+		if value == "" {
+			stack = append(stack, frame{indent: indent, key: key})
 			continue
 		}
-		if indent == 0 {
-			section = ""
-			out[key] = value
-			continue
+		parts := make([]string, 0, len(stack)+1)
+		for _, part := range stack {
+			parts = append(parts, part.key)
 		}
-		if section != "" {
-			out[section+"."+key] = value
-		}
+		parts = append(parts, key)
+		out[strings.Join(parts, ".")] = value
 	}
 	return out
+}
+
+func middlewareFromValues(values map[string]string) []onboardMiddlewareConfig {
+	names := map[string]bool{}
+	for key := range values {
+		if !strings.HasPrefix(key, "middleware.") {
+			continue
+		}
+		rest := strings.TrimPrefix(key, "middleware.")
+		name, _, ok := strings.Cut(rest, ".")
+		if ok && name != "" {
+			names[name] = true
+		}
+	}
+	ordered := make([]string, 0, len(names))
+	for name := range names {
+		ordered = append(ordered, name)
+	}
+	sort.Strings(ordered)
+	items := []onboardMiddlewareConfig{}
+	for _, name := range ordered {
+		prefix := "middleware." + name + "."
+		items = append(items, onboardMiddlewareConfig{
+			Name:       name,
+			Kind:       values[prefix+"kind"],
+			Display:    values[prefix+"display"],
+			Mode:       values[prefix+"mode"],
+			Allocation: values[prefix+"allocation"],
+			Resource:   values[prefix+"resource"],
+			Secret:     values[prefix+"secret"],
+			Env:        splitCSV(values[prefix+"env"]),
+			Reason:     values[prefix+"reason"],
+		})
+	}
+	return items
 }
 
 func intFromString(raw string, fallback int) int {
@@ -869,6 +1063,212 @@ func intFromString(raw string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func detectMiddlewareRequirements(c onboardServiceConfig) []onboardMiddlewareConfig {
+	signals := collectRepoSignals()
+	items := []onboardMiddlewareConfig{}
+	for _, entry := range middlewareCatalog {
+		evidence := middlewareEvidence(signals, entry.Tokens)
+		if len(evidence) == 0 {
+			continue
+		}
+		item := defaultMiddlewareRequirement(c, entry)
+		item.Evidence = evidence
+		item.Reason = fmt.Sprintf("detected %s dependency; use %s and allocate %s", entry.Display, entry.Mode, entry.Allocation)
+		items = append(items, item)
+	}
+	return items
+}
+
+type repoSignal struct {
+	Path string
+	Text string
+}
+
+func collectRepoSignals() []repoSignal {
+	signals := []repoSignal{}
+	seen := map[string]bool{}
+	maxFiles := 200
+	_ = filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || len(signals) >= maxFiles {
+			return nil
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if shouldSkipScanDir(name) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !shouldScanDependencyFile(path) || seen[path] {
+			return nil
+		}
+		seen[path] = true
+		if body, ok := readSmallTextFile(path); ok {
+			signals = append(signals, repoSignal{Path: filepath.ToSlash(path), Text: string(body)})
+		}
+		return nil
+	})
+	return signals
+}
+
+func shouldSkipScanDir(name string) bool {
+	switch name {
+	case ".git", "node_modules", "vendor", "dist", "build", "target", ".next", ".venv", "venv", "__pycache__":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldScanDependencyFile(path string) bool {
+	slashPath := filepath.ToSlash(path)
+	if strings.HasPrefix(slashPath, "deploy/k8s/") {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(path))
+	switch base {
+	case "opspilot.service.yaml", "opspilot.namespaces.yaml", "opspilot.release-service.txt", ".gitlab-ci.yml":
+		return false
+	}
+	switch base {
+	case "go.mod", "package.json", "requirements.txt", "pyproject.toml", "pom.xml",
+		".env", ".env.example", "application.yml", "application.yaml",
+		"bootstrap.yml", "bootstrap.yaml", "config.yml", "config.yaml",
+		"application.properties":
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".go", ".js", ".ts", ".py", ".java", ".yml", ".yaml", ".properties", ".toml":
+		return true
+	default:
+		return false
+	}
+}
+
+func readSmallTextFile(path string) ([]byte, bool) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() > 256*1024 {
+		return nil, false
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || strings.ContainsRune(string(body), '\x00') {
+		return nil, false
+	}
+	return body, true
+}
+
+func middlewareEvidence(signals []repoSignal, tokens []string) []string {
+	evidence := []string{}
+	for _, signal := range signals {
+		lower := strings.ToLower(signal.Text)
+		for _, token := range tokens {
+			if token == "" || !strings.Contains(lower, strings.ToLower(token)) {
+				continue
+			}
+			evidence = append(evidence, fmt.Sprintf("%s contains %s", signal.Path, token))
+			if len(evidence) >= 3 {
+				return evidence
+			}
+		}
+	}
+	return evidence
+}
+
+func normalizeMiddlewareRequirements(c onboardServiceConfig, items []onboardMiddlewareConfig) []onboardMiddlewareConfig {
+	normalized := []onboardMiddlewareConfig{}
+	seen := map[string]bool{}
+	for _, item := range items {
+		kind := firstNonEmpty(item.Kind, item.Name)
+		entry, ok := middlewareCatalogByKind(kind)
+		if !ok {
+			entry = middlewareCatalogEntry{
+				Kind:       sanitizeDNSLabel(kind),
+				Display:    firstNonEmpty(item.Display, kind),
+				Mode:       firstNonEmpty(item.Mode, "shared"),
+				Allocation: firstNonEmpty(item.Allocation, "logical-resource"),
+				Env:        item.Env,
+			}
+		}
+		defaults := defaultMiddlewareRequirement(c, entry)
+		defaults.Name = firstNonEmpty(item.Name, defaults.Name)
+		defaults.Kind = firstNonEmpty(item.Kind, defaults.Kind)
+		defaults.Display = firstNonEmpty(item.Display, defaults.Display)
+		defaults.Mode = firstNonEmpty(item.Mode, defaults.Mode)
+		defaults.Allocation = firstNonEmpty(item.Allocation, defaults.Allocation)
+		defaults.Resource = firstNonEmpty(item.Resource, defaults.Resource)
+		defaults.Secret = firstNonEmpty(item.Secret, defaults.Secret)
+		if len(item.Env) > 0 {
+			defaults.Env = item.Env
+		}
+		defaults.Reason = item.Reason
+		defaults.Evidence = item.Evidence
+		key := defaults.Name
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		normalized = append(normalized, defaults)
+	}
+	sort.SliceStable(normalized, func(i, j int) bool {
+		return middlewareCatalogRank(normalized[i].Kind) < middlewareCatalogRank(normalized[j].Kind)
+	})
+	return normalized
+}
+
+func defaultMiddlewareRequirement(c onboardServiceConfig, entry middlewareCatalogEntry) onboardMiddlewareConfig {
+	name := sanitizeDNSLabel(entry.Kind)
+	return onboardMiddlewareConfig{
+		Name:       name,
+		Kind:       entry.Kind,
+		Display:    entry.Display,
+		Mode:       entry.Mode,
+		Allocation: entry.Allocation,
+		Resource:   middlewareResourceName(c, entry.Kind),
+		Secret:     sanitizeDNSLabel(c.Name + "-" + entry.Kind + "-conn"),
+		Env:        append([]string{}, entry.Env...),
+	}
+}
+
+func middlewareCatalogByKind(kind string) (middlewareCatalogEntry, bool) {
+	kind = sanitizeDNSLabel(kind)
+	for _, entry := range middlewareCatalog {
+		if entry.Kind == kind {
+			return entry, true
+		}
+	}
+	return middlewareCatalogEntry{}, false
+}
+
+func middlewareCatalogRank(kind string) int {
+	for i, entry := range middlewareCatalog {
+		if entry.Kind == kind {
+			return i
+		}
+	}
+	return len(middlewareCatalog) + 1
+}
+
+func middlewareResourceName(c onboardServiceConfig, kind string) string {
+	parts := []string{
+		firstNonEmpty(c.Group, defaultGroup),
+		firstNonEmpty(c.Project, projectNameFromService(c.Name)),
+		c.Name,
+		kind,
+	}
+	return strings.ReplaceAll(sanitizeDNSLabel(strings.Join(parts, "-")), "-", "_")
+}
+
+func splitCSV(raw string) []string {
+	out := []string{}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func dockerfileTemplate(c onboardServiceConfig) string {

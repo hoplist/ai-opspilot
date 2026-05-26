@@ -16,6 +16,35 @@ paths:
       responses:
         "200":
           description: Inventory overview
+  /api/errors/recent:
+    get:
+      summary: Return recent AI-readable error events
+      parameters:
+        - name: source
+          in: query
+          schema:
+            type: string
+            enum:
+              - kubernetes
+              - argocd
+              - release
+              - middleware
+        - name: service
+          in: query
+          schema:
+            type: string
+        - name: namespace
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Structured error events for OpsPilot and AI assistants
   /api/metrics/health:
     get:
       summary: Return Prometheus datasource reachability from OpsPilot Core

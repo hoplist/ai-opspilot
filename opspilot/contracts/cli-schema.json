@@ -1,6 +1,6 @@
 {
   "name": "opspilot",
-  "version": "0.1.14-auto-repo-governance",
+  "version": "0.1.16-ai-readable-error-evidence",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
   "commands": [
@@ -110,6 +110,11 @@
       "description": "Correlate APISIX access logs with service logs by host, URI, time window, optional route mapping, and evidence strength. Supports --skip-apisix / --service-only for preliminary investigation without gateway logs."
     },
     {
+      "name": "errors recent",
+      "readonly": true,
+      "description": "Return recent AI-readable error events from Kubernetes abnormal Pods, Argo CD application state, release evidence gaps, and structured file events such as middleware provisioning failures."
+    },
+    {
       "name": "context pod",
       "readonly": true,
       "description": "Return a Pod Evidence Pack."
@@ -186,17 +191,17 @@
     {
       "name": "onboard detect",
       "readonly": true,
-      "description": "Detect service onboarding config from a repository, including language, Dockerfile, port, build entry, tpo/devex ownership, and project-level namespace mapping."
+      "description": "Detect service onboarding config from a repository, including language, Dockerfile, port, build entry, tpo/devex ownership, project-level namespace mapping, and shared middleware intent."
     },
     {
       "name": "onboard generate",
       "readonly": false,
-      "description": "Generate opspilot.service.yaml, GitLab CI include, Dockerfile when missing, namespace.yaml, deploy/k8s manifests, and release mapping from repository detection and project-level namespace automation."
+      "description": "Generate opspilot.service.yaml, GitLab CI include, Dockerfile when missing, namespace.yaml, deploy/k8s manifests, release mapping, and shared middleware intent from repository detection and project-level namespace automation."
     },
     {
       "name": "repo preflight",
       "readonly": true,
-      "description": "Run automated repository governance checks for Dockerfile, platform GitLab CI include, deploy/k8s manifests, namespace ownership, port, and health evidence. Intended for CI gating."
+      "description": "Run automated repository governance checks for Dockerfile, platform GitLab CI include, deploy/k8s manifests, namespace ownership, port, health evidence, and shared middleware intent. Intended for CI gating."
     },
     {
       "name": "repo autofix",

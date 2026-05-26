@@ -148,6 +148,7 @@ func repoPreflight(project, catalogPath string) (repoPreflightResult, error) {
 		checkRepoFile("kustomization", filepath.Join("deploy", "k8s", "kustomization.yaml"), "generate deploy/k8s/kustomization.yaml"),
 		checkRepoHealth(cfg),
 	}
+	items = append(items, checkRepoMiddleware(cfg)...)
 	result := repoPreflightResult{
 		Service:   cfg.Name,
 		Project:   cfg.GitLabProject,
@@ -317,6 +318,32 @@ func checkRepoHealth(cfg onboardServiceConfig) repoPolicyItem {
 		return repoPolicyItem{Name: "health_path", Status: "warn", Level: "warning", Message: "health path missing; default /health will be used", Fixable: true, Action: "run repo autofix --write to persist health path"}
 	}
 	return repoPolicyItem{Name: "health_path", Status: "pass", Level: "info", Message: cfg.HealthPath}
+}
+
+func checkRepoMiddleware(cfg onboardServiceConfig) []repoPolicyItem {
+	if len(cfg.Middleware) == 0 {
+		return []repoPolicyItem{{
+			Name:    "middleware",
+			Status:  "pass",
+			Level:   "info",
+			Message: "none detected",
+		}}
+	}
+	items := make([]repoPolicyItem, 0, len(cfg.Middleware))
+	for _, item := range cfg.Middleware {
+		message := fmt.Sprintf("%s -> %s, allocation=%s, resource=%s, secret=%s",
+			item.Display, item.Mode, item.Allocation, item.Resource, item.Secret)
+		if len(item.Evidence) > 0 {
+			message += "; evidence: " + strings.Join(item.Evidence, "; ")
+		}
+		items = append(items, repoPolicyItem{
+			Name:    "middleware_" + item.Name,
+			Status:  "pass",
+			Level:   "info",
+			Message: message,
+		})
+	}
+	return items
 }
 
 func shouldGenerateDockerfile(preflight repoPreflightResult) bool {
