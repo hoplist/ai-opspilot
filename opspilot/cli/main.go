@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -66,7 +67,18 @@ func run(args []string, out io.Writer) error {
 		endpoint, values = evidenceCommand(args[1:])
 	case "errors":
 		endpoint, values = errorsCommand(args[1:])
+	case "ask", "nl":
+		return runNaturalLanguage(opts, args[1:], out)
 	case "release":
+		if len(args) > 1 && args[1] == "service" {
+			return runReleaseService(opts, args[2:], out)
+		}
+		if len(args) > 1 && args[1] == "trigger" {
+			return runReleaseService(opts, append([]string{"--trigger"}, args[2:]...), out)
+		}
+		if len(args) > 1 && !knownReleaseCommand(args[1]) {
+			return runReleaseService(opts, args[1:], out)
+		}
 		if len(args) > 1 && args[1] == "status" {
 			return runReleaseStatus(opts, args[2:], out)
 		}
@@ -90,7 +102,7 @@ func run(args []string, out io.Writer) error {
 	case "inspect", "check":
 		return inspectCommand(opts, args[1:], out)
 	case "onboard":
-		return onboardCommand(args[1:], out)
+		return onboardCommand(opts, args[1:], out)
 	case "repo":
 		return repoCommand(opts, args[1:], out)
 	default:
@@ -105,6 +117,241 @@ func run(args []string, out io.Writer) error {
 		_, err = fmt.Fprintln(out)
 	}
 	return err
+}
+
+func knownReleaseCommand(command string) bool {
+	switch command {
+	case "status", "evidence", "diagnose", "jobs", "logs", "history", "rollback", "service", "trigger":
+		return true
+	default:
+		return false
+	}
+}
+
+type naturalLanguageResult struct {
+	Query    string   `json:"query"`
+	Action   string   `json:"action"`
+	Service  string   `json:"service,omitempty"`
+	Command  []string `json:"command"`
+	Executed bool     `json:"executed"`
+	DryRun   bool     `json:"dry_run"`
+	Message  string   `json:"message,omitempty"`
+	Result   any      `json:"result,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+type naturalLanguageIntent struct {
+	Action  string
+	Service string
+	Target  string
+	Command []string
+}
+
+func runNaturalLanguage(opts globalOptions, args []string, out io.Writer) error {
+	service := ""
+	ref := "main"
+	dryRun := false
+	queryParts := []string{}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--dry-run":
+			dryRun = true
+		case arg == "--service" && i+1 < len(args):
+			service = args[i+1]
+			i++
+		case strings.HasPrefix(arg, "--service="):
+			service = strings.TrimPrefix(arg, "--service=")
+		case arg == "--ref" && i+1 < len(args):
+			ref = args[i+1]
+			i++
+		case strings.HasPrefix(arg, "--ref="):
+			ref = strings.TrimPrefix(arg, "--ref=")
+		default:
+			queryParts = append(queryParts, arg)
+		}
+	}
+	query := strings.TrimSpace(strings.Join(queryParts, " "))
+	if query == "" {
+		return fmt.Errorf("ask requires natural language text")
+	}
+	services, warnings := fetchConfiguredServices(opts.backendURL)
+	intent := interpretNaturalLanguage(query, service, services)
+	if intent.Service == "" {
+		result := naturalLanguageResult{
+			Query:    query,
+			Action:   intent.Action,
+			Command:  intent.Command,
+			Executed: false,
+			DryRun:   dryRun,
+			Message:  "service could not be identified from the request",
+			Warnings: warnings,
+		}
+		_ = writeOutput(out, opts.output, result, writeNaturalLanguageHuman(result))
+		return fmt.Errorf("service could not be identified from natural language")
+	}
+	result := naturalLanguageResult{
+		Query:    query,
+		Action:   intent.Action,
+		Service:  intent.Service,
+		Command:  intent.Command,
+		Executed: false,
+		DryRun:   dryRun,
+		Warnings: warnings,
+	}
+	if dryRun {
+		result.Message = "dry run only; no action executed"
+		return writeOutput(out, opts.output, result, writeNaturalLanguageHuman(result))
+	}
+	switch intent.Action {
+	case "inspect_service":
+		payload, err := fetchInspectService(opts.backendURL, intent.Service, "test", "", 300, 1800)
+		if err != nil {
+			return err
+		}
+		result.Executed = true
+		result.Result = payload
+	case "release_service":
+		payload, err := triggerReleaseService(opts.backendURL, intent.Service, ref, nil)
+		if err != nil {
+			return err
+		}
+		result.Executed = true
+		result.Result = payload
+	case "release_history":
+		payload, err := fetchReleaseHistoryData(opts.backendURL, intent.Service, 10)
+		if err != nil {
+			return err
+		}
+		result.Executed = true
+		result.Result = payload
+	case "rollback_service":
+		if intent.Target == "" {
+			return fmt.Errorf("rollback target could not be identified from natural language")
+		}
+		payload, err := rollbackReleaseService(opts.backendURL, intent.Service, intent.Target)
+		if err != nil {
+			return err
+		}
+		result.Executed = true
+		result.Result = payload
+	default:
+		return fmt.Errorf("unsupported natural language action: %s", intent.Action)
+	}
+	return writeOutput(out, opts.output, result, writeNaturalLanguageHuman(result))
+}
+
+func writeNaturalLanguageHuman(result naturalLanguageResult) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Ask: %s\n", result.Query)
+		fmt.Fprintf(w, "Intent: %s service=%s executed=%t\n", result.Action, result.Service, result.Executed)
+		if len(result.Command) > 0 {
+			fmt.Fprintf(w, "Command: opspilot %s\n", strings.Join(result.Command, " "))
+		}
+		if result.Message != "" {
+			fmt.Fprintf(w, "Message: %s\n", result.Message)
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		if result.Result != nil {
+			switch payload := result.Result.(type) {
+			case inspectServiceResult:
+				fmt.Fprintf(w, "Status: %s stage=%s namespace=%s deployment=%s\n", payload.Status, payload.Stage, payload.Namespace, payload.Deployment)
+				fmt.Fprintf(w, "Usage: pods=%d restarts=%d CPU %.3f cores memory %.1f MiB\n", payload.PodCount, payload.RestartCount, payload.TotalCPUCore, payload.TotalMemoryMiB)
+				if len(payload.Findings) > 0 {
+					fmt.Fprintf(w, "Findings: %s\n", strings.Join(payload.Findings, "; "))
+				}
+				if len(payload.EvidenceGaps) > 0 {
+					fmt.Fprintf(w, "Evidence gaps: %s\n", strings.Join(payload.EvidenceGaps, ", "))
+				}
+				return nil
+			case map[string]any:
+				if pipeline := mapValue(payload, "pipeline"); pipeline != nil {
+					fmt.Fprintf(w, "Pipeline: id=%d status=%s ref=%s sha=%s\n",
+						intValue(pipeline["id"]), stringValue(pipeline["status"]), stringValue(pipeline["ref"]), stringValue(pipeline["sha"]))
+					if checks := stringList(payload["next_checks"]); len(checks) > 0 {
+						fmt.Fprintf(w, "Next: %s\n", strings.Join(checks, "; "))
+					}
+					return nil
+				}
+			}
+			body, err := json.MarshalIndent(result.Result, "", "  ")
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(w, string(body))
+		}
+		return nil
+	}
+}
+
+func interpretNaturalLanguage(query, serviceOverride string, services []string) naturalLanguageIntent {
+	lower := strings.ToLower(query)
+	service := firstNonEmptyString(serviceOverride, serviceFromText(lower, services))
+	action := "inspect_service"
+	command := []string{"inspect", "service", service}
+	if containsAny(lower, []string{"回退", "rollback", "退回"}) {
+		target := rollbackTargetFromText(query)
+		action = "rollback_service"
+		command = []string{"release", "rollback", service, target, "--confirm"}
+		return naturalLanguageIntent{Action: action, Service: service, Target: target, Command: command}
+	}
+	if containsAny(lower, []string{"历史", "history", "版本记录", "发布记录"}) {
+		action = "release_history"
+		command = []string{"release", "history", service}
+		return naturalLanguageIntent{Action: action, Service: service, Command: command}
+	}
+	if containsAny(lower, []string{"发布", "上线", "release", "deploy", "发版"}) {
+		action = "release_service"
+		command = []string{"release", "service", service, "--trigger"}
+		return naturalLanguageIntent{Action: action, Service: service, Command: command}
+	}
+	return naturalLanguageIntent{Action: action, Service: service, Command: command}
+}
+
+func fetchConfiguredServices(backendURL string) ([]string, []string) {
+	body, err := get(backendURL, "/api/health", url.Values{})
+	if err != nil {
+		return nil, []string{"health: " + err.Error()}
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, []string{"health: " + err.Error()}
+	}
+	data := mapValue(payload, "data")
+	release := mapValue(data, "release")
+	out := []string{}
+	for _, item := range stringList(release["services"]) {
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
+func serviceFromText(text string, services []string) string {
+	for _, service := range services {
+		if service != "" && strings.Contains(text, strings.ToLower(service)) {
+			return service
+		}
+	}
+	matches := regexp.MustCompile(`[a-zA-Z0-9][a-zA-Z0-9._/]*-[a-zA-Z0-9][a-zA-Z0-9._/-]*`).FindAllString(text, -1)
+	if len(matches) > 0 {
+		return strings.Trim(matches[0], `"'.,，。;；:：`)
+	}
+	return ""
+}
+
+func rollbackTargetFromText(query string) string {
+	fields := strings.Fields(query)
+	for i, field := range fields {
+		lower := strings.ToLower(strings.Trim(field, `"'.,，。;；:：`))
+		if (lower == "到" || lower == "to" || lower == "target") && i+1 < len(fields) {
+			return strings.Trim(fields[i+1], `"'.,，。;；:：`)
+		}
+	}
+	return ""
 }
 
 func errorsCommand(args []string) (string, url.Values) {
@@ -500,9 +747,11 @@ type filesystemsResult struct {
 
 func inspectCommand(opts globalOptions, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("expected inspect subcommand: pod or cluster")
+		return fmt.Errorf("expected inspect subcommand: service, pod, or cluster")
 	}
 	switch args[0] {
+	case "service":
+		return runInspectService(opts, args[1:], out)
 	case "pod":
 		return runInspectPod(opts, args[1:], out)
 	case "cluster":
@@ -585,6 +834,158 @@ type inspectPodResult struct {
 	EvidenceGaps         []string       `json:"evidence_gaps"`
 	Findings             []string       `json:"findings"`
 	Raw                  map[string]any `json:"raw,omitempty"`
+}
+
+type inspectServiceResult struct {
+	Service        string             `json:"service"`
+	Environment    string             `json:"environment,omitempty"`
+	Namespace      string             `json:"namespace,omitempty"`
+	Deployment     string             `json:"deployment,omitempty"`
+	Status         string             `json:"status,omitempty"`
+	Stage          string             `json:"stage,omitempty"`
+	Image          string             `json:"image,omitempty"`
+	PodCount       int                `json:"pod_count"`
+	TotalCPUCore   float64            `json:"total_cpu_cores"`
+	TotalMemoryMiB float64            `json:"total_memory_mib"`
+	RestartCount   int                `json:"restart_count"`
+	Pods           []inspectPodResult `json:"pods,omitempty"`
+	ReleaseGaps    []string           `json:"release_gaps,omitempty"`
+	EvidenceGaps   []string           `json:"evidence_gaps,omitempty"`
+	Findings       []string           `json:"findings"`
+	Next           []string           `json:"next,omitempty"`
+	Warnings       []string           `json:"warnings,omitempty"`
+	Raw            map[string]any     `json:"raw,omitempty"`
+}
+
+func runInspectService(opts globalOptions, args []string, out io.Writer) error {
+	positionalService := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		positionalService = args[0]
+		args = args[1:]
+	}
+	fs := flag.NewFlagSet("inspect service", flag.ExitOnError)
+	service := fs.String("service", "", "release service name")
+	envName := fs.String("env", "test", "target environment")
+	source := fs.String("source", "", "prometheus datasource")
+	tail := fs.Int("tail", 300, "tail lines")
+	since := fs.Int("since", 1800, "since seconds")
+	_ = fs.Parse(args)
+	if *service == "" {
+		*service = positionalService
+	}
+	if *service == "" && fs.NArg() > 0 {
+		*service = fs.Arg(0)
+	}
+	if *service == "" {
+		return fmt.Errorf("inspect service requires --service")
+	}
+	result, err := fetchInspectService(opts.backendURL, *service, *envName, *source, *tail, *since)
+	if err != nil {
+		return err
+	}
+	return writeOutput(out, opts.output, result, func(w io.Writer) error {
+		fmt.Fprintf(w, "Service: %s env=%s\n", result.Service, result.Environment)
+		fmt.Fprintf(w, "Status: %s stage=%s namespace=%s deployment=%s\n", result.Status, result.Stage, result.Namespace, result.Deployment)
+		if result.Image != "" {
+			fmt.Fprintf(w, "Image: %s\n", result.Image)
+		}
+		fmt.Fprintf(w, "Usage: pods=%d restarts=%d CPU %.3f cores memory %.1f MiB\n",
+			result.PodCount, result.RestartCount, result.TotalCPUCore, result.TotalMemoryMiB)
+		if len(result.Findings) > 0 {
+			fmt.Fprintf(w, "Findings: %s\n", strings.Join(result.Findings, "; "))
+		}
+		if len(result.ReleaseGaps) > 0 {
+			fmt.Fprintf(w, "Release gaps: %s\n", strings.Join(result.ReleaseGaps, ", "))
+		}
+		if len(result.EvidenceGaps) > 0 {
+			fmt.Fprintf(w, "Evidence gaps: %s\n", strings.Join(result.EvidenceGaps, ", "))
+		}
+		if len(result.Pods) > 0 {
+			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "POD\tSTATUS\tREADY\tRESTARTS\tCPU\tMEMORY\tK8S LOG\tELK")
+			for _, pod := range result.Pods {
+				fmt.Fprintf(tw, "%s\t%s\t%t\t%d\t%.3f\t%.1fMiB\t%dB\t%d\n",
+					pod.Pod, pod.Status, pod.Ready, pod.RestartCount, pod.CPUCore, pod.MemoryMiB, pod.KubernetesLogBytes, pod.ElasticsearchLogHits)
+			}
+			if err := tw.Flush(); err != nil {
+				return err
+			}
+		}
+		if len(result.Next) > 0 {
+			fmt.Fprintf(w, "Next: %s\n", strings.Join(result.Next, "; "))
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		return nil
+	})
+}
+
+func fetchInspectService(backendURL, service, envName, source string, tail, since int) (inspectServiceResult, error) {
+	data, err := fetchReleaseStatusData(backendURL, service)
+	if err != nil {
+		return inspectServiceResult{}, err
+	}
+	result := inspectServiceResult{
+		Service:     firstNonEmptyString(stringValue(data["service"]), service),
+		Environment: firstNonEmptyString(stringValue(data["environment"]), envName),
+		Namespace:   stringValue(data["namespace"]),
+		Deployment:  stringValue(data["deployment"]),
+		Status:      stringValue(data["status"]),
+		Stage:       stringValue(data["stage"]),
+		Image:       stringValue(data["image"]),
+		ReleaseGaps: stringList(data["gaps"]),
+		Next:        stringList(data["next_checks"]),
+		Raw:         map[string]any{"release_status": data},
+	}
+	evidence := mapValue(data, "evidence")
+	pods := mapValue(evidence, "pods")
+	podItems := mapsFromItems(pods["items"])
+	result.PodCount = intValue(pods["item_count"])
+	if result.PodCount == 0 {
+		result.PodCount = len(podItems)
+	}
+	if len(podItems) == 0 {
+		result.EvidenceGaps = append(result.EvidenceGaps, "service_pods_missing")
+		result.Findings = append(result.Findings, "No matching Pods were found from release evidence.")
+	} else {
+		for _, item := range podItems {
+			podName := stringValue(item["name"])
+			namespace := firstNonEmptyString(stringValue(item["namespace"]), result.Namespace)
+			if podName == "" || namespace == "" {
+				continue
+			}
+			pod, err := fetchInspectPod(backendURL, namespace, podName, source, tail, since)
+			if err != nil {
+				result.Warnings = append(result.Warnings, podName+": "+err.Error())
+				result.EvidenceGaps = append(result.EvidenceGaps, "pod_inspection_failed")
+				continue
+			}
+			result.Pods = append(result.Pods, pod)
+			result.TotalCPUCore += pod.CPUCore
+			result.TotalMemoryMiB += pod.MemoryMiB
+			result.RestartCount += pod.RestartCount
+			result.EvidenceGaps = append(result.EvidenceGaps, pod.EvidenceGaps...)
+		}
+	}
+	result.TotalCPUCore = round3(result.TotalCPUCore)
+	result.TotalMemoryMiB = round1(result.TotalMemoryMiB)
+	result.ReleaseGaps = uniqueStrings(result.ReleaseGaps)
+	result.EvidenceGaps = uniqueStrings(result.EvidenceGaps)
+	result.Next = uniqueStrings(result.Next)
+	switch {
+	case result.Status == "healthy" && result.RestartCount == 0:
+		result.Findings = append(result.Findings, "Service rollout is healthy and no Pod restarts were found.")
+	case result.Status != "" && result.Status != "healthy":
+		result.Findings = append(result.Findings, "Service release status is "+result.Status+".")
+	}
+	if result.TotalCPUCore < 0.1 && result.TotalMemoryMiB < 256 && len(result.Pods) > 0 {
+		result.Findings = append(result.Findings, "Current Pod resource usage is low.")
+	}
+	if len(result.ReleaseGaps) > 0 || len(result.EvidenceGaps) > 0 {
+		result.Findings = append(result.Findings, "Some evidence is missing; treat the healthy checks as partial.")
+	}
+	return result, nil
 }
 
 func runInspectPod(opts globalOptions, args []string, out io.Writer) error {
@@ -747,6 +1148,273 @@ func runInspectCluster(opts globalOptions, args []string, out io.Writer) error {
 		}
 		return tw.Flush()
 	})
+}
+
+type releaseServiceResult struct {
+	Service          string           `json:"service"`
+	Environment      string           `json:"environment"`
+	Status           string           `json:"status,omitempty"`
+	Stage            string           `json:"stage,omitempty"`
+	Namespace        string           `json:"namespace,omitempty"`
+	Deployment       string           `json:"deployment,omitempty"`
+	Image            string           `json:"image,omitempty"`
+	TriggerSupported bool             `json:"trigger_supported"`
+	TriggerHint      string           `json:"trigger_hint"`
+	Gaps             []string         `json:"gaps,omitempty"`
+	Next             []string         `json:"next,omitempty"`
+	Pipeline         map[string]any   `json:"pipeline,omitempty"`
+	BuildKit         map[string]any   `json:"buildkit,omitempty"`
+	Registry         map[string]any   `json:"registry,omitempty"`
+	GitOps           map[string]any   `json:"gitops,omitempty"`
+	ArgoCD           map[string]any   `json:"argocd,omitempty"`
+	Jobs             []map[string]any `json:"jobs,omitempty"`
+	JobCount         int              `json:"job_count"`
+	History          []map[string]any `json:"history,omitempty"`
+	HistoryCount     int              `json:"history_count"`
+	Triggered        bool             `json:"triggered"`
+	Trigger          map[string]any   `json:"trigger,omitempty"`
+	Warnings         []string         `json:"warnings,omitempty"`
+	Raw              map[string]any   `json:"raw,omitempty"`
+}
+
+func runReleaseService(opts globalOptions, args []string, out io.Writer) error {
+	positionalService := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		positionalService = args[0]
+		args = args[1:]
+	}
+	fs := flag.NewFlagSet("release service", flag.ExitOnError)
+	service := fs.String("service", "", "release service name")
+	envName := fs.String("env", "test", "target environment")
+	historyLimit := fs.Int("history", 5, "release history item limit")
+	trigger := fs.Bool("trigger", false, "trigger a new release pipeline")
+	ref := fs.String("ref", "main", "GitLab ref to trigger")
+	_ = fs.Parse(args)
+	if *service == "" {
+		*service = positionalService
+	}
+	if *service == "" && fs.NArg() > 0 {
+		*service = fs.Arg(0)
+	}
+	if *service == "" {
+		return fmt.Errorf("release service requires --service")
+	}
+	result, err := fetchReleaseService(opts.backendURL, *service, *envName, *historyLimit)
+	if err != nil {
+		return err
+	}
+	if *trigger {
+		triggerResult, err := triggerReleaseService(opts.backendURL, *service, *ref, nil)
+		if err != nil {
+			return err
+		}
+		result.Triggered = true
+		result.TriggerSupported = true
+		result.TriggerHint = "submitted GitLab pipeline through OpsPilot"
+		result.Trigger = triggerResult
+		if result.Raw == nil {
+			result.Raw = map[string]any{}
+		}
+		result.Raw["trigger"] = triggerResult
+		if checks := stringList(triggerResult["next_checks"]); len(checks) > 0 {
+			result.Next = uniqueStrings(append(result.Next, checks...))
+		}
+	}
+	return writeOutput(out, opts.output, result, func(w io.Writer) error {
+		fmt.Fprintf(w, "Release service: %s env=%s\n", result.Service, result.Environment)
+		fmt.Fprintf(w, "Status: %s stage=%s namespace=%s deployment=%s\n", result.Status, result.Stage, result.Namespace, result.Deployment)
+		if result.Image != "" {
+			fmt.Fprintf(w, "Image: %s\n", result.Image)
+		}
+		if result.Trigger != nil {
+			if pipeline := mapValue(result.Trigger, "pipeline"); pipeline != nil {
+				fmt.Fprintf(w, "Triggered: pipeline id=%d status=%s ref=%s sha=%s\n",
+					intValue(pipeline["id"]), stringValue(pipeline["status"]), stringValue(pipeline["ref"]), stringValue(pipeline["sha"]))
+			} else {
+				fmt.Fprintf(w, "Triggered: %s\n", stringValue(result.Trigger["status"]))
+			}
+		}
+		if result.Pipeline != nil {
+			fmt.Fprintf(w, "GitLab pipeline: %s id=%d ref=%s sha=%s\n",
+				stringValue(result.Pipeline["status"]), intValue(result.Pipeline["id"]), stringValue(result.Pipeline["ref"]), stringValue(result.Pipeline["sha"]))
+		}
+		if result.GitOps != nil {
+			fmt.Fprintf(w, "GitOps: %s image=%s\n", stringValue(result.GitOps["status"]), stringValue(result.GitOps["desired_image"]))
+		}
+		if result.ArgoCD != nil {
+			fmt.Fprintf(w, "Argo CD: sync=%s health=%s\n", stringValue(result.ArgoCD["sync_status"]), stringValue(result.ArgoCD["health_status"]))
+		}
+		if len(result.Jobs) > 0 {
+			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "JOB\tSTAGE\tSTATUS\tDURATION\tFAILURE")
+			for _, job := range result.Jobs {
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%.1fs\t%s\n",
+					stringValue(job["name"]), stringValue(job["stage"]), stringValue(job["status"]), floatValue(job["duration"]), stringValue(job["failure_reason"]))
+			}
+			if err := tw.Flush(); err != nil {
+				return err
+			}
+		}
+		if len(result.History) > 0 {
+			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "HISTORY\tREVISION\tDATE\tTAG\tMESSAGE")
+			for _, item := range result.History {
+				current := ""
+				if boolValue(item["current"]) {
+					current = "*"
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+					current, stringValue(item["short_revision"]), shortTime(stringValue(item["committed_at"])), stringValue(item["tag"]), oneLine(stringValue(item["message"]), 80))
+			}
+			if err := tw.Flush(); err != nil {
+				return err
+			}
+		}
+		if len(result.Gaps) > 0 {
+			fmt.Fprintf(w, "Gaps: %s\n", strings.Join(result.Gaps, ", "))
+		}
+		if len(result.Next) > 0 {
+			fmt.Fprintf(w, "Next: %s\n", strings.Join(result.Next, "; "))
+		}
+		fmt.Fprintf(w, "Trigger: %s\n", result.TriggerHint)
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		return nil
+	})
+}
+
+func fetchReleaseService(backendURL, service, envName string, historyLimit int) (releaseServiceResult, error) {
+	status, err := fetchReleaseStatusData(backendURL, service)
+	if err != nil {
+		return releaseServiceResult{}, err
+	}
+	result := releaseServiceResult{
+		Service:          firstNonEmptyString(stringValue(status["service"]), service),
+		Environment:      firstNonEmptyString(stringValue(status["environment"]), envName),
+		Status:           stringValue(status["status"]),
+		Stage:            stringValue(status["stage"]),
+		Namespace:        stringValue(status["namespace"]),
+		Deployment:       stringValue(status["deployment"]),
+		Image:            stringValue(status["image"]),
+		TriggerSupported: true,
+		TriggerHint:      "use release service --trigger to submit a GitLab pipeline through OpsPilot",
+		Gaps:             stringList(status["gaps"]),
+		Next:             stringList(status["next_checks"]),
+		Raw:              map[string]any{"status": status},
+	}
+	if evidence := mapValue(status, "evidence"); evidence != nil {
+		result.Pipeline = mapValue(evidence, "gitlab_pipeline")
+		result.BuildKit = mapValue(evidence, "buildkit")
+		result.Registry = mapValue(evidence, "registry")
+		result.GitOps = mapValue(evidence, "gitops")
+		result.ArgoCD = mapValue(evidence, "argocd")
+	}
+	if jobs, err := fetchReleaseJobsData(backendURL, service); err != nil {
+		result.Warnings = append(result.Warnings, "release jobs: "+err.Error())
+	} else {
+		result.Raw["jobs"] = jobs
+		result.Jobs = mapsFromItems(jobs["items"])
+		result.JobCount = intValue(jobs["item_count"])
+	}
+	if historyLimit > 0 {
+		if history, err := fetchReleaseHistoryData(backendURL, service, historyLimit); err != nil {
+			result.Warnings = append(result.Warnings, "release history: "+err.Error())
+		} else {
+			result.Raw["history"] = history
+			result.History = mapsFromItems(history["items"])
+			result.HistoryCount = intValue(history["item_count"])
+		}
+	}
+	return result, nil
+}
+
+func triggerReleaseService(backendURL, service, ref string, variables map[string]string) (map[string]any, error) {
+	values := url.Values{"service": {service}, "ref": {ref}}
+	for key, value := range variables {
+		values.Set("var."+key, value)
+	}
+	body, err := post(backendURL, "/api/release/trigger", values)
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return nil, fmt.Errorf("release trigger response missing data")
+	}
+	return data, nil
+}
+
+func rollbackReleaseService(backendURL, service, target string) (map[string]any, error) {
+	body, err := post(backendURL, "/api/release/rollback", url.Values{
+		"service": {service},
+		"to":      {target},
+		"confirm": {"true"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return nil, fmt.Errorf("release rollback response missing data")
+	}
+	return data, nil
+}
+
+func fetchReleaseStatusData(backendURL, service string) (map[string]any, error) {
+	body, err := get(backendURL, "/api/release/status", url.Values{"service": {service}})
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return nil, fmt.Errorf("release status response missing data")
+	}
+	return data, nil
+}
+
+func fetchReleaseJobsData(backendURL, service string) (map[string]any, error) {
+	body, err := get(backendURL, "/api/release/jobs", url.Values{"service": {service}})
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return nil, fmt.Errorf("release jobs response missing data")
+	}
+	return data, nil
+}
+
+func fetchReleaseHistoryData(backendURL, service string, limit int) (map[string]any, error) {
+	body, err := get(backendURL, "/api/release/history", url.Values{"service": {service}, "limit": {strconv.Itoa(limit)}})
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return nil, fmt.Errorf("release history response missing data")
+	}
+	return data, nil
 }
 
 func runReleaseStatus(opts globalOptions, args []string, out io.Writer) error {
@@ -1167,6 +1835,19 @@ func floatValue(value any) float64 {
 
 func round1(value float64) float64 {
 	return float64(int(value*10+0.5)) / 10
+}
+
+func round3(value float64) float64 {
+	return float64(int(value*1000+0.5)) / 1000
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func get(baseURL, endpoint string, values url.Values) ([]byte, error) {

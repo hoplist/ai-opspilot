@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -104,6 +106,247 @@ func TestReleaseRollbackRequiresConfirm(t *testing.T) {
 	}
 	if err.Error() != "release rollback requires --confirm" {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestReleaseServiceSummary(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/release/status":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"service":     "demo-api",
+				"environment": "test",
+				"namespace":   "cicd-devex-demo",
+				"deployment":  "demo-api",
+				"status":      "healthy",
+				"stage":       "rollout",
+				"image":       "registry/demo-api:abc123",
+				"evidence": map[string]any{
+					"gitlab_pipeline": map[string]any{"status": "success", "id": 18, "ref": "main", "sha": "abc123"},
+					"buildkit":        map[string]any{"status": "success"},
+					"gitops":          map[string]any{"status": "matches_cluster", "desired_image": "registry/demo-api:abc123"},
+					"argocd":          map[string]any{"sync_status": "Synced", "health_status": "Healthy"},
+				},
+				"gaps":        []any{},
+				"next_checks": []any{},
+			}})
+		case "/api/release/jobs":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"service":    "demo-api",
+				"item_count": 1,
+				"items": []any{
+					map[string]any{"id": 1, "stage": "build", "name": "build:image", "status": "success", "duration": 12.5},
+				},
+			}})
+		case "/api/release/history":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"service":    "demo-api",
+				"item_count": 1,
+				"items": []any{
+					map[string]any{"short_revision": "abc123", "tag": "abc123", "current": true, "message": "deploy demo"},
+				},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "release", "service", "demo-api"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload releaseServiceResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Service != "demo-api" || payload.Status != "healthy" || payload.JobCount != 1 || payload.HistoryCount != 1 {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if !payload.TriggerSupported {
+		t.Fatalf("release service should expose trigger support")
+	}
+}
+
+func TestReleaseServiceTrigger(t *testing.T) {
+	triggered := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/release/status":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"service": "demo-api", "environment": "test", "namespace": "cicd-devex-demo", "deployment": "demo-api", "status": "healthy", "stage": "rollout",
+				"evidence": map[string]any{}, "gaps": []any{}, "next_checks": []any{},
+			}})
+		case "/api/release/jobs":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{"service": "demo-api", "item_count": 0, "items": []any{}}})
+		case "/api/release/history":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{"service": "demo-api", "item_count": 0, "items": []any{}}})
+		case "/api/release/trigger":
+			triggered = true
+			if err := r.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			if r.Form.Get("service") != "demo-api" || r.Form.Get("ref") != "main" {
+				t.Fatalf("form = %#v", r.Form)
+			}
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"service": "demo-api",
+				"status":  "submitted",
+				"pipeline": map[string]any{
+					"id": 7, "status": "pending", "ref": "main", "sha": "abc123",
+				},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "release", "service", "demo-api", "--trigger"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !triggered {
+		t.Fatal("trigger endpoint was not called")
+	}
+	var payload releaseServiceResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Triggered || intValue(mapValue(payload.Trigger, "pipeline")["id"]) != 7 {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestInspectServiceAggregatesPods(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/release/status":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"service":     "demo-api",
+				"environment": "test",
+				"namespace":   "cicd-devex-demo",
+				"deployment":  "demo-api",
+				"status":      "healthy",
+				"stage":       "rollout",
+				"image":       "registry/demo-api:abc123",
+				"evidence": map[string]any{
+					"pods": map[string]any{
+						"item_count": 1,
+						"items": []any{
+							map[string]any{"namespace": "cicd-devex-demo", "name": "demo-api-abc", "status": "Ready", "ready": true, "restart_count": 0},
+						},
+					},
+				},
+				"gaps":        []any{},
+				"next_checks": []any{},
+			}})
+		case "/api/context/pod":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"summary": map[string]any{"namespace": "cicd-devex-demo", "name": "demo-api-abc", "node": "worker-1", "status": "Ready", "ready": true, "restart_count": 0},
+			}})
+		case "/api/metrics/pod":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"cpu_cores":                0.02,
+				"memory_working_set_bytes": 64 * 1024 * 1024,
+				"restart_count":            0,
+			}})
+		case "/api/k8s/logs/pod":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{"text": "started\n"}})
+		case "/api/logs/search":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{"total": 1, "item_count": 1, "items": []any{}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "inspect", "service", "demo-api"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload inspectServiceResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Service != "demo-api" || payload.PodCount != 1 || payload.RestartCount != 0 {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if payload.TotalCPUCore != 0.02 || payload.TotalMemoryMiB != 64 {
+		t.Fatalf("usage = cpu %.3f memory %.1f", payload.TotalCPUCore, payload.TotalMemoryMiB)
+	}
+}
+
+func TestNaturalLanguageDryRunRelease(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/health" {
+			http.NotFound(w, r)
+			return
+		}
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"release": map[string]any{"configured": true, "services": []any{"opspilot-core"}},
+		}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "ask", "发布 opspilot-core", "--dry-run"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload naturalLanguageResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Action != "release_service" || payload.Service != "opspilot-core" || !payload.DryRun || payload.Executed {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestNaturalLanguageInspectExecutes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/health":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"release": map[string]any{"configured": true, "services": []any{"opspilot-core"}},
+			}})
+		case "/api/release/status":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"service": "opspilot-core", "environment": "test", "namespace": "opspilot", "deployment": "opspilot-core", "status": "healthy", "stage": "rollout",
+				"evidence": map[string]any{
+					"pods": map[string]any{"item_count": 1, "items": []any{
+						map[string]any{"namespace": "opspilot", "name": "opspilot-core-abc"},
+					}},
+				},
+				"gaps": []any{}, "next_checks": []any{},
+			}})
+		case "/api/context/pod":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"summary": map[string]any{"node": "worker-1", "status": "Ready", "ready": true, "restart_count": 0},
+			}})
+		case "/api/metrics/pod":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"cpu_cores": 0.01, "memory_working_set_bytes": 8 * 1024 * 1024, "restart_count": 0,
+			}})
+		case "/api/k8s/logs/pod":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{"text": "ok\n"}})
+		case "/api/logs/search":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{"total": 1, "item_count": 1}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "ask", "检查 opspilot-core 是否正常"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload naturalLanguageResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Action != "inspect_service" || payload.Service != "opspilot-core" || !payload.Executed {
+		t.Fatalf("payload = %#v", payload)
 	}
 }
 
@@ -395,6 +638,33 @@ func TestOnboardGenerateAutoNamespacesByProject(t *testing.T) {
 	}
 }
 
+func TestOnboardRepoWritesAndChecks(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"onboard", "repo", "tpo/devex/demo/demo-api", "--repo", dir, "--write"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload onboardRepoResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Service != "demo-api" || payload.Mode != "write" || !payload.Ready {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if payload.Namespace != "cicd-devex-demo" {
+		t.Fatalf("namespace = %s", payload.Namespace)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "opspilot.service.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "deploy", "k8s", "deployment.yaml")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOnboardGenerateWritesMiddlewareIntent(t *testing.T) {
 	dir := t.TempDir()
 	wd, err := os.Getwd()
@@ -569,4 +839,9 @@ func TestRepoAutofixForceReplacesRiskyDockerfile(t *testing.T) {
 	if bytes.Contains(body, []byte("localhost")) || bytes.Contains(body, []byte(":latest")) {
 		t.Fatalf("risky Dockerfile was not replaced: %s", string(body))
 	}
+}
+
+func writeTestJSON(w http.ResponseWriter, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
 }

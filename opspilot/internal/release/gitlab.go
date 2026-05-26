@@ -106,6 +106,46 @@ func (c *gitLabClient) latestPipelineJobs(ctx context.Context, project string) (
 	}, nil
 }
 
+func (c *gitLabClient) triggerPipeline(ctx context.Context, project, ref string, variables map[string]string) (map[string]any, error) {
+	if !c.configured() {
+		return nil, errors.New("gitlab url or token is not configured")
+	}
+	if project == "" {
+		return nil, errors.New("gitlab project is not configured")
+	}
+	if ref == "" {
+		ref = "main"
+	}
+	form := url.Values{}
+	form.Set("ref", ref)
+	for key, value := range variables {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		form.Add("variables[][key]", key)
+		form.Add("variables[][value]", value)
+	}
+	body, err := c.doForm(ctx, http.MethodPost, c.apiPath("projects", project, "pipeline"), form)
+	if err != nil {
+		return nil, err
+	}
+	var pipeline map[string]any
+	if err := json.Unmarshal(body, &pipeline); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"status":      pipeline["status"],
+		"project":     project,
+		"id":          pipeline["id"],
+		"ref":         pipeline["ref"],
+		"sha":         pipeline["sha"],
+		"web_url":     pipeline["web_url"],
+		"created_at":  pipeline["created_at"],
+		"updated_at":  pipeline["updated_at"],
+		"finished_at": pipeline["finished_at"],
+	}, nil
+}
+
 func (c *gitLabClient) jobTrace(ctx context.Context, project string, jobID int64) (string, error) {
 	if !c.configured() {
 		return "", errors.New("gitlab url or token is not configured")
@@ -286,6 +326,25 @@ func (c *gitLabClient) doJSON(ctx context.Context, method, endpoint string, payl
 	}
 	req.Header.Set("PRIVATE-TOKEN", c.token)
 	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	responseBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("gitlab api %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
+	}
+	return responseBody, nil
+}
+
+func (c *gitLabClient) doForm(ctx context.Context, method, endpoint string, form url.Values) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err

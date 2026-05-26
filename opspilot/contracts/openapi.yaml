@@ -477,6 +477,26 @@ paths:
       responses:
         "200":
           description: GitLab pipeline job list
+  /api/release/trigger:
+    post:
+      summary: Trigger a GitLab pipeline for one configured release service
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - service
+              properties:
+                service:
+                  type: string
+                ref:
+                  type: string
+                  default: main
+      responses:
+        "200":
+          description: Submitted GitLab pipeline
   /api/release/logs:
     get:
       summary: Read bounded GitLab job trace logs for one configured release service

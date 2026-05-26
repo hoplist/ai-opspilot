@@ -41,11 +41,17 @@ go run ./opspilot/cli logs search -n ai-dev --pod deer-flow-provisioner-8b47f95b
 go run ./opspilot/cli evidence request --host workflow.tpo.xzoa.com --uri /api/hr/queryUserScheduleList --service-index workflow-server* --service-uri-field msg --since 900
 go run ./opspilot/cli evidence request --uri /api/hr/queryUserScheduleList --service-index workflow-server* --service-uri-field msg --service-only
 go run ./opspilot/cli inspect pod -n ai-dev --pod sandbox-errno36-test --source node200-k8s --output human
+go run ./opspilot/cli inspect service opspilot-core --output human
 go run ./opspilot/cli inspect cluster --source all --output human
+go run ./opspilot/cli release service opspilot-core --output human
+go run ./opspilot/cli release service opspilot-core --trigger --ref main --output human
 go run ./opspilot/cli release status --service opspilot-core --output human
 go run ./opspilot/cli release jobs --service opspilot-core --output human
 go run ./opspilot/cli release logs --service opspilot-core --job build-image --tail 200 --output human
+go run ./opspilot/cli onboard repo tpo/devex/demo/demo-api --write --output human
 go run ./opspilot/cli onboard service --config opspilot.service.yaml --write
+go run ./opspilot/cli ask "检查 opspilot-core 是否正常" --output human
+go run ./opspilot/cli ask "发布 opspilot-core" --dry-run --output human
 ```
 
 Build a local binary:

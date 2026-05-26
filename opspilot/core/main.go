@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/errorevidence"
@@ -212,6 +213,20 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 		q := r.URL.Query()
 		return releaseRegistry.Jobs(ctx, required(q.Get("service"), "service"))
 	}))
+	mux.HandleFunc("/api/release/trigger", wrapPost(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		if !releaseRegistry.Configured() {
+			return nil, nil, fmt.Errorf("release services are not configured")
+		}
+		if err := r.ParseForm(); err != nil {
+			return nil, nil, requestError{message: "form body is invalid"}
+		}
+		return releaseRegistry.Trigger(
+			ctx,
+			required(r.Form.Get("service"), "service"),
+			r.Form.Get("ref"),
+			releaseVariablesFromForm(r),
+		)
+	}))
 	mux.HandleFunc("/api/release/logs", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
 			return nil, nil, fmt.Errorf("release services are not configured")
@@ -399,6 +414,21 @@ func boolQuery(r *http.Request, name string) bool {
 func boolForm(r *http.Request, name string) bool {
 	raw := r.Form.Get(name)
 	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
+}
+
+func releaseVariablesFromForm(r *http.Request) map[string]string {
+	variables := map[string]string{}
+	for key, values := range r.Form {
+		if !strings.HasPrefix(key, "var.") || len(values) == 0 {
+			continue
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(key, "var."))
+		if name == "" {
+			continue
+		}
+		variables[name] = values[len(values)-1]
+	}
+	return variables
 }
 
 func sourceQuery(r *http.Request) string {

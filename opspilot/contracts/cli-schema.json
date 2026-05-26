@@ -1,6 +1,6 @@
 {
   "name": "opspilot",
-  "version": "0.1.16-ai-readable-error-evidence",
+  "version": "0.1.18-release-trigger-natural-language",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
   "commands": [
@@ -8,6 +8,11 @@
       "name": "schema",
       "readonly": true,
       "description": "Print CLI schema."
+    },
+    {
+      "name": "ask",
+      "readonly": false,
+      "description": "Interpret a small natural-language request such as checking, releasing, listing history, or rolling back a configured service, then execute the matching service-level OpsPilot command. Use --dry-run to only show the interpreted command."
     },
     {
       "name": "inventory overview",
@@ -130,6 +135,11 @@
       "description": "Diagnose one Docker container using inspect, stats, and short-window logs."
     },
     {
+      "name": "inspect service",
+      "readonly": true,
+      "description": "Return a service-level inspection by service name, including release status, matching Pods, restart count, CPU, memory, Kubernetes log presence, ELK log presence, evidence gaps, and next checks."
+    },
+    {
       "name": "inspect pod",
       "readonly": true,
       "description": "Return a compact Pod inspection with status, restarts, events/context, metrics, Kubernetes log presence, ELK log presence, and evidence gaps."
@@ -138,6 +148,16 @@
       "name": "inspect cluster",
       "readonly": true,
       "description": "Return a compact cluster inspection with abnormal Pods, node resources, top Pod usage, restart evidence, and filesystem mountpoints."
+    },
+    {
+      "name": "release service",
+      "readonly": true,
+      "description": "Return a beginner-friendly release summary for one configured service, including GitLab pipeline, BuildKit, GitOps, Argo CD, latest jobs, history, gaps, and the current trigger boundary."
+    },
+    {
+      "name": "release trigger",
+      "readonly": false,
+      "description": "Submit a GitLab pipeline for one configured release service through OpsPilot. This follows the standard GitLab Runner -> BuildKit -> Registry -> GitOps -> Argo CD path."
     },
     {
       "name": "release status",
@@ -177,6 +197,11 @@
       "name": "release rollback",
       "readonly": false,
       "description": "Rollback a configured service by committing a previous tag, full image, or GitOps revision to the GitOps repository. Requires --confirm and does not mutate Kubernetes directly."
+    },
+    {
+      "name": "onboard repo",
+      "readonly": false,
+      "description": "One-command beginner onboarding for a GitLab project path. Detects the repository, generates platform Dockerfile/CI/deploy files with --write, runs preflight when writing, and prints the release mapping and next steps."
     },
     {
       "name": "onboard service",

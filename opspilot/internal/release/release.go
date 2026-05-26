@@ -204,6 +204,34 @@ func (r *Registry) Jobs(ctx context.Context, serviceName string) (map[string]any
 	return jobs, warnings, nil
 }
 
+func (r *Registry) Trigger(ctx context.Context, serviceName, ref string, variables map[string]string) (map[string]any, []string, error) {
+	service, ok := r.services[serviceName]
+	if !ok {
+		return nil, nil, fmt.Errorf("unknown release service: %s", serviceName)
+	}
+	warnings := []string{}
+	if service.GitLab == "" {
+		return nil, warnings, fmt.Errorf("gitlab project mapping is missing for release service: %s", serviceName)
+	}
+	if ref == "" {
+		ref = gitopsRef(r.datasources.GitOpsRef)
+	}
+	client := newGitLabClient(r.datasources.GitLabURL, r.datasources.GitLabToken)
+	pipeline, err := client.triggerPipeline(ctx, service.GitLab, ref, variables)
+	if err != nil {
+		return nil, warnings, err
+	}
+	return map[string]any{
+		"service":      service.Name,
+		"project":      service.GitLab,
+		"ref":          ref,
+		"status":       "submitted",
+		"pipeline":     pipeline,
+		"next_checks":  []string{"watch release jobs", "check release status after GitLab CI and Argo CD reconciliation"},
+		"release_path": "GitLab Runner -> BuildKit -> Registry -> GitOps -> Argo CD",
+	}, warnings, nil
+}
+
 func (r *Registry) JobTrace(ctx context.Context, serviceName string, jobID int64, jobName string, limitBytes, tailLines int) (map[string]any, []string, error) {
 	service, ok := r.services[serviceName]
 	if !ok {

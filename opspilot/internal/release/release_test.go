@@ -1,6 +1,13 @@
 package release
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 func TestNewRegistryParsesServices(t *testing.T) {
 	registry := NewRegistry("opspilot-core=namespace:opspilot,deployment:opspilot-core,container:core,source:node200-k8s,image:registry/app:tag,gitlab:platform/opspilot,gitops:clusters/test/apps/opspilot-core/deployment.yaml,argocd:opspilot-core")
@@ -17,6 +24,50 @@ func TestNewRegistryParsesServices(t *testing.T) {
 	}
 	if service.Container != "core" || service.GitLab != "platform/opspilot" || service.GitOps == "" || service.ArgoCD != "opspilot-core" {
 		t.Fatalf("service release fields = %#v", service)
+	}
+}
+
+func TestTriggerCreatesGitLabPipeline(t *testing.T) {
+	var seenPath string
+	var seenRef string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.EscapedPath()
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s", r.Method)
+		}
+		if r.Header.Get("PRIVATE-TOKEN") != "token" {
+			t.Fatalf("missing private token")
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		seenRef = r.Form.Get("ref")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":     42,
+			"status": "pending",
+			"ref":    seenRef,
+			"sha":    "abc123",
+		})
+	}))
+	defer server.Close()
+
+	registry := NewRegistryWithDatasources(
+		"demo-api=namespace:cicd-devex-demo,deployment:demo-api,gitlab:tpo/devex/demo/demo-api",
+		Datasources{GitLabURL: server.URL, GitLabToken: "token", GitOpsRef: "main"},
+	)
+	got, _, err := registry.Trigger(context.Background(), "demo-api", "main", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(seenPath, "/api/v4/projects/tpo%2Fdevex%2Fdemo%2Fdemo-api/pipeline") {
+		t.Fatalf("path = %s", seenPath)
+	}
+	if seenRef != "main" {
+		t.Fatalf("ref = %s", seenRef)
+	}
+	pipeline, _ := got["pipeline"].(map[string]any)
+	if pipeline["status"] != "pending" {
+		t.Fatalf("pipeline = %#v", pipeline)
 	}
 }
 
