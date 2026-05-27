@@ -989,6 +989,146 @@ func TestOnboardGenerateWritesDetectedFiles(t *testing.T) {
 	}
 }
 
+func TestDetectLanguageCoversGoldenDemoLanguages(t *testing.T) {
+	cases := []struct {
+		name  string
+		files map[string]string
+		want  string
+	}{
+		{
+			name: "frontend",
+			files: map[string]string{
+				"package.json": `{"scripts":{"build":"vite --host 0.0.0.0"},"dependencies":{"vite":"latest"}}`,
+			},
+			want: "frontend",
+		},
+		{
+			name: "node",
+			files: map[string]string{
+				"package.json": `{"scripts":{"start":"node server.js"}}`,
+			},
+			want: "node",
+		},
+		{
+			name: "python",
+			files: map[string]string{
+				"requirements.txt": "fastapi\nuvicorn\n",
+			},
+			want: "python",
+		},
+		{
+			name: "java",
+			files: map[string]string{
+				"pom.xml": "<project></project>\n",
+			},
+			want: "java",
+		},
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.Chdir(dir); err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				_ = os.Chdir(wd)
+			}()
+			for path, body := range tc.files {
+				if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := detectLanguage(); got != tc.want {
+				t.Fatalf("detectLanguage() = %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestOnboardGenerateSupportsFrontendAndJava(t *testing.T) {
+	cases := []struct {
+		name           string
+		project        string
+		seedPath       string
+		seedBody       string
+		wantCI         string
+		wantDockerfile []byte
+		wantDeployment []byte
+	}{
+		{
+			name:           "frontend",
+			project:        "tpo/devex/frontend-demo/frontend-demo",
+			seedPath:       "package.json",
+			seedBody:       `{"scripts":{"build":"vite --host 0.0.0.0"},"dependencies":{"@vitejs/plugin-react":"latest","vite":"latest"}}`,
+			wantCI:         "/ci/templates/buildkit-gitops.frontend.yml",
+			wantDockerfile: []byte("nginx:1.27-alpine"),
+			wantDeployment: []byte("containerPort: 80"),
+		},
+		{
+			name:           "java",
+			project:        "tpo/devex/java-demo/java-demo",
+			seedPath:       "pom.xml",
+			seedBody:       "<project></project>\n",
+			wantCI:         "/ci/templates/buildkit-gitops.java.yml",
+			wantDockerfile: []byte("maven:3.9.9-eclipse-temurin-21-alpine"),
+			wantDeployment: []byte("containerPort: 8080"),
+		},
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.Chdir(dir); err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				_ = os.Chdir(wd)
+			}()
+			if err := os.WriteFile(tc.seedPath, []byte(tc.seedBody), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var out bytes.Buffer
+			if err := run([]string{"onboard", "generate", "--project", tc.project, "--write"}, &out); err != nil {
+				t.Fatal(err)
+			}
+			ci, err := os.ReadFile(".gitlab-ci.yml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(ci, []byte(tc.wantCI)) {
+				t.Fatalf("generated CI missing %s: %s", tc.wantCI, string(ci))
+			}
+			dockerfile, err := os.ReadFile("Dockerfile")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(dockerfile, tc.wantDockerfile) {
+				t.Fatalf("generated Dockerfile did not match %q: %s", tc.wantDockerfile, string(dockerfile))
+			}
+			deployment, err := os.ReadFile(filepath.Join("deploy", "k8s", "deployment.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(deployment, tc.wantDeployment) {
+				t.Fatalf("generated deployment did not match %q: %s", tc.wantDeployment, string(deployment))
+			}
+		})
+	}
+}
+
 func TestRepoPreflightDetectsMissingReleaseFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {

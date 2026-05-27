@@ -297,6 +297,8 @@ Initial platform templates are available for:
 ci/templates/buildkit-gitops.go.yml
 ci/templates/buildkit-gitops.node.yml
 ci/templates/buildkit-gitops.python.yml
+ci/templates/buildkit-gitops.frontend.yml
+ci/templates/buildkit-gitops.java.yml
 ```
 
 If the repository is missing release files, generate them:

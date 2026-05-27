@@ -701,7 +701,7 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 	dockerPath := detectDockerfile()
 	port := detectPort(dockerPath)
 	if port == 0 {
-		port = 8080
+		port = defaultPortForLanguage(language)
 	}
 	namespace := resolveNamespace(project, name, catalogPath)
 	cfg := onboardServiceConfig{
@@ -714,7 +714,7 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 		BuildEntry:     detectBuildEntry(language, name),
 		BuildOutput:    "build/" + name,
 		Port:           port,
-		HealthPath:     "/health",
+		HealthPath:     defaultHealthPathForLanguage(language),
 		Namespace:      namespace.Namespace,
 		NamespaceSrc:   namespace.Source,
 		Replicas:       1,
@@ -788,13 +788,34 @@ func detectLanguage() string {
 	switch {
 	case fileExists("go.mod"):
 		return "go"
-	case fileExists("package.json"):
-		return "node"
+	case fileExists("pom.xml") || fileExists("build.gradle") || fileExists("build.gradle.kts"):
+		return "java"
 	case fileExists("pyproject.toml") || fileExists("requirements.txt"):
 		return "python"
+	case fileExists("package.json") && isFrontendPackage():
+		return "frontend"
+	case fileExists("package.json"):
+		return "node"
 	default:
 		return "go"
 	}
+}
+
+func isFrontendPackage() bool {
+	body, err := os.ReadFile("package.json")
+	if err != nil {
+		return false
+	}
+	text := strings.ToLower(string(body))
+	return containsAny(text, []string{
+		`"vite"`,
+		"@vitejs/",
+		`"react-scripts"`,
+		`"vue-cli-service"`,
+		`"@vue/cli-service"`,
+		`"@angular/cli"`,
+		`"ng build"`,
+	})
 }
 
 func detectDockerfile() string {
@@ -838,8 +859,26 @@ func detectBuildEntry(language, name string) string {
 		return "."
 	case "python":
 		return "."
+	case "frontend":
+		return "."
+	case "java":
+		return "."
 	}
 	return "./cmd/" + name
+}
+
+func defaultPortForLanguage(language string) int {
+	if language == "frontend" {
+		return 80
+	}
+	return 8080
+}
+
+func defaultHealthPathForLanguage(language string) string {
+	if language == "frontend" {
+		return "/"
+	}
+	return "/health"
 }
 
 func resolveNamespace(project, name, catalogPath string) namespaceResolution {
@@ -1211,10 +1250,10 @@ func (c *onboardServiceConfig) defaults() error {
 		c.BuildOutput = "build/" + c.Name
 	}
 	if c.Port == 0 {
-		c.Port = 8080
+		c.Port = defaultPortForLanguage(c.Language)
 	}
 	if c.HealthPath == "" {
-		c.HealthPath = "/health"
+		c.HealthPath = defaultHealthPathForLanguage(c.Language)
 	}
 	if c.Namespace == "" {
 		c.Namespace = defaultNamespace(c.Group, c.Project)
@@ -1626,6 +1665,45 @@ RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.
 EXPOSE %d
 
 CMD ["python", "app.py"]
+`, c.Port)
+	case "frontend":
+		return fmt.Sprintf(`FROM m.daocloud.io/docker.io/library/node:20-alpine AS build
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+WORKDIR /app
+COPY package*.json ./
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+COPY . .
+RUN npm run build
+
+FROM m.daocloud.io/docker.io/library/nginx:1.27-alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+
+EXPOSE %d
+`, c.Port)
+	case "java":
+		return fmt.Sprintf(`FROM m.daocloud.io/docker.io/library/maven:3.9.9-eclipse-temurin-21-alpine AS build
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+WORKDIR /app
+COPY pom.xml .
+RUN mvn -B -q -DskipTests dependency:go-offline || true
+COPY src ./src
+RUN mvn -B -DskipTests package
+
+FROM m.daocloud.io/docker.io/library/eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY --from=build /app/target/*.jar /app/app.jar
+
+EXPOSE %d
+
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
 `, c.Port)
 	}
 	return fmt.Sprintf(`FROM m.daocloud.io/docker.io/library/alpine:3.20
