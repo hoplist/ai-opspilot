@@ -46,3 +46,18 @@ Expected checks:
 - Argo CD reports `Synced / Healthy`.
 - OpsPilot `check service`, `check release`, and `fix service --dry-run
   --output evidence` return AI-readable results and explicit missing evidence.
+
+## Validation Notes
+
+- Python, frontend, and Java demo repositories were created under
+  `platform/devex/*` and released through GitLab Runner, BuildKit, GitLab
+  Registry, GitOps, and Argo CD.
+- The frontend demo initially used `vite --host 0.0.0.0` as its build command,
+  which correctly exposed a hanging CI test. It was fixed to `vite build`.
+- New demo namespaces initially hit `ImagePullBackOff` because node200 cannot
+  anonymously pull private GitLab Registry images. Per-project `read_registry`
+  deploy tokens and namespace `gitlab-registry-pull` secrets were added for the
+  demo namespaces to complete validation.
+- Release mappings for `ai-loop-demo`, `python-fastapi-demo`,
+  `frontend-vite-demo`, and `java-spring-demo` are now stored in the source
+  OpsPilot ConfigMap so future platform releases do not erase them.
