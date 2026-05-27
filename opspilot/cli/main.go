@@ -52,6 +52,8 @@ func run(args []string, out io.Writer) error {
 		return err
 	case "capabilities", "capability":
 		return runCapabilities(opts, args[1:], out)
+	case "doctor":
+		return runDoctor(opts, args[1:], out)
 	case "inventory":
 		endpoint, values = inventoryCommand(args[1:])
 	case "metrics":
@@ -103,6 +105,8 @@ func run(args []string, out io.Writer) error {
 		endpoint, values = diagnoseCommand(args[1:])
 	case "inspect", "check":
 		return inspectCommand(opts, args[1:], out)
+	case "fix":
+		return fixCommand(opts, args[1:], out)
 	case "onboard":
 		return onboardCommand(opts, args[1:], out)
 	case "repo":
@@ -171,6 +175,85 @@ type capabilityResult struct {
 	Warnings          []string         `json:"warnings,omitempty"`
 	Summary           map[string]any   `json:"summary,omitempty"`
 	Raw               map[string]any   `json:"raw,omitempty"`
+}
+
+type doctorResult struct {
+	Ready             bool           `json:"ready"`
+	BackendURL        string         `json:"backend_url"`
+	BackendReachable  bool           `json:"backend_reachable"`
+	BackendVersion    string         `json:"backend_version,omitempty"`
+	CapabilitiesReady bool           `json:"capabilities_ready"`
+	AvailableEvidence []string       `json:"available_evidence,omitempty"`
+	MissingEvidence   []string       `json:"missing_evidence,omitempty"`
+	Warnings          []string       `json:"warnings,omitempty"`
+	Findings          []string       `json:"findings"`
+	Next              []string       `json:"next"`
+	Raw               map[string]any `json:"raw,omitempty"`
+}
+
+func runDoctor(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
+	_ = fs.Parse(args)
+	result := doctorResult{BackendURL: opts.backendURL, Raw: map[string]any{}}
+	health, err := getJSONMap(opts.backendURL, "/api/health", url.Values{})
+	if err != nil {
+		result.Findings = append(result.Findings, "Backend is not reachable: "+err.Error())
+		result.Next = append(result.Next, "Check OPSPILOT_BACKEND_URL or --backend-url.")
+		result.MissingEvidence = append(result.MissingEvidence, "backend_health")
+		return writeOutput(out, opts.output, result, writeDoctorHuman(result))
+	}
+	result.BackendReachable = true
+	result.Raw["health"] = health
+	if data := mapValue(health, "data"); data != nil {
+		result.BackendVersion = stringValue(data["version"])
+	}
+	capabilities, err := fetchCapabilities(opts.backendURL)
+	if err != nil {
+		result.Findings = append(result.Findings, "Capabilities endpoint failed: "+err.Error())
+		result.Next = append(result.Next, "Check opspilot-core logs and Kubernetes API permissions.")
+		result.MissingEvidence = append(result.MissingEvidence, "capabilities")
+	} else {
+		result.CapabilitiesReady = capabilities.Ready
+		result.AvailableEvidence = capabilities.AvailableEvidence
+		result.MissingEvidence = capabilities.MissingEvidence
+		result.Warnings = append(result.Warnings, capabilities.Warnings...)
+		result.Raw["capabilities"] = capabilities.Raw
+		if capabilities.Ready {
+			result.Findings = append(result.Findings, "Backend and core inspection capabilities are reachable.")
+		} else {
+			result.Findings = append(result.Findings, "Backend is reachable, but some evidence sources are missing.")
+		}
+	}
+	if len(result.MissingEvidence) > 0 {
+		result.Next = append(result.Next, "Continue with available evidence; report missing integrations explicitly.")
+	}
+	if len(result.Next) == 0 {
+		result.Next = append(result.Next, "Run check cluster, check pod, or check service based on the user request.")
+	}
+	result.Ready = result.BackendReachable && result.CapabilitiesReady
+	return writeOutput(out, opts.output, result, writeDoctorHuman(result))
+}
+
+func writeDoctorHuman(result doctorResult) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Doctor: ready=%t backend=%s reachable=%t version=%s\n", result.Ready, result.BackendURL, result.BackendReachable, result.BackendVersion)
+		if len(result.Findings) > 0 {
+			fmt.Fprintf(w, "Findings: %s\n", strings.Join(result.Findings, "; "))
+		}
+		if len(result.AvailableEvidence) > 0 {
+			fmt.Fprintf(w, "Available evidence: %s\n", strings.Join(result.AvailableEvidence, "; "))
+		}
+		if len(result.MissingEvidence) > 0 {
+			fmt.Fprintf(w, "Missing evidence: %s\n", strings.Join(result.MissingEvidence, "; "))
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		if len(result.Next) > 0 {
+			fmt.Fprintf(w, "Next: %s\n", strings.Join(result.Next, "; "))
+		}
+		return nil
+	}
 }
 
 func runCapabilities(opts globalOptions, args []string, out io.Writer) error {
@@ -840,7 +923,7 @@ type filesystemsResult struct {
 
 func inspectCommand(opts globalOptions, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("expected inspect subcommand: service, pod, or cluster")
+		return fmt.Errorf("expected inspect subcommand: service, pod, cluster, or release")
 	}
 	switch args[0] {
 	case "service":
@@ -849,8 +932,182 @@ func inspectCommand(opts globalOptions, args []string, out io.Writer) error {
 		return runInspectPod(opts, args[1:], out)
 	case "cluster":
 		return runInspectCluster(opts, args[1:], out)
+	case "release":
+		return runReleaseStatus(opts, args[1:], out)
 	default:
 		return fmt.Errorf("unknown inspect command: %s", args[0])
+	}
+}
+
+type fixPlanResult struct {
+	TargetType         string              `json:"target_type"`
+	Target             string              `json:"target"`
+	Namespace          string              `json:"namespace,omitempty"`
+	DryRun             bool                `json:"dry_run"`
+	Status             string              `json:"status"`
+	Summary            string              `json:"summary"`
+	Evidence           []evidenceItem      `json:"evidence"`
+	MissingEvidence    []string            `json:"missing_evidence,omitempty"`
+	LikelyCauses       []likelyCause       `json:"likely_causes,omitempty"`
+	RecommendedActions []recommendedAction `json:"recommended_actions"`
+	Warnings           []string            `json:"warnings,omitempty"`
+	Raw                any                 `json:"raw,omitempty"`
+}
+
+func fixCommand(opts globalOptions, args []string, out io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("expected fix subcommand: service or pod")
+	}
+	switch args[0] {
+	case "service":
+		return runFixService(opts, args[1:], out)
+	case "pod":
+		return runFixPod(opts, args[1:], out)
+	default:
+		return fmt.Errorf("unknown fix command: %s", args[0])
+	}
+}
+
+func runFixService(opts globalOptions, args []string, out io.Writer) error {
+	positionalService := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		positionalService = args[0]
+		args = args[1:]
+	}
+	fs := flag.NewFlagSet("fix service", flag.ExitOnError)
+	service := fs.String("service", "", "service name")
+	envName := fs.String("env", "test", "target environment")
+	source := fs.String("source", "", "prometheus datasource")
+	tail := fs.Int("tail", 300, "tail lines")
+	since := fs.Int("since", 1800, "since seconds")
+	dryRun := fs.Bool("dry-run", false, "plan only; do not mutate repositories or clusters")
+	_ = fs.Parse(args)
+	if *service == "" {
+		*service = positionalService
+	}
+	if *service == "" && fs.NArg() > 0 {
+		*service = fs.Arg(0)
+	}
+	if *service == "" {
+		return fmt.Errorf("fix service requires --service")
+	}
+	if !*dryRun {
+		return fmt.Errorf("fix service currently requires --dry-run")
+	}
+	inspection, err := fetchInspectService(opts.backendURL, *service, *envName, *source, *tail, *since)
+	if err != nil {
+		return err
+	}
+	pack := buildEvidencePack(inspection)
+	result := fixPlanResult{
+		TargetType:         "service",
+		Target:             inspection.Service,
+		Namespace:          inspection.Namespace,
+		DryRun:             true,
+		Status:             pack.Status,
+		Summary:            firstNonEmptyString(pack.Summary, "Generated a dry-run service fix plan from OpsPilot evidence."),
+		Evidence:           pack.Evidence,
+		MissingEvidence:    pack.MissingEvidence,
+		LikelyCauses:       pack.LikelyCauses,
+		RecommendedActions: fixActionsFromEvidence("service", inspection.Service, pack),
+		Warnings:           inspection.Warnings,
+		Raw:                inspection,
+	}
+	return writeOutput(out, opts.output, result, writeFixPlanHuman(result))
+}
+
+func runFixPod(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("fix pod", flag.ExitOnError)
+	namespace := fs.String("namespace", "", "namespace")
+	fs.StringVar(namespace, "n", "", "namespace")
+	pod := fs.String("pod", "", "pod")
+	source := fs.String("source", "", "prometheus datasource")
+	tail := fs.Int("tail", 300, "tail lines")
+	since := fs.Int("since", 1800, "since seconds")
+	dryRun := fs.Bool("dry-run", false, "plan only; do not mutate repositories or clusters")
+	_ = fs.Parse(args)
+	if *pod == "" && fs.NArg() > 0 {
+		*pod = fs.Arg(0)
+	}
+	if *namespace == "" || *pod == "" {
+		return fmt.Errorf("fix pod requires --namespace and --pod")
+	}
+	if !*dryRun {
+		return fmt.Errorf("fix pod currently requires --dry-run")
+	}
+	inspection, err := fetchInspectPod(opts.backendURL, *namespace, *pod, *source, *tail, *since)
+	if err != nil {
+		return err
+	}
+	pack := buildEvidencePack(inspection)
+	result := fixPlanResult{
+		TargetType:         "pod",
+		Target:             inspection.Pod,
+		Namespace:          inspection.Namespace,
+		DryRun:             true,
+		Status:             pack.Status,
+		Summary:            firstNonEmptyString(pack.Summary, "Generated a dry-run Pod fix plan from OpsPilot evidence."),
+		Evidence:           pack.Evidence,
+		MissingEvidence:    pack.MissingEvidence,
+		LikelyCauses:       pack.LikelyCauses,
+		RecommendedActions: fixActionsFromEvidence("pod", inspection.Pod, pack),
+		Raw:                inspection,
+	}
+	return writeOutput(out, opts.output, result, writeFixPlanHuman(result))
+}
+
+func fixActionsFromEvidence(targetType, target string, pack evidencePack) []recommendedAction {
+	actions := []recommendedAction{
+		{Type: "ai_review", Target: "evidence_pack", Instruction: "Feed this evidence pack to AI before making code or configuration changes."},
+	}
+	if pack.Status != "healthy" {
+		actions = append(actions,
+			recommendedAction{Type: "code_or_config_review", Target: "repository", Instruction: "Inspect startup code, configuration loading, Dockerfile, probes, and deployment YAML for " + target + "."},
+			recommendedAction{Type: "release_validation", Target: "pipeline", Instruction: "After a fix, publish through GitLab Runner -> BuildKit -> Registry -> GitOps -> Argo CD, then run check " + targetType + " again."},
+		)
+	} else {
+		actions = append(actions, recommendedAction{Type: "no_code_change", Target: targetType, Instruction: "No direct code change is suggested from current evidence; fill missing evidence before changing code."})
+	}
+	if len(pack.MissingEvidence) > 0 {
+		actions = append(actions, recommendedAction{Type: "missing_evidence", Target: "opspilot", Instruction: "The diagnosis is partial because evidence is missing: " + strings.Join(pack.MissingEvidence, ", ")})
+	}
+	return actions
+}
+
+func writeFixPlanHuman(result fixPlanResult) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Fix plan: %s %s dry_run=%t status=%s\n", result.TargetType, result.Target, result.DryRun, result.Status)
+		if result.Namespace != "" {
+			fmt.Fprintf(w, "Namespace: %s\n", result.Namespace)
+		}
+		if result.Summary != "" {
+			fmt.Fprintf(w, "Summary: %s\n", result.Summary)
+		}
+		if len(result.Evidence) > 0 {
+			fmt.Fprintln(w, "Evidence:")
+			for _, item := range result.Evidence {
+				fmt.Fprintf(w, "- %s: %s\n", item.Source, item.Message)
+			}
+		}
+		if len(result.MissingEvidence) > 0 {
+			fmt.Fprintf(w, "Missing evidence: %s\n", strings.Join(result.MissingEvidence, ", "))
+		}
+		if len(result.LikelyCauses) > 0 {
+			fmt.Fprintln(w, "Likely causes:")
+			for _, cause := range result.LikelyCauses {
+				fmt.Fprintf(w, "- %s confidence=%.2f: %s\n", cause.Type, cause.Confidence, cause.Reason)
+			}
+		}
+		if len(result.RecommendedActions) > 0 {
+			fmt.Fprintln(w, "Recommended actions:")
+			for _, action := range result.RecommendedActions {
+				fmt.Fprintf(w, "- %s %s: %s\n", action.Type, action.Target, action.Instruction)
+			}
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		return nil
 	}
 }
 
@@ -1881,6 +2138,245 @@ func getJSONMap(backendURL, endpoint string, values url.Values) (map[string]any,
 	return payload, nil
 }
 
+type evidenceSubject struct {
+	Type      string `json:"type"`
+	Name      string `json:"name,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+}
+
+type evidenceItem struct {
+	Source  string `json:"source"`
+	Message string `json:"message"`
+}
+
+type likelyCause struct {
+	Type       string  `json:"type"`
+	Confidence float64 `json:"confidence"`
+	Reason     string  `json:"reason"`
+}
+
+type recommendedAction struct {
+	Type        string `json:"type"`
+	Target      string `json:"target,omitempty"`
+	Instruction string `json:"instruction"`
+}
+
+type evidencePack struct {
+	Subject            evidenceSubject     `json:"subject"`
+	Status             string              `json:"status"`
+	Summary            string              `json:"summary"`
+	Evidence           []evidenceItem      `json:"evidence"`
+	MissingEvidence    []string            `json:"missing_evidence,omitempty"`
+	LikelyCauses       []likelyCause       `json:"likely_causes,omitempty"`
+	RecommendedActions []recommendedAction `json:"recommended_actions,omitempty"`
+	Raw                any                 `json:"raw,omitempty"`
+}
+
+func buildEvidencePack(payload any) evidencePack {
+	switch v := payload.(type) {
+	case doctorResult:
+		return evidencePack{
+			Subject:         evidenceSubject{Type: "opspilot", Name: v.BackendURL},
+			Status:          statusFromBool(v.Ready),
+			Summary:         strings.Join(v.Findings, "; "),
+			Evidence:        evidenceItems("doctor", append([]string{fmt.Sprintf("backend_reachable=%t", v.BackendReachable)}, v.AvailableEvidence...)),
+			MissingEvidence: v.MissingEvidence,
+			LikelyCauses:    causesFromMissing(v.MissingEvidence),
+			RecommendedActions: []recommendedAction{
+				{Type: "next_check", Target: "cli", Instruction: strings.Join(v.Next, "; ")},
+			},
+		}
+	case inspectPodResult:
+		return evidencePack{
+			Subject:         evidenceSubject{Type: "pod", Name: v.Pod, Namespace: v.Namespace},
+			Status:          podEvidenceStatus(v),
+			Summary:         strings.Join(v.Findings, "; "),
+			Evidence:        podEvidenceItems(v),
+			MissingEvidence: uniqueStrings(append(v.MissingEvidence, v.EvidenceGaps...)),
+			LikelyCauses:    podLikelyCauses(v),
+			RecommendedActions: []recommendedAction{
+				{Type: "next_check", Target: "pod", Instruction: "Review events, recent logs, resource usage, and missing evidence before changing code."},
+			},
+		}
+	case inspectServiceResult:
+		actions := []recommendedAction{
+			{Type: "code_or_config_review", Target: "repo", Instruction: "If logs or events point to application errors, inspect the service repository and generate a small fix."},
+		}
+		if next := strings.Join(v.Next, "; "); next != "" {
+			actions = append([]recommendedAction{{Type: "next_check", Target: "service", Instruction: next}}, actions...)
+		}
+		return evidencePack{
+			Subject:            evidenceSubject{Type: "service", Name: v.Service, Namespace: v.Namespace},
+			Status:             serviceEvidenceStatus(v),
+			Summary:            strings.Join(v.Findings, "; "),
+			Evidence:           serviceEvidenceItems(v),
+			MissingEvidence:    uniqueStrings(append(append(v.MissingEvidence, v.EvidenceGaps...), v.ReleaseGaps...)),
+			LikelyCauses:       serviceLikelyCauses(v),
+			RecommendedActions: actions,
+		}
+	case inspectClusterResult:
+		return evidencePack{
+			Subject:         evidenceSubject{Type: "cluster"},
+			Status:          clusterEvidenceStatus(v),
+			Summary:         strings.Join(v.Findings, "; "),
+			Evidence:        clusterEvidenceItems(v),
+			MissingEvidence: v.MissingEvidence,
+			LikelyCauses:    causesFromMissing(v.MissingEvidence),
+			RecommendedActions: []recommendedAction{
+				{Type: "next_check", Target: "cluster", Instruction: "Inspect abnormal Pods, high restart containers, and high filesystem or memory usage first."},
+			},
+		}
+	case fixPlanResult:
+		return evidencePack{
+			Subject:            evidenceSubject{Type: v.TargetType, Name: v.Target, Namespace: v.Namespace},
+			Status:             v.Status,
+			Summary:            v.Summary,
+			Evidence:           v.Evidence,
+			MissingEvidence:    v.MissingEvidence,
+			LikelyCauses:       v.LikelyCauses,
+			RecommendedActions: v.RecommendedActions,
+		}
+	case map[string]any:
+		return evidencePack{
+			Subject: evidenceSubject{Type: "api_response", Name: firstNonEmptyString(stringValue(v["service"]), stringValue(v["name"]))},
+			Status:  firstNonEmptyString(stringValue(v["status"]), "unknown"),
+			Summary: firstNonEmptyString(stringValue(v["summary"]), "Raw API response evidence."),
+			Evidence: []evidenceItem{
+				{Source: "api", Message: "Raw response is available in raw."},
+			},
+			MissingEvidence: stringList(v["gaps"]),
+			Raw:             v,
+		}
+	default:
+		return evidencePack{
+			Subject: evidenceSubject{Type: "unknown"},
+			Status:  "unknown",
+			Summary: "Raw payload evidence.",
+			Evidence: []evidenceItem{
+				{Source: "payload", Message: "Raw payload is available in raw."},
+			},
+			Raw: payload,
+		}
+	}
+}
+
+func statusFromBool(ok bool) string {
+	if ok {
+		return "healthy"
+	}
+	return "degraded"
+}
+
+func evidenceItems(source string, messages []string) []evidenceItem {
+	out := []evidenceItem{}
+	for _, message := range messages {
+		if strings.TrimSpace(message) != "" {
+			out = append(out, evidenceItem{Source: source, Message: message})
+		}
+	}
+	return out
+}
+
+func podEvidenceStatus(v inspectPodResult) string {
+	if v.Ready && v.RestartCount == 0 {
+		return "healthy"
+	}
+	if v.Ready {
+		return "degraded"
+	}
+	return "unhealthy"
+}
+
+func serviceEvidenceStatus(v inspectServiceResult) string {
+	if v.Status == "healthy" && v.RestartCount == 0 {
+		return "healthy"
+	}
+	if v.Status == "" {
+		return "unknown"
+	}
+	return v.Status
+}
+
+func clusterEvidenceStatus(v inspectClusterResult) string {
+	if len(v.Findings) == 0 || (len(v.Findings) == 1 && strings.Contains(v.Findings[0], "No abnormal Pods")) {
+		return "healthy"
+	}
+	return "degraded"
+}
+
+func podEvidenceItems(v inspectPodResult) []evidenceItem {
+	items := []evidenceItem{
+		{Source: "kubernetes_pod", Message: fmt.Sprintf("status=%s ready=%t restarts=%d node=%s", v.Status, v.Ready, v.RestartCount, v.Node)},
+		{Source: "metrics", Message: fmt.Sprintf("cpu=%.3f cores memory=%.1f MiB", v.CPUCore, v.MemoryMiB)},
+		{Source: "logs", Message: fmt.Sprintf("kubernetes_log_bytes=%d elk_hits=%d", v.KubernetesLogBytes, v.ElasticsearchLogHits)},
+	}
+	for _, finding := range v.Findings {
+		items = append(items, evidenceItem{Source: "finding", Message: finding})
+	}
+	return items
+}
+
+func serviceEvidenceItems(v inspectServiceResult) []evidenceItem {
+	items := []evidenceItem{
+		{Source: "release", Message: fmt.Sprintf("status=%s stage=%s namespace=%s deployment=%s", v.Status, v.Stage, v.Namespace, v.Deployment)},
+		{Source: "workload", Message: fmt.Sprintf("pods=%d restarts=%d cpu=%.3f cores memory=%.1f MiB", v.PodCount, v.RestartCount, v.TotalCPUCore, v.TotalMemoryMiB)},
+	}
+	if v.Image != "" {
+		items = append(items, evidenceItem{Source: "image", Message: v.Image})
+	}
+	for _, finding := range v.Findings {
+		items = append(items, evidenceItem{Source: "finding", Message: finding})
+	}
+	for _, pod := range v.Pods {
+		items = append(items, evidenceItem{Source: "pod", Message: fmt.Sprintf("%s/%s status=%s ready=%t restarts=%d", pod.Namespace, pod.Pod, pod.Status, pod.Ready, pod.RestartCount)})
+	}
+	return items
+}
+
+func clusterEvidenceItems(v inspectClusterResult) []evidenceItem {
+	items := []evidenceItem{
+		{Source: "cluster", Message: fmt.Sprintf("nodes=%d top_cpu_pods=%d top_memory_pods=%d filesystems=%d", len(v.Nodes), len(v.TopCPU), len(v.TopMemory), len(v.Filesystems))},
+	}
+	for _, finding := range v.Findings {
+		items = append(items, evidenceItem{Source: "finding", Message: finding})
+	}
+	return items
+}
+
+func podLikelyCauses(v inspectPodResult) []likelyCause {
+	causes := []likelyCause{}
+	if !v.Ready {
+		causes = append(causes, likelyCause{Type: "runtime_or_configuration", Confidence: 0.7, Reason: "Pod is not ready."})
+	}
+	if v.RestartCount > 0 {
+		causes = append(causes, likelyCause{Type: "application_crash_or_probe_failure", Confidence: 0.75, Reason: "Pod has restarts."})
+	}
+	return append(causes, causesFromMissing(v.EvidenceGaps)...)
+}
+
+func serviceLikelyCauses(v inspectServiceResult) []likelyCause {
+	causes := []likelyCause{}
+	if v.Status != "" && v.Status != "healthy" {
+		causes = append(causes, likelyCause{Type: "release_or_rollout", Confidence: 0.75, Reason: "Release status is " + v.Status + "."})
+	}
+	if v.RestartCount > 0 {
+		causes = append(causes, likelyCause{Type: "application_crash_or_probe_failure", Confidence: 0.75, Reason: "One or more Pods restarted."})
+	}
+	if v.PodCount == 0 {
+		causes = append(causes, likelyCause{Type: "deployment_or_selector", Confidence: 0.65, Reason: "No Pods were found for the service."})
+	}
+	return append(causes, causesFromMissing(append(v.EvidenceGaps, v.ReleaseGaps...))...)
+}
+
+func causesFromMissing(missing []string) []likelyCause {
+	if len(missing) == 0 {
+		return nil
+	}
+	return []likelyCause{
+		{Type: "missing_evidence", Confidence: 0.4, Reason: "Some integrations or evidence sources are missing: " + strings.Join(uniqueStrings(missing), ", ")},
+	}
+}
+
 func writeOutput(out io.Writer, output string, payload any, table func(io.Writer) error) error {
 	switch strings.ToLower(output) {
 	case "", "json":
@@ -1892,6 +2388,13 @@ func writeOutput(out io.Writer, output string, payload any, table func(io.Writer
 		return err
 	case "pretty":
 		body, err := json.MarshalIndent(payload, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(out, string(body))
+		return err
+	case "evidence":
+		body, err := json.MarshalIndent(buildEvidencePack(payload), "", "  ")
 		if err != nil {
 			return err
 		}

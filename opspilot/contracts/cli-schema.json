@@ -3,6 +3,7 @@
   "version": "0.1.20-capability-detection",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
+  "outputs": ["json", "pretty", "human", "table", "evidence"],
   "commands": [
     {
       "name": "schema",
@@ -18,6 +19,11 @@
       "name": "capabilities",
       "readonly": true,
       "description": "Return available and missing troubleshooting evidence sources, including Kubernetes, Pod logs, Prometheus, ELK/OpenSearch, APISIX logs, Docker node-agent, GitLab/GitOps/Registry, and Argo CD."
+    },
+    {
+      "name": "doctor",
+      "readonly": true,
+      "description": "Check CLI/backend reachability and summarize available or missing evidence sources. Use this before deeper AI-assisted troubleshooting."
     },
     {
       "name": "inventory overview",
@@ -153,6 +159,36 @@
       "name": "inspect cluster",
       "readonly": true,
       "description": "Return a compact cluster inspection with abnormal Pods, node resources, top Pod usage, restart evidence, and filesystem mountpoints."
+    },
+    {
+      "name": "check service",
+      "readonly": true,
+      "description": "Beginner-friendly alias for inspect service. Supports --output evidence for AI-readable evidence packs."
+    },
+    {
+      "name": "check pod",
+      "readonly": true,
+      "description": "Beginner-friendly alias for inspect pod. Supports --output evidence for AI-readable evidence packs."
+    },
+    {
+      "name": "check cluster",
+      "readonly": true,
+      "description": "Beginner-friendly alias for inspect cluster. Supports --output evidence for AI-readable evidence packs."
+    },
+    {
+      "name": "check release",
+      "readonly": true,
+      "description": "Beginner-friendly alias for release status."
+    },
+    {
+      "name": "fix service",
+      "readonly": true,
+      "description": "Generate a dry-run AI fix plan for a service from OpsPilot evidence. Requires --dry-run and does not mutate repositories or clusters."
+    },
+    {
+      "name": "fix pod",
+      "readonly": true,
+      "description": "Generate a dry-run AI fix plan for a Pod from OpsPilot evidence. Requires --dry-run and does not mutate repositories or clusters."
     },
     {
       "name": "release service",

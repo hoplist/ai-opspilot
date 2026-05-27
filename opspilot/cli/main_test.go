@@ -116,6 +116,41 @@ func TestCapabilitiesCommandHumanOutput(t *testing.T) {
 	}
 }
 
+func TestDoctorCommandEvidenceOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/health":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"version": "test-version",
+			}})
+		case "/api/capabilities":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"ready":              true,
+				"available_evidence": []any{"Pod status"},
+				"missing_evidence":   []any{"ELK missing"},
+				"capabilities": []any{
+					map[string]any{"name": "kubernetes_api", "status": "ready", "available": true, "available_evidence": []any{"Pod status"}},
+				},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "--output", "evidence", "doctor"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload evidencePack
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Subject.Type != "opspilot" || payload.Status != "healthy" || !containsString(payload.MissingEvidence, "ELK missing") {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestReleaseHistoryCommand(t *testing.T) {
 	endpoint, values := releaseCommand([]string{"history", "--service", "opspilot-core", "--limit", "5"})
 	if endpoint != "/api/release/history" {
@@ -123,6 +158,32 @@ func TestReleaseHistoryCommand(t *testing.T) {
 	}
 	if values.Get("service") != "opspilot-core" || values.Get("limit") != "5" {
 		t.Fatalf("values = %#v", values)
+	}
+}
+
+func TestCheckReleaseAlias(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/release/status" {
+			http.NotFound(w, r)
+			return
+		}
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"service":    "opspilot-core",
+			"status":     "healthy",
+			"stage":      "rollout",
+			"namespace":  "opspilot",
+			"deployment": "opspilot-core",
+			"evidence":   map[string]any{},
+		}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "--output", "human", "check", "release", "opspilot-core"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Release: opspilot-core")) {
+		t.Fatalf("unexpected output: %s", out.String())
 	}
 }
 
@@ -312,6 +373,117 @@ func TestInspectServiceAggregatesPods(t *testing.T) {
 	}
 	if len(payload.AvailableEvidence) == 0 || len(payload.MissingEvidence) == 0 {
 		t.Fatalf("capability evidence missing: %#v", payload)
+	}
+}
+
+func TestInspectServiceEvidenceOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/capabilities":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"ready":              true,
+				"available_evidence": []any{"Pod status", "Pod logs"},
+				"missing_evidence":   []any{"APISIX missing"},
+				"capabilities":       []any{},
+			}})
+		case "/api/release/status":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"service": "demo-api", "environment": "test", "namespace": "cicd-devex-demo", "deployment": "demo-api", "status": "healthy", "stage": "rollout",
+				"evidence": map[string]any{
+					"pods": map[string]any{"item_count": 1, "items": []any{
+						map[string]any{"namespace": "cicd-devex-demo", "name": "demo-api-abc"},
+					}},
+				},
+				"gaps": []any{}, "next_checks": []any{},
+			}})
+		case "/api/context/pod":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"summary": map[string]any{"node": "worker-1", "status": "Ready", "ready": true, "restart_count": 0},
+			}})
+		case "/api/metrics/pod":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"cpu_cores": 0.01, "memory_working_set_bytes": 8 * 1024 * 1024, "restart_count": 0,
+			}})
+		case "/api/k8s/logs/pod":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{"text": "ok\n"}})
+		case "/api/logs/search":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{"total": 0, "item_count": 0}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "--output", "evidence", "check", "service", "demo-api"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload evidencePack
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Subject.Type != "service" || payload.Subject.Name != "demo-api" || len(payload.Evidence) == 0 {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if !containsString(payload.MissingEvidence, "APISIX missing") {
+		t.Fatalf("missing evidence = %#v", payload.MissingEvidence)
+	}
+}
+
+func TestFixServiceRequiresDryRunAndReturnsPlan(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/capabilities":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"ready":              true,
+				"available_evidence": []any{"Pod status"},
+				"missing_evidence":   []any{},
+				"capabilities":       []any{},
+			}})
+		case "/api/release/status":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"service": "demo-api", "environment": "test", "namespace": "cicd-devex-demo", "deployment": "demo-api", "status": "degraded", "stage": "rollout",
+				"evidence": map[string]any{
+					"pods": map[string]any{"item_count": 1, "items": []any{
+						map[string]any{"namespace": "cicd-devex-demo", "name": "demo-api-abc"},
+					}},
+				},
+				"gaps": []any{}, "next_checks": []any{"inspect Pod logs"},
+			}})
+		case "/api/context/pod":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"summary": map[string]any{"node": "worker-1", "status": "CrashLoopBackOff", "ready": false, "restart_count": 3},
+			}})
+		case "/api/metrics/pod":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"cpu_cores": 0.01, "memory_working_set_bytes": 8 * 1024 * 1024, "restart_count": 3,
+			}})
+		case "/api/k8s/logs/pod":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{"text": "panic: config missing\n"}})
+		case "/api/logs/search":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{"total": 0, "item_count": 0}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	err := run([]string{"--backend-url", server.URL, "fix", "service", "demo-api"}, &out)
+	if err == nil || err.Error() != "fix service currently requires --dry-run" {
+		t.Fatalf("err = %v", err)
+	}
+
+	out.Reset()
+	if err := run([]string{"--backend-url", server.URL, "--output", "evidence", "fix", "service", "demo-api", "--dry-run"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload evidencePack
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Subject.Type != "service" || payload.Subject.Name != "demo-api" || len(payload.RecommendedActions) == 0 {
+		t.Fatalf("payload = %#v", payload)
 	}
 }
 
