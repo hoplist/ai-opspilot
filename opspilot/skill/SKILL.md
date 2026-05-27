@@ -33,9 +33,7 @@ go run ./opspilot/cli --backend-url http://192.168.48.200:32180 <command>
 Check platform reachability before deeper work:
 
 ```powershell
-.\opspilot\scripts\opspilot.ps1 capabilities --output human
-.\opspilot\scripts\opspilot.ps1 metrics health
-.\opspilot\scripts\opspilot.ps1 docker agents
+.\opspilot\scripts\opspilot.ps1 doctor --output human
 ```
 
 If the user asks what the platform can do:
@@ -49,15 +47,13 @@ If the user asks what the platform can do:
 For broad cluster state:
 
 ```powershell
-.\opspilot\scripts\opspilot.ps1 inventory overview
-.\opspilot\scripts\opspilot.ps1 k8s pods --status abnormal
+.\opspilot\scripts\opspilot.ps1 check cluster --source all --output human
 ```
 
 For one Pod:
 
 ```powershell
-.\opspilot\scripts\opspilot.ps1 context pod -n <namespace> --pod <pod> --source node200-k8s
-.\opspilot\scripts\opspilot.ps1 diagnose pod -n <namespace> --pod <pod> --source node200-k8s
+.\opspilot\scripts\opspilot.ps1 check pod -n <namespace> --pod <pod> --source all --output human
 ```
 
 Use short-window logs only when needed:
@@ -121,6 +117,16 @@ For node206 Docker containers:
 ```
 
 ## Output
+
+For AI follow-up, prefer evidence output:
+
+```powershell
+.\opspilot\scripts\opspilot.ps1 check service <service> --output evidence
+.\opspilot\scripts\opspilot.ps1 fix service <service> --dry-run --output evidence
+```
+
+Use `fix ... --dry-run` only as a plan generator. It does not mutate code,
+repositories, or clusters.
 
 Summarize:
 
