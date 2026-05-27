@@ -61,3 +61,28 @@ Expected checks:
 - Release mappings for `ai-loop-demo`, `python-fastapi-demo`,
   `frontend-vite-demo`, and `java-spring-demo` are now stored in the source
   OpsPilot ConfigMap so future platform releases do not erase them.
+
+## Final Results
+
+- `python-fastapi-demo`
+  - Pipeline `38`: success.
+  - Argo: `Synced / Healthy`.
+  - Runtime: Pod `Ready`, `/health` returned `{"status":"ok"}`.
+  - OpsPilot: `check service`, `release status`, and `fix service --dry-run
+    --output evidence` returned `healthy`.
+- `frontend-vite-demo`
+  - Pipeline `41`: success after fixing the Vite build command.
+  - Argo: `Synced / Healthy`.
+  - Runtime: Pod `Ready`, nginx served the generated Vite `index.html`.
+  - OpsPilot: `check service`, `release status`, and `fix service --dry-run
+    --output evidence` returned `healthy`.
+- `java-spring-demo`
+  - Pipeline `40`: success.
+  - Argo: `Synced / Healthy`.
+  - Runtime: Pod `Ready`, `/health` returned `{"status":"ok"}`.
+  - OpsPilot: `check service`, `release status`, and `fix service --dry-run
+    --output evidence` returned `healthy`.
+
+Remaining expected gaps are evidence integrations, not release blockers:
+`elk_logs_missing`, service log index missing, and APISIX gateway evidence
+missing.
