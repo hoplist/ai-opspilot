@@ -29,13 +29,13 @@ preflight:onboarding:
     - test -f deploy/k8s/deployment.yaml
     - test -f deploy/k8s/service.yaml
     - test -f deploy/k8s/kustomization.yaml
-    - grep -q 'kind: LimitRange' deploy/k8s/limitrange.yaml
-    - grep -q 'kind: ResourceQuota' deploy/k8s/resourcequota.yaml
-    - grep -q 'resources:' deploy/k8s/deployment.yaml
-    - grep -q 'requests:' deploy/k8s/deployment.yaml
-    - grep -q 'limits:' deploy/k8s/deployment.yaml
-    - grep -q 'readinessProbe:' deploy/k8s/deployment.yaml
-    - grep -q 'livenessProbe:' deploy/k8s/deployment.yaml
+    - "grep -q 'kind: LimitRange' deploy/k8s/limitrange.yaml"
+    - "grep -q 'kind: ResourceQuota' deploy/k8s/resourcequota.yaml"
+    - "grep -q 'resources:' deploy/k8s/deployment.yaml"
+    - "grep -q 'requests:' deploy/k8s/deployment.yaml"
+    - "grep -q 'limits:' deploy/k8s/deployment.yaml"
+    - "grep -q 'readinessProbe:' deploy/k8s/deployment.yaml"
+    - "grep -q 'livenessProbe:' deploy/k8s/deployment.yaml"
     - grep -Eq 'buildkit-gitops|buildctl-daemonless.sh|BUILDKIT_IMAGE' .gitlab-ci.yml
   rules:
     - if: $CI_COMMIT_BRANCH

@@ -53,6 +53,10 @@ available to the GitLab token used for automated demo/release validation.
 Ownership inference now also understands four-segment GitLab paths outside the
 default `tpo` root, for example `platform/devex/demo/service` maps to
 `group=devex`, `project=demo`, and `service=service`.
+The demo pipeline caught a GitLab CI parsing edge case: shell script entries
+that grep for YAML keys containing `:` must quote the whole command. The shared
+templates now quote those guardrail grep commands so included pipelines lint
+and create jobs correctly.
 
 ## Follow-up
 
