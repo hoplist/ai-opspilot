@@ -33,6 +33,7 @@ go run ./opspilot/cli --backend-url http://192.168.48.200:32180 <command>
 Check platform reachability before deeper work:
 
 ```powershell
+.\opspilot\scripts\opspilot.ps1 capabilities --output human
 .\opspilot\scripts\opspilot.ps1 metrics health
 .\opspilot\scripts\opspilot.ps1 docker agents
 ```

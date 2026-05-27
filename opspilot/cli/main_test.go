@@ -88,6 +88,34 @@ func TestErrorsRecentCommand(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesCommandHumanOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/capabilities" {
+			http.NotFound(w, r)
+			return
+		}
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"ready": true,
+			"capabilities": []any{
+				map[string]any{"name": "kubernetes_api", "status": "ready", "available": true, "available_evidence": []any{"Pod 状态"}},
+				map[string]any{"name": "prometheus_metrics", "status": "missing", "available": false, "missing_evidence": []any{"Prometheus 未接入"}},
+			},
+			"available_evidence": []any{"Pod 状态"},
+			"missing_evidence":   []any{"Prometheus 未接入"},
+		}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "--output", "human", "capabilities"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if !bytes.Contains([]byte(text), []byte("Capabilities: ready=true")) || !bytes.Contains([]byte(text), []byte("Missing evidence:")) {
+		t.Fatalf("unexpected output:\n%s", text)
+	}
+}
+
 func TestReleaseHistoryCommand(t *testing.T) {
 	endpoint, values := releaseCommand([]string{"history", "--service", "opspilot-core", "--limit", "5"})
 	if endpoint != "/api/release/history" {
@@ -221,6 +249,13 @@ func TestReleaseServiceTrigger(t *testing.T) {
 func TestInspectServiceAggregatesPods(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/capabilities":
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"ready":              true,
+				"available_evidence": []any{"Pod 状态", "当前容器日志"},
+				"missing_evidence":   []any{"ELK/OpenSearch 未接入"},
+				"capabilities":       []any{},
+			}})
 		case "/api/release/status":
 			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
 				"service":     "demo-api",
@@ -274,6 +309,9 @@ func TestInspectServiceAggregatesPods(t *testing.T) {
 	}
 	if payload.TotalCPUCore != 0.02 || payload.TotalMemoryMiB != 64 {
 		t.Fatalf("usage = cpu %.3f memory %.1f", payload.TotalCPUCore, payload.TotalMemoryMiB)
+	}
+	if len(payload.AvailableEvidence) == 0 || len(payload.MissingEvidence) == 0 {
+		t.Fatalf("capability evidence missing: %#v", payload)
 	}
 }
 

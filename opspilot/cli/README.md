@@ -25,6 +25,7 @@ MVP invocation from source:
 
 ```bash
 go run ./opspilot/cli schema
+go run ./opspilot/cli capabilities --output human
 go run ./opspilot/cli inventory overview
 go run ./opspilot/cli metrics health
 go run ./opspilot/cli metrics datasources
@@ -58,6 +59,11 @@ go run ./opspilot/cli ask "发布 opspilot-core" --dry-run --output human
 Generated onboarding manifests include CPU/memory requests and limits,
 readiness/liveness probes, plus namespace `LimitRange` and `ResourceQuota`
 guardrails. `repo preflight` blocks release readiness when those are missing.
+
+`capabilities` reports which evidence sources are currently usable and which
+ones are missing. `inspect pod`, `inspect service`, `inspect cluster`, and
+natural-language inspect output include the same available/missing evidence
+summary so missing integrations do not block Kubernetes-first troubleshooting.
 
 Build a local binary:
 

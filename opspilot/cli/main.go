@@ -50,6 +50,8 @@ func run(args []string, out io.Writer) error {
 			_, err = fmt.Fprintln(out)
 		}
 		return err
+	case "capabilities", "capability":
+		return runCapabilities(opts, args[1:], out)
 	case "inventory":
 		endpoint, values = inventoryCommand(args[1:])
 	case "metrics":
@@ -145,6 +147,91 @@ type naturalLanguageIntent struct {
 	Service string
 	Target  string
 	Command []string
+}
+
+type capabilityItem struct {
+	Name              string         `json:"name"`
+	Label             string         `json:"label"`
+	Category          string         `json:"category"`
+	Configured        bool           `json:"configured"`
+	Ready             bool           `json:"ready"`
+	Available         bool           `json:"available"`
+	Status            string         `json:"status"`
+	AvailableEvidence []string       `json:"available_evidence,omitempty"`
+	MissingEvidence   []string       `json:"missing_evidence,omitempty"`
+	Message           string         `json:"message,omitempty"`
+	Details           map[string]any `json:"details,omitempty"`
+}
+
+type capabilityResult struct {
+	Ready             bool             `json:"ready"`
+	Capabilities      []capabilityItem `json:"capabilities"`
+	AvailableEvidence []string         `json:"available_evidence,omitempty"`
+	MissingEvidence   []string         `json:"missing_evidence,omitempty"`
+	Warnings          []string         `json:"warnings,omitempty"`
+	Summary           map[string]any   `json:"summary,omitempty"`
+	Raw               map[string]any   `json:"raw,omitempty"`
+}
+
+func runCapabilities(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("capabilities", flag.ExitOnError)
+	_ = fs.Parse(args)
+	result, err := fetchCapabilities(opts.backendURL)
+	if err != nil {
+		return err
+	}
+	return writeOutput(out, opts.output, result, writeCapabilitiesHuman(result))
+}
+
+func fetchCapabilities(backendURL string) (capabilityResult, error) {
+	body, err := get(backendURL, "/api/capabilities", url.Values{})
+	if err != nil {
+		return capabilityResult{}, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return capabilityResult{}, err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return capabilityResult{}, fmt.Errorf("capabilities response missing data")
+	}
+	raw, _ := json.Marshal(data)
+	var result capabilityResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return capabilityResult{}, err
+	}
+	result.Warnings = append(result.Warnings, stringList(payload["warnings"])...)
+	result.Raw = data
+	return result, nil
+}
+
+func writeCapabilitiesHuman(result capabilityResult) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Capabilities: ready=%t available=%d missing=%d\n", result.Ready, availableCapabilityCount(result.Capabilities), len(result.Capabilities)-availableCapabilityCount(result.Capabilities))
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "CAPABILITY\tSTATUS\tEVIDENCE OR GAP")
+		for _, item := range result.Capabilities {
+			evidence := strings.Join(item.AvailableEvidence, ", ")
+			if !item.Available {
+				evidence = strings.Join(item.MissingEvidence, ", ")
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\n", item.Name, item.Status, oneLine(evidence, 120))
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		if len(result.AvailableEvidence) > 0 {
+			fmt.Fprintf(w, "Available evidence: %s\n", strings.Join(result.AvailableEvidence, "; "))
+		}
+		if len(result.MissingEvidence) > 0 {
+			fmt.Fprintf(w, "Missing evidence: %s\n", strings.Join(result.MissingEvidence, "; "))
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		return nil
+	}
 }
 
 func runNaturalLanguage(opts globalOptions, args []string, out io.Writer) error {
@@ -264,6 +351,12 @@ func writeNaturalLanguageHuman(result naturalLanguageResult) func(io.Writer) err
 				}
 				if len(payload.EvidenceGaps) > 0 {
 					fmt.Fprintf(w, "Evidence gaps: %s\n", strings.Join(payload.EvidenceGaps, ", "))
+				}
+				if len(payload.AvailableEvidence) > 0 {
+					fmt.Fprintf(w, "Available evidence: %s\n", strings.Join(payload.AvailableEvidence, "; "))
+				}
+				if len(payload.MissingEvidence) > 0 {
+					fmt.Fprintf(w, "Missing evidence: %s\n", strings.Join(payload.MissingEvidence, "; "))
 				}
 				return nil
 			case map[string]any:
@@ -832,29 +925,35 @@ type inspectPodResult struct {
 	KubernetesLogBytes   int            `json:"kubernetes_log_bytes"`
 	ElasticsearchLogHits int            `json:"elasticsearch_log_hits"`
 	EvidenceGaps         []string       `json:"evidence_gaps"`
+	AvailableEvidence    []string       `json:"available_evidence,omitempty"`
+	MissingEvidence      []string       `json:"missing_evidence,omitempty"`
+	CapabilityWarnings   []string       `json:"capability_warnings,omitempty"`
 	Findings             []string       `json:"findings"`
 	Raw                  map[string]any `json:"raw,omitempty"`
 }
 
 type inspectServiceResult struct {
-	Service        string             `json:"service"`
-	Environment    string             `json:"environment,omitempty"`
-	Namespace      string             `json:"namespace,omitempty"`
-	Deployment     string             `json:"deployment,omitempty"`
-	Status         string             `json:"status,omitempty"`
-	Stage          string             `json:"stage,omitempty"`
-	Image          string             `json:"image,omitempty"`
-	PodCount       int                `json:"pod_count"`
-	TotalCPUCore   float64            `json:"total_cpu_cores"`
-	TotalMemoryMiB float64            `json:"total_memory_mib"`
-	RestartCount   int                `json:"restart_count"`
-	Pods           []inspectPodResult `json:"pods,omitempty"`
-	ReleaseGaps    []string           `json:"release_gaps,omitempty"`
-	EvidenceGaps   []string           `json:"evidence_gaps,omitempty"`
-	Findings       []string           `json:"findings"`
-	Next           []string           `json:"next,omitempty"`
-	Warnings       []string           `json:"warnings,omitempty"`
-	Raw            map[string]any     `json:"raw,omitempty"`
+	Service            string             `json:"service"`
+	Environment        string             `json:"environment,omitempty"`
+	Namespace          string             `json:"namespace,omitempty"`
+	Deployment         string             `json:"deployment,omitempty"`
+	Status             string             `json:"status,omitempty"`
+	Stage              string             `json:"stage,omitempty"`
+	Image              string             `json:"image,omitempty"`
+	PodCount           int                `json:"pod_count"`
+	TotalCPUCore       float64            `json:"total_cpu_cores"`
+	TotalMemoryMiB     float64            `json:"total_memory_mib"`
+	RestartCount       int                `json:"restart_count"`
+	Pods               []inspectPodResult `json:"pods,omitempty"`
+	ReleaseGaps        []string           `json:"release_gaps,omitempty"`
+	EvidenceGaps       []string           `json:"evidence_gaps,omitempty"`
+	AvailableEvidence  []string           `json:"available_evidence,omitempty"`
+	MissingEvidence    []string           `json:"missing_evidence,omitempty"`
+	CapabilityWarnings []string           `json:"capability_warnings,omitempty"`
+	Findings           []string           `json:"findings"`
+	Next               []string           `json:"next,omitempty"`
+	Warnings           []string           `json:"warnings,omitempty"`
+	Raw                map[string]any     `json:"raw,omitempty"`
 }
 
 func runInspectService(opts globalOptions, args []string, out io.Writer) error {
@@ -900,6 +999,12 @@ func runInspectService(opts globalOptions, args []string, out io.Writer) error {
 		if len(result.EvidenceGaps) > 0 {
 			fmt.Fprintf(w, "Evidence gaps: %s\n", strings.Join(result.EvidenceGaps, ", "))
 		}
+		if len(result.AvailableEvidence) > 0 {
+			fmt.Fprintf(w, "Available evidence: %s\n", strings.Join(result.AvailableEvidence, "; "))
+		}
+		if len(result.MissingEvidence) > 0 {
+			fmt.Fprintf(w, "Missing evidence: %s\n", strings.Join(result.MissingEvidence, "; "))
+		}
 		if len(result.Pods) > 0 {
 			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "POD\tSTATUS\tREADY\tRESTARTS\tCPU\tMEMORY\tK8S LOG\tELK")
@@ -916,6 +1021,9 @@ func runInspectService(opts globalOptions, args []string, out io.Writer) error {
 		}
 		if len(result.Warnings) > 0 {
 			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		if len(result.CapabilityWarnings) > 0 {
+			fmt.Fprintf(w, "Capability warnings: %s\n", strings.Join(result.CapabilityWarnings, "; "))
 		}
 		return nil
 	})
@@ -937,6 +1045,14 @@ func fetchInspectService(backendURL, service, envName, source string, tail, sinc
 		ReleaseGaps: stringList(data["gaps"]),
 		Next:        stringList(data["next_checks"]),
 		Raw:         map[string]any{"release_status": data},
+	}
+	if capabilities, err := fetchCapabilities(backendURL); err == nil {
+		result.AvailableEvidence = capabilities.AvailableEvidence
+		result.MissingEvidence = capabilities.MissingEvidence
+		result.CapabilityWarnings = capabilities.Warnings
+		result.Raw["capabilities"] = capabilities.Raw
+	} else {
+		result.CapabilityWarnings = append(result.CapabilityWarnings, "capabilities: "+err.Error())
 	}
 	evidence := mapValue(data, "evidence")
 	pods := mapValue(evidence, "pods")
@@ -1015,8 +1131,17 @@ func runInspectPod(opts globalOptions, args []string, out io.Writer) error {
 		if len(result.EvidenceGaps) > 0 {
 			fmt.Fprintf(w, "Evidence gaps: %s\n", strings.Join(result.EvidenceGaps, ", "))
 		}
+		if len(result.AvailableEvidence) > 0 {
+			fmt.Fprintf(w, "Available evidence: %s\n", strings.Join(result.AvailableEvidence, "; "))
+		}
+		if len(result.MissingEvidence) > 0 {
+			fmt.Fprintf(w, "Missing evidence: %s\n", strings.Join(result.MissingEvidence, "; "))
+		}
 		if len(result.Findings) > 0 {
 			fmt.Fprintf(w, "Findings: %s\n", strings.Join(result.Findings, "; "))
+		}
+		if len(result.CapabilityWarnings) > 0 {
+			fmt.Fprintf(w, "Capability warnings: %s\n", strings.Join(result.CapabilityWarnings, "; "))
 		}
 		return nil
 	})
@@ -1024,6 +1149,14 @@ func runInspectPod(opts globalOptions, args []string, out io.Writer) error {
 
 func fetchInspectPod(backendURL, namespace, pod, source string, tail, since int) (inspectPodResult, error) {
 	result := inspectPodResult{Namespace: namespace, Pod: pod, Raw: map[string]any{}}
+	if capabilities, err := fetchCapabilities(backendURL); err == nil {
+		result.AvailableEvidence = capabilities.AvailableEvidence
+		result.MissingEvidence = capabilities.MissingEvidence
+		result.CapabilityWarnings = capabilities.Warnings
+		result.Raw["capabilities"] = capabilities.Raw
+	} else {
+		result.CapabilityWarnings = append(result.CapabilityWarnings, "capabilities: "+err.Error())
+	}
 	contextBody, err := get(backendURL, "/api/context/pod", url.Values{"namespace": {namespace}, "pod": {pod}, "source": {source}})
 	if err != nil {
 		return result, err
@@ -1097,14 +1230,17 @@ func fetchInspectPod(backendURL, namespace, pod, source string, tail, since int)
 }
 
 type inspectClusterResult struct {
-	AbnormalPods map[string]any   `json:"abnormal_pods"`
-	Nodes        []map[string]any `json:"nodes"`
-	TopCPU       []map[string]any `json:"top_cpu_pods"`
-	TopMemory    []map[string]any `json:"top_memory_pods"`
-	Restarts24h  []metricItem     `json:"restarts_24h"`
-	Filesystems  []filesystemRow  `json:"filesystems"`
-	Findings     []string         `json:"findings"`
-	Raw          map[string]any   `json:"raw,omitempty"`
+	AbnormalPods       map[string]any   `json:"abnormal_pods"`
+	Nodes              []map[string]any `json:"nodes"`
+	TopCPU             []map[string]any `json:"top_cpu_pods"`
+	TopMemory          []map[string]any `json:"top_memory_pods"`
+	Restarts24h        []metricItem     `json:"restarts_24h"`
+	Filesystems        []filesystemRow  `json:"filesystems"`
+	AvailableEvidence  []string         `json:"available_evidence,omitempty"`
+	MissingEvidence    []string         `json:"missing_evidence,omitempty"`
+	CapabilityWarnings []string         `json:"capability_warnings,omitempty"`
+	Findings           []string         `json:"findings"`
+	Raw                map[string]any   `json:"raw,omitempty"`
 }
 
 func runInspectCluster(opts globalOptions, args []string, out io.Writer) error {
@@ -1120,6 +1256,15 @@ func runInspectCluster(opts globalOptions, args []string, out io.Writer) error {
 		fmt.Fprintln(w, "Cluster inspection")
 		if len(result.Findings) > 0 {
 			fmt.Fprintf(w, "Findings: %s\n", strings.Join(result.Findings, "; "))
+		}
+		if len(result.AvailableEvidence) > 0 {
+			fmt.Fprintf(w, "Available evidence: %s\n", strings.Join(result.AvailableEvidence, "; "))
+		}
+		if len(result.MissingEvidence) > 0 {
+			fmt.Fprintf(w, "Missing evidence: %s\n", strings.Join(result.MissingEvidence, "; "))
+		}
+		if len(result.CapabilityWarnings) > 0 {
+			fmt.Fprintf(w, "Capability warnings: %s\n", strings.Join(result.CapabilityWarnings, "; "))
 		}
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "\nNODES\tCPU\tMEMORY\tROOTFS")
@@ -1646,6 +1791,14 @@ func runReleaseRollback(opts globalOptions, args []string, out io.Writer) error 
 
 func fetchInspectCluster(backendURL, source string, limit int) (inspectClusterResult, error) {
 	result := inspectClusterResult{Raw: map[string]any{}}
+	if capabilities, err := fetchCapabilities(backendURL); err == nil {
+		result.AvailableEvidence = capabilities.AvailableEvidence
+		result.MissingEvidence = capabilities.MissingEvidence
+		result.CapabilityWarnings = capabilities.Warnings
+		result.Raw["capabilities"] = capabilities.Raw
+	} else {
+		result.CapabilityWarnings = append(result.CapabilityWarnings, "capabilities: "+err.Error())
+	}
 	abnormal, _ := getJSONMap(backendURL, "/api/k8s/pods", url.Values{"status": {"abnormal"}, "limit": {strconv.Itoa(limit)}})
 	nodes, _ := getJSONMap(backendURL, "/api/metrics/nodes", url.Values{"source": {source}, "limit": {"100"}})
 	topCPU, _ := getJSONMap(backendURL, "/api/metrics/pods", url.Values{"source": {source}, "sort": {"cpu"}, "limit": {strconv.Itoa(limit)}})
@@ -1848,6 +2001,16 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func availableCapabilityCount(items []capabilityItem) int {
+	count := 0
+	for _, item := range items {
+		if item.Available {
+			count++
+		}
+	}
+	return count
 }
 
 func get(baseURL, endpoint string, values url.Values) ([]byte, error) {

@@ -1,3 +1,3 @@
 package version
 
-const Version = "0.1.19-resource-guardrails"
+const Version = "0.1.20-capability-detection"

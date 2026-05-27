@@ -10,6 +10,12 @@ paths:
       responses:
         "200":
           description: OK
+  /api/capabilities:
+    get:
+      summary: Return available and missing troubleshooting evidence sources
+      responses:
+        "200":
+          description: Capability status, available evidence, and missing evidence
   /api/inventory/overview:
     get:
       summary: Return inventory overview

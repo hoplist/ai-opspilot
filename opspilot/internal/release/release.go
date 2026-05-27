@@ -101,6 +101,51 @@ func (r *Registry) Services() []string {
 	return append([]string{}, r.order...)
 }
 
+func (r *Registry) Health() map[string]any {
+	if r == nil {
+		return map[string]any{
+			"configured": false,
+		}
+	}
+	gitlabMapped := 0
+	gitopsMapped := 0
+	argocdMapped := 0
+	imageMapped := 0
+	for _, service := range r.services {
+		if service.GitLab != "" {
+			gitlabMapped++
+		}
+		if service.GitOps != "" {
+			gitopsMapped++
+		}
+		if service.ArgoCD != "" {
+			argocdMapped++
+		}
+		if service.Image != "" {
+			imageMapped++
+		}
+	}
+	gitlabConfigured := r.datasources.GitLabURL != "" && r.datasources.GitLabToken != ""
+	return map[string]any{
+		"configured":              r.Configured(),
+		"service_count":           len(r.services),
+		"services":                r.Services(),
+		"gitlab_configured":       gitlabConfigured,
+		"gitlab_url_configured":   r.datasources.GitLabURL != "",
+		"gitlab_token_configured": r.datasources.GitLabToken != "",
+		"gitops_configured":       gitlabConfigured && gitopsMapped > 0,
+		"gitops_project":          r.datasources.GitOpsProject,
+		"gitops_ref":              gitopsRef(r.datasources.GitOpsRef),
+		"registry_configured":     gitlabConfigured && imageMapped > 0,
+		"mapped": map[string]any{
+			"gitlab":   gitlabMapped,
+			"gitops":   gitopsMapped,
+			"argocd":   argocdMapped,
+			"registry": imageMapped,
+		},
+	}
+}
+
 func (r *Registry) Status(ctx context.Context, serviceName string, client *k8s.Client, promRegistry *prom.Registry, logClient *logsearch.Client) (map[string]any, []string, error) {
 	service, ok := r.services[serviceName]
 	if !ok {

@@ -1,6 +1,6 @@
 {
   "name": "opspilot",
-  "version": "0.1.19-resource-guardrails",
+  "version": "0.1.20-capability-detection",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
   "commands": [
@@ -13,6 +13,11 @@
       "name": "ask",
       "readonly": false,
       "description": "Interpret a small natural-language request such as checking, releasing, listing history, or rolling back a configured service, then execute the matching service-level OpsPilot command. Use --dry-run to only show the interpreted command."
+    },
+    {
+      "name": "capabilities",
+      "readonly": true,
+      "description": "Return available and missing troubleshooting evidence sources, including Kubernetes, Pod logs, Prometheus, ELK/OpenSearch, APISIX logs, Docker node-agent, GitLab/GitOps/Registry, and Argo CD."
     },
     {
       "name": "inventory overview",

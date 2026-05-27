@@ -47,14 +47,27 @@ func (c *Client) Configured() bool {
 	return c != nil && c.baseURL != ""
 }
 
+func (c *Client) APISIXConfigured() bool {
+	return c != nil && c.Configured() && !c.correlation.DisableAPISIX && c.correlation.APISIXIndex != ""
+}
+
+func (c *Client) ServiceLogsConfigured() bool {
+	return c != nil && c.Configured() && c.correlation.ServiceIndex != ""
+}
+
 func (c *Client) Health(ctx context.Context) map[string]any {
 	out := map[string]any{
 		"configured": c.Configured(),
 		"url":        c.baseURL,
 		"index":      c.index,
 		"correlation": map[string]any{
-			"apisix_index": c.correlation.APISIXIndex,
-			"routes":       len(c.correlation.Routes),
+			"apisix_configured":       c.APISIXConfigured(),
+			"apisix_disabled":         c.correlation.DisableAPISIX,
+			"apisix_index":            c.correlation.APISIXIndex,
+			"service_logs_configured": c.ServiceLogsConfigured(),
+			"service_index":           c.correlation.ServiceIndex,
+			"service_uri_field":       c.correlation.ServiceURIField,
+			"routes":                  len(c.correlation.Routes),
 		},
 		"ready": false,
 	}
