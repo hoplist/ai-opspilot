@@ -16,25 +16,45 @@ import (
 )
 
 type onboardServiceConfig struct {
-	Name          string                    `json:"name"`
-	GitLabProject string                    `json:"gitlab_project"`
-	Organization  string                    `json:"organization,omitempty"`
-	Group         string                    `json:"group,omitempty"`
-	Project       string                    `json:"project,omitempty"`
-	Language      string                    `json:"language"`
-	BuildEntry    string                    `json:"build_entry"`
-	BuildOutput   string                    `json:"build_output"`
-	Port          int                       `json:"port"`
-	HealthPath    string                    `json:"health_path"`
-	Namespace     string                    `json:"namespace"`
-	NamespaceSrc  string                    `json:"namespace_source,omitempty"`
-	Replicas      int                       `json:"replicas"`
-	Container     string                    `json:"container"`
-	DockerMode    string                    `json:"dockerfile_mode"`
-	DockerPath    string                    `json:"dockerfile_path"`
-	CIMode        string                    `json:"ci_mode"`
-	PromSource    string                    `json:"prometheus_source"`
-	Middleware    []onboardMiddlewareConfig `json:"middleware,omitempty"`
+	Name           string                      `json:"name"`
+	GitLabProject  string                      `json:"gitlab_project"`
+	Organization   string                      `json:"organization,omitempty"`
+	Group          string                      `json:"group,omitempty"`
+	Project        string                      `json:"project,omitempty"`
+	Language       string                      `json:"language"`
+	BuildEntry     string                      `json:"build_entry"`
+	BuildOutput    string                      `json:"build_output"`
+	Port           int                         `json:"port"`
+	HealthPath     string                      `json:"health_path"`
+	Namespace      string                      `json:"namespace"`
+	NamespaceSrc   string                      `json:"namespace_source,omitempty"`
+	Replicas       int                         `json:"replicas"`
+	Container      string                      `json:"container"`
+	DockerMode     string                      `json:"dockerfile_mode"`
+	DockerPath     string                      `json:"dockerfile_path"`
+	CIMode         string                      `json:"ci_mode"`
+	PromSource     string                      `json:"prometheus_source"`
+	Resources      onboardResourcesConfig      `json:"resources"`
+	NamespaceGuard onboardNamespaceGuardConfig `json:"namespace_guard"`
+	Middleware     []onboardMiddlewareConfig   `json:"middleware,omitempty"`
+}
+
+type onboardResourcesConfig struct {
+	Profile       string `json:"profile"`
+	RequestCPU    string `json:"request_cpu"`
+	RequestMemory string `json:"request_memory"`
+	LimitCPU      string `json:"limit_cpu"`
+	LimitMemory   string `json:"limit_memory"`
+}
+
+type onboardNamespaceGuardConfig struct {
+	LimitRange     bool   `json:"limit_range"`
+	ResourceQuota  bool   `json:"resource_quota"`
+	RequestsCPU    string `json:"requests_cpu"`
+	RequestsMemory string `json:"requests_memory"`
+	LimitsCPU      string `json:"limits_cpu"`
+	LimitsMemory   string `json:"limits_memory"`
+	Pods           string `json:"pods"`
 }
 
 type onboardMiddlewareConfig struct {
@@ -138,6 +158,9 @@ func onboardRepoCommand(opts globalOptions, args []string, out io.Writer) error 
 			return onboardRepoResult{}, err
 		}
 		cfg := detected.Config
+		if err := cfg.defaults(); err != nil {
+			return onboardRepoResult{}, err
+		}
 		files := append([]generatedFile{{path: "opspilot.service.yaml", body: serviceConfigTemplate(cfg)}}, onboardFiles(cfg)...)
 		results := make([]onboardWriteResult, 0, len(files))
 		for _, file := range files {
@@ -241,10 +264,46 @@ type namespaceResolution struct {
 }
 
 const (
-	defaultOrganization    = "tpo"
-	defaultGroup           = "devex"
-	defaultNamespacePrefix = "cicd"
+	defaultOrganization      = "tpo"
+	defaultGroup             = "devex"
+	defaultNamespacePrefix   = "cicd"
+	defaultResourceProfile   = "small"
+	defaultCITemplateProject = "platform/opspilot"
 )
+
+var resourceProfiles = map[string]onboardResourcesConfig{
+	"small": {
+		Profile:       "small",
+		RequestCPU:    "50m",
+		RequestMemory: "64Mi",
+		LimitCPU:      "500m",
+		LimitMemory:   "256Mi",
+	},
+	"medium": {
+		Profile:       "medium",
+		RequestCPU:    "100m",
+		RequestMemory: "128Mi",
+		LimitCPU:      "1",
+		LimitMemory:   "512Mi",
+	},
+	"large": {
+		Profile:       "large",
+		RequestCPU:    "500m",
+		RequestMemory: "512Mi",
+		LimitCPU:      "2",
+		LimitMemory:   "2Gi",
+	},
+}
+
+var defaultNamespaceGuard = onboardNamespaceGuardConfig{
+	LimitRange:     true,
+	ResourceQuota:  true,
+	RequestsCPU:    "4",
+	RequestsMemory: "8Gi",
+	LimitsCPU:      "8",
+	LimitsMemory:   "16Gi",
+	Pods:           "50",
+}
 
 var projectSuffixes = map[string]bool{
 	"admin":   true,
@@ -369,6 +428,9 @@ func onboardGenerateCommand(args []string, out io.Writer) error {
 			return onboardResult{}, err
 		}
 		cfg := detected.Config
+		if err := cfg.defaults(); err != nil {
+			return onboardResult{}, err
+		}
 		files := append([]generatedFile{{path: "opspilot.service.yaml", body: serviceConfigTemplate(cfg)}}, onboardFiles(cfg)...)
 		results := make([]onboardWriteResult, 0, len(files))
 		for _, file := range files {
@@ -491,11 +553,14 @@ func checkOnboardRepository(cfg onboardServiceConfig) onboardCheckResult {
 		checkFile("dockerfile", cfg.DockerPath, true, "Dockerfile used by BuildKit"),
 		checkCI(cfg.Language),
 		checkFile("namespace", filepath.Join("deploy", "k8s", "namespace.yaml"), true, "Kubernetes Namespace manifest"),
+		checkFile("limitrange", filepath.Join("deploy", "k8s", "limitrange.yaml"), true, "Kubernetes LimitRange guardrail"),
+		checkFile("resourcequota", filepath.Join("deploy", "k8s", "resourcequota.yaml"), true, "Kubernetes ResourceQuota guardrail"),
 		checkFile("deployment", filepath.Join("deploy", "k8s", "deployment.yaml"), true, "Kubernetes Deployment manifest"),
 		checkFile("service", filepath.Join("deploy", "k8s", "service.yaml"), true, "Kubernetes Service manifest"),
 		checkFile("kustomization", filepath.Join("deploy", "k8s", "kustomization.yaml"), true, "Kustomize entrypoint"),
 		checkFile("release_mapping", "opspilot.release-service.txt", false, "OpsPilot release service mapping"),
 	}
+	items = append(items, checkOnboardDeploymentGuardrails(cfg)...)
 	items = append(items, checkOnboardMiddleware(cfg)...)
 	result := onboardCheckResult{Service: cfg.Name, Ready: true, Items: items}
 	for _, item := range items {
@@ -532,6 +597,25 @@ func checkOnboardMiddleware(cfg onboardServiceConfig) []onboardCheckItem {
 	return items
 }
 
+func checkOnboardDeploymentGuardrails(cfg onboardServiceConfig) []onboardCheckItem {
+	path := filepath.Join("deploy", "k8s", "deployment.yaml")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return []onboardCheckItem{}
+	}
+	text := string(body)
+	items := []onboardCheckItem{
+		{Name: "deployment_resources", Path: path, OK: hasDeploymentResources(text), Required: true, Message: "CPU/memory requests and limits"},
+		{Name: "deployment_probes", Path: path, OK: strings.Contains(text, "readinessProbe:") && strings.Contains(text, "livenessProbe:"), Required: true, Message: "readiness/liveness probes"},
+	}
+	for i := range items {
+		if !items[i].OK {
+			items[i].Message = "missing " + items[i].Message
+		}
+	}
+	return items
+}
+
 func checkFile(name, path string, required bool, message string) onboardCheckItem {
 	if _, err := os.Stat(path); err == nil {
 		return onboardCheckItem{Name: name, Path: path, OK: true, Required: required, Message: message}
@@ -563,7 +647,7 @@ func nextOnboardAction(item onboardCheckItem) string {
 		return "create Dockerfile or set dockerfile.mode: generate then run opspilot onboard service --write"
 	case "buildkit_ci":
 		return "generate .gitlab-ci.yml with opspilot onboard service --write or include /ci/templates/buildkit-gitops.<language>.yml"
-	case "namespace", "deployment", "service", "kustomization":
+	case "namespace", "limitrange", "resourcequota", "deployment", "service", "kustomization", "deployment_resources", "deployment_probes":
 		return "generate deploy/k8s manifests with opspilot onboard service --write"
 	case "release_mapping":
 		return "copy opspilot.release-service.txt into OpsPilot release service config"
@@ -594,6 +678,8 @@ func onboardFiles(cfg onboardServiceConfig) []generatedFile {
 	}
 	files = append(files,
 		generatedFile{path: filepath.Join("deploy", "k8s", "namespace.yaml"), body: namespaceTemplate(cfg)},
+		generatedFile{path: filepath.Join("deploy", "k8s", "limitrange.yaml"), body: limitRangeTemplate(cfg)},
+		generatedFile{path: filepath.Join("deploy", "k8s", "resourcequota.yaml"), body: resourceQuotaTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "deployment.yaml"), body: deploymentTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "service.yaml"), body: serviceTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "kustomization.yaml"), body: kustomizationTemplate()},
@@ -619,24 +705,26 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 	}
 	namespace := resolveNamespace(project, name, catalogPath)
 	cfg := onboardServiceConfig{
-		Name:          name,
-		GitLabProject: project,
-		Organization:  namespace.Organization,
-		Group:         namespace.Group,
-		Project:       namespace.Project,
-		Language:      language,
-		BuildEntry:    detectBuildEntry(language, name),
-		BuildOutput:   "build/" + name,
-		Port:          port,
-		HealthPath:    "/health",
-		Namespace:     namespace.Namespace,
-		NamespaceSrc:  namespace.Source,
-		Replicas:      1,
-		Container:     name,
-		DockerMode:    "existing",
-		DockerPath:    dockerPath,
-		CIMode:        "include",
-		PromSource:    "node200-k8s",
+		Name:           name,
+		GitLabProject:  project,
+		Organization:   namespace.Organization,
+		Group:          namespace.Group,
+		Project:        namespace.Project,
+		Language:       language,
+		BuildEntry:     detectBuildEntry(language, name),
+		BuildOutput:    "build/" + name,
+		Port:           port,
+		HealthPath:     "/health",
+		Namespace:      namespace.Namespace,
+		NamespaceSrc:   namespace.Source,
+		Replicas:       1,
+		Container:      name,
+		DockerMode:     "existing",
+		DockerPath:     dockerPath,
+		CIMode:         "include",
+		PromSource:     "node200-k8s",
+		Resources:      resourceProfiles[defaultResourceProfile],
+		NamespaceGuard: defaultNamespaceGuard,
 	}
 	if cfg.GitLabProject == "" {
 		cfg.GitLabProject = defaultGitLabProject(cfg)
@@ -650,6 +738,8 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 		"dockerfile":     fileExists(cfg.DockerPath),
 		"gitlab_ci":      fileExists(".gitlab-ci.yml"),
 		"namespace":      fileExists(filepath.Join("deploy", "k8s", "namespace.yaml")),
+		"limitrange":     fileExists(filepath.Join("deploy", "k8s", "limitrange.yaml")),
+		"resourcequota":  fileExists(filepath.Join("deploy", "k8s", "resourcequota.yaml")),
 		"deployment":     fileExists(filepath.Join("deploy", "k8s", "deployment.yaml")),
 		"service":        fileExists(filepath.Join("deploy", "k8s", "service.yaml")),
 		"kustomization":  fileExists(filepath.Join("deploy", "k8s", "kustomization.yaml")),
@@ -670,6 +760,11 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 		result.Ready = false
 		result.Gaps = append(result.Gaps, "deploy_yaml_missing")
 		result.Next = append(result.Next, "generate deploy/k8s manifests")
+	}
+	if !files["limitrange"] || !files["resourcequota"] {
+		result.Ready = false
+		result.Gaps = append(result.Gaps, "namespace_guardrails_missing")
+		result.Next = append(result.Next, "generate LimitRange and ResourceQuota manifests")
 	}
 	return result, nil
 }
@@ -795,12 +890,12 @@ func inferOwnership(project, name string) namespaceResolution {
 		Service:      service,
 	}
 	switch {
-	case len(parts) >= 4 && parts[0] == defaultOrganization:
+	case len(parts) >= 4:
 		resolved.Organization = sanitizeDNSLabel(parts[0])
 		resolved.Group = sanitizeDNSLabel(parts[1])
 		resolved.Project = projectNameFromService(parts[2])
 		resolved.Service = sanitizeDNSLabel(parts[len(parts)-1])
-	case len(parts) >= 3 && parts[0] == defaultOrganization:
+	case len(parts) >= 3:
 		resolved.Organization = sanitizeDNSLabel(parts[0])
 		resolved.Group = sanitizeDNSLabel(parts[1])
 		resolved.Service = sanitizeDNSLabel(parts[len(parts)-1])
@@ -987,6 +1082,25 @@ deploy:
   replicas: %d
   container: %s
 
+resources:
+  profile: %s
+  requests:
+    cpu: %s
+    memory: %s
+  limits:
+    cpu: %s
+    memory: %s
+
+namespaceGuard:
+  limitRange: %t
+  resourceQuota: %t
+  quota:
+    requestsCpu: %s
+    requestsMemory: %s
+    limitsCpu: %s
+    limitsMemory: %s
+    pods: %s
+
 dockerfile:
   mode: %s
   path: %s
@@ -997,7 +1111,7 @@ ci:
 %s
 release:
   prometheusSource: %s
-`, c.Name, c.GitLabProject, c.Organization, c.Group, c.Project, c.Language, c.BuildEntry, c.BuildOutput, c.Port, c.HealthPath, c.Namespace, firstNonEmpty(c.NamespaceSrc, "manual"), c.Replicas, c.Container, c.DockerMode, c.DockerPath, c.CIMode, middlewareConfigTemplate(c.Middleware), c.PromSource)
+`, c.Name, c.GitLabProject, c.Organization, c.Group, c.Project, c.Language, c.BuildEntry, c.BuildOutput, c.Port, c.HealthPath, c.Namespace, firstNonEmpty(c.NamespaceSrc, "manual"), c.Replicas, c.Container, c.Resources.Profile, c.Resources.RequestCPU, c.Resources.RequestMemory, c.Resources.LimitCPU, c.Resources.LimitMemory, c.NamespaceGuard.LimitRange, c.NamespaceGuard.ResourceQuota, c.NamespaceGuard.RequestsCPU, c.NamespaceGuard.RequestsMemory, c.NamespaceGuard.LimitsCPU, c.NamespaceGuard.LimitsMemory, c.NamespaceGuard.Pods, c.DockerMode, c.DockerPath, c.CIMode, middlewareConfigTemplate(c.Middleware), c.PromSource)
 	return base
 }
 
@@ -1048,6 +1162,22 @@ func readOnboardServiceConfig(path string) (onboardServiceConfig, error) {
 		DockerPath:    values["dockerfile.path"],
 		CIMode:        values["ci.mode"],
 		PromSource:    values["release.prometheusSource"],
+		Resources: onboardResourcesConfig{
+			Profile:       values["resources.profile"],
+			RequestCPU:    values["resources.requests.cpu"],
+			RequestMemory: values["resources.requests.memory"],
+			LimitCPU:      values["resources.limits.cpu"],
+			LimitMemory:   values["resources.limits.memory"],
+		},
+		NamespaceGuard: onboardNamespaceGuardConfig{
+			LimitRange:     boolFromString(values["namespaceGuard.limitRange"], false),
+			ResourceQuota:  boolFromString(values["namespaceGuard.resourceQuota"], false),
+			RequestsCPU:    values["namespaceGuard.quota.requestsCpu"],
+			RequestsMemory: values["namespaceGuard.quota.requestsMemory"],
+			LimitsCPU:      values["namespaceGuard.quota.limitsCpu"],
+			LimitsMemory:   values["namespaceGuard.quota.limitsMemory"],
+			Pods:           values["namespaceGuard.quota.pods"],
+		},
 	}
 	cfg.Middleware = middlewareFromValues(values)
 	return cfg, nil
@@ -1111,6 +1241,8 @@ func (c *onboardServiceConfig) defaults() error {
 	if c.PromSource == "" {
 		c.PromSource = "node200-k8s"
 	}
+	c.Resources = defaultResources(c.Resources)
+	c.NamespaceGuard = defaultNamespaceGuardConfig(c.NamespaceGuard)
 	c.Middleware = normalizeMiddlewareRequirements(*c, c.Middleware)
 	return nil
 }
@@ -1196,6 +1328,64 @@ func intFromString(raw string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func boolFromString(raw string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on", "enabled":
+		return true
+	case "0", "false", "no", "off", "disabled":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func defaultResources(current onboardResourcesConfig) onboardResourcesConfig {
+	profile := strings.TrimSpace(current.Profile)
+	if profile == "" {
+		profile = defaultResourceProfile
+	}
+	base, ok := resourceProfiles[profile]
+	if !ok {
+		base = resourceProfiles[defaultResourceProfile]
+		base.Profile = profile
+	}
+	if current.RequestCPU != "" {
+		base.RequestCPU = current.RequestCPU
+	}
+	if current.RequestMemory != "" {
+		base.RequestMemory = current.RequestMemory
+	}
+	if current.LimitCPU != "" {
+		base.LimitCPU = current.LimitCPU
+	}
+	if current.LimitMemory != "" {
+		base.LimitMemory = current.LimitMemory
+	}
+	return base
+}
+
+func defaultNamespaceGuardConfig(current onboardNamespaceGuardConfig) onboardNamespaceGuardConfig {
+	base := defaultNamespaceGuard
+	base.LimitRange = true
+	base.ResourceQuota = true
+	if current.RequestsCPU != "" {
+		base.RequestsCPU = current.RequestsCPU
+	}
+	if current.RequestsMemory != "" {
+		base.RequestsMemory = current.RequestsMemory
+	}
+	if current.LimitsCPU != "" {
+		base.LimitsCPU = current.LimitsCPU
+	}
+	if current.LimitsMemory != "" {
+		base.LimitsMemory = current.LimitsMemory
+	}
+	if current.Pods != "" {
+		base.Pods = current.Pods
+	}
+	return base
 }
 
 func detectMiddlewareRequirements(c onboardServiceConfig) []onboardMiddlewareConfig {
@@ -1454,7 +1644,7 @@ ENTRYPOINT ["/usr/local/bin/%s"]
 
 func gitlabCIIncludeTemplate(c onboardServiceConfig) string {
 	return fmt.Sprintf(`include:
-  - project: tpo/devex/opspilot/opspilot-core
+  - project: %s
     ref: main
     file: /ci/templates/buildkit-gitops.%s.yml
 
@@ -1468,7 +1658,7 @@ variables:
   GITOPS_APP_FILE: "apps/%s-application.yaml"
   GITOPS_CONTAINER_NAME: "%s"
   DEPLOY_NAMESPACE: "%s"
-`, c.Language, c.Name, argoAppName(c), c.BuildEntry, c.BuildOutput, c.DockerPath, gitOpsAppPath(c), argoAppName(c), c.Container, c.Namespace)
+`, defaultCITemplateProject, c.Language, c.Name, argoAppName(c), c.BuildEntry, c.BuildOutput, c.DockerPath, gitOpsAppPath(c), argoAppName(c), c.Container, c.Namespace)
 }
 
 func namespaceTemplate(c onboardServiceConfig) string {
@@ -1482,6 +1672,40 @@ metadata:
     opspilot.io/group: %s
     opspilot.io/project: %s
 `, c.Namespace, c.Organization, c.Group, c.Project)
+}
+
+func limitRangeTemplate(c onboardServiceConfig) string {
+	return fmt.Sprintf(`apiVersion: v1
+kind: LimitRange
+metadata:
+  name: %s-defaults
+  namespace: %s
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: %s
+        memory: %s
+      default:
+        cpu: %s
+        memory: %s
+`, c.Namespace, c.Namespace, c.Resources.RequestCPU, c.Resources.RequestMemory, c.Resources.LimitCPU, c.Resources.LimitMemory)
+}
+
+func resourceQuotaTemplate(c onboardServiceConfig) string {
+	return fmt.Sprintf(`apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: %s-quota
+  namespace: %s
+spec:
+  hard:
+    requests.cpu: %s
+    requests.memory: %s
+    limits.cpu: %s
+    limits.memory: %s
+    pods: "%s"
+`, c.Namespace, c.Namespace, c.NamespaceGuard.RequestsCPU, c.NamespaceGuard.RequestsMemory, c.NamespaceGuard.LimitsCPU, c.NamespaceGuard.LimitsMemory, c.NamespaceGuard.Pods)
 }
 
 func deploymentTemplate(c onboardServiceConfig) string {
@@ -1509,6 +1733,13 @@ spec:
           ports:
             - name: http
               containerPort: %d
+          resources:
+            requests:
+              cpu: %s
+              memory: %s
+            limits:
+              cpu: %s
+              memory: %s
           readinessProbe:
             httpGet:
               path: %s
@@ -1521,7 +1752,7 @@ spec:
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20
-`, c.Name, c.Namespace, c.Name, c.Replicas, c.Name, c.Name, c.Container, c.Port, c.HealthPath, c.HealthPath)
+`, c.Name, c.Namespace, c.Name, c.Replicas, c.Name, c.Name, c.Container, c.Port, c.Resources.RequestCPU, c.Resources.RequestMemory, c.Resources.LimitCPU, c.Resources.LimitMemory, c.HealthPath, c.HealthPath)
 }
 
 func serviceTemplate(c onboardServiceConfig) string {
@@ -1543,6 +1774,8 @@ spec:
 func kustomizationTemplate() string {
 	return `resources:
   - namespace.yaml
+  - limitrange.yaml
+  - resourcequota.yaml
   - deployment.yaml
   - service.yaml
 `

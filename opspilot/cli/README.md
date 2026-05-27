@@ -50,9 +50,14 @@ go run ./opspilot/cli release jobs --service opspilot-core --output human
 go run ./opspilot/cli release logs --service opspilot-core --job build-image --tail 200 --output human
 go run ./opspilot/cli onboard repo tpo/devex/demo/demo-api --write --output human
 go run ./opspilot/cli onboard service --config opspilot.service.yaml --write
+go run ./opspilot/cli repo preflight --repo . --project tpo/devex/demo/demo-api --output human
 go run ./opspilot/cli ask "检查 opspilot-core 是否正常" --output human
 go run ./opspilot/cli ask "发布 opspilot-core" --dry-run --output human
 ```
+
+Generated onboarding manifests include CPU/memory requests and limits,
+readiness/liveness probes, plus namespace `LimitRange` and `ResourceQuota`
+guardrails. `repo preflight` blocks release readiness when those are missing.
 
 Build a local binary:
 

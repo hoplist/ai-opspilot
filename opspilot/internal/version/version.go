@@ -1,3 +1,3 @@
 package version
 
-const Version = "0.1.18-release-trigger-natural-language"
+const Version = "0.1.19-resource-guardrails"

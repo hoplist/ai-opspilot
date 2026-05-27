@@ -143,6 +143,8 @@ func repoPreflight(project, catalogPath string) (repoPreflightResult, error) {
 		checkRepoDockerfile(cfg),
 		checkRepoCI(cfg),
 		checkRepoFile("namespace", filepath.Join("deploy", "k8s", "namespace.yaml"), "generate deploy/k8s/namespace.yaml from ownership"),
+		checkRepoFile("limitrange", filepath.Join("deploy", "k8s", "limitrange.yaml"), "generate deploy/k8s/limitrange.yaml for namespace defaults"),
+		checkRepoFile("resourcequota", filepath.Join("deploy", "k8s", "resourcequota.yaml"), "generate deploy/k8s/resourcequota.yaml for namespace quota"),
 		checkRepoDeployment(cfg),
 		checkRepoFile("service", filepath.Join("deploy", "k8s", "service.yaml"), "generate deploy/k8s/service.yaml"),
 		checkRepoFile("kustomization", filepath.Join("deploy", "k8s", "kustomization.yaml"), "generate deploy/k8s/kustomization.yaml"),
@@ -293,9 +295,15 @@ func checkRepoDeployment(cfg onboardServiceConfig) repoPolicyItem {
 	}
 	if !strings.Contains(text, "readinessProbe:") {
 		issues = append(issues, "readinessProbe missing")
+		blocker = true
 	}
 	if !strings.Contains(text, "livenessProbe:") {
 		issues = append(issues, "livenessProbe missing")
+		blocker = true
+	}
+	if !hasDeploymentResources(text) {
+		issues = append(issues, "CPU/memory requests and limits missing")
+		blocker = true
 	}
 	if !strings.Contains(text, "namespace: "+cfg.Namespace) {
 		issues = append(issues, "namespace does not match inferred namespace "+cfg.Namespace)
@@ -373,6 +381,14 @@ func containsDangerousPipe(text string) bool {
 	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
 	return (strings.Contains(normalized, "curl ") || strings.Contains(normalized, "wget ")) &&
 		(strings.Contains(normalized, "| sh") || strings.Contains(normalized, "| bash"))
+}
+
+func hasDeploymentResources(text string) bool {
+	return strings.Contains(text, "resources:") &&
+		strings.Contains(text, "requests:") &&
+		strings.Contains(text, "limits:") &&
+		strings.Contains(text, "cpu:") &&
+		strings.Contains(text, "memory:")
 }
 
 func containsAny(text string, needles []string) bool {

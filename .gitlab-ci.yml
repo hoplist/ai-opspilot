@@ -25,6 +25,9 @@ preflight:onboarding:
     - test -f deploy/opspilot/core/deployment.yaml
     - test -f deploy/opspilot/core/service.yaml
     - test -f deploy/opspilot/core/kustomization.yaml
+    - grep -q 'resources:' deploy/opspilot/core/deployment.yaml
+    - grep -q 'readinessProbe:' deploy/opspilot/core/deployment.yaml
+    - grep -q 'livenessProbe:' deploy/opspilot/core/deployment.yaml
   rules:
     - if: $CI_COMMIT_BRANCH
 

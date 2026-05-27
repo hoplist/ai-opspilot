@@ -33,6 +33,13 @@ spec:
           ports:
             - name: http
               containerPort: 18080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
           readinessProbe:
             httpGet:
               path: /api/health

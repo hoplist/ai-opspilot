@@ -1,6 +1,6 @@
 {
   "name": "opspilot",
-  "version": "0.1.18-release-trigger-natural-language",
+  "version": "0.1.19-resource-guardrails",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
   "commands": [
@@ -201,12 +201,12 @@
     {
       "name": "onboard repo",
       "readonly": false,
-      "description": "One-command beginner onboarding for a GitLab project path. Detects the repository, generates platform Dockerfile/CI/deploy files with --write, runs preflight when writing, and prints the release mapping and next steps."
+      "description": "One-command beginner onboarding for a GitLab project path. Detects the repository, generates platform Dockerfile/CI/deploy files, CPU/memory limits, probes, LimitRange, and ResourceQuota with --write, runs preflight when writing, and prints the release mapping and next steps."
     },
     {
       "name": "onboard service",
       "readonly": false,
-      "description": "Generate missing Dockerfile, GitLab CI include, Kubernetes manifests, and OpsPilot release mapping from opspilot.service.yaml. Existing files are skipped unless --force is used."
+      "description": "Generate missing Dockerfile, GitLab CI include, Kubernetes manifests, CPU/memory limits, probes, namespace guardrails, and OpsPilot release mapping from opspilot.service.yaml. Existing files are skipped unless --force is used."
     },
     {
       "name": "onboard check",
@@ -226,7 +226,7 @@
     {
       "name": "repo preflight",
       "readonly": true,
-      "description": "Run automated repository governance checks for Dockerfile, platform GitLab CI include, deploy/k8s manifests, namespace ownership, port, health evidence, and shared middleware intent. Intended for CI gating."
+      "description": "Run automated repository governance checks for Dockerfile, platform GitLab CI include, deploy/k8s manifests, CPU/memory limits, probes, namespace guardrails, namespace ownership, port, health evidence, and shared middleware intent. Intended for CI gating."
     },
     {
       "name": "repo autofix",
