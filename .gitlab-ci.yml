@@ -18,7 +18,9 @@ variables:
 
 preflight:onboarding:
   stage: preflight
-  image: "$ALPINE_IMAGE"
+  image:
+    name: "$ALPINE_IMAGE"
+    pull_policy: if-not-present
   script:
     - test -f opspilot/Dockerfile
     - grep -Eq 'buildctl-daemonless.sh|BUILDKIT_IMAGE' .gitlab-ci.yml
@@ -33,7 +35,9 @@ preflight:onboarding:
 
 test:go:
   stage: test
-  image: "$GO_VERSION_IMAGE"
+  image:
+    name: "$GO_VERSION_IMAGE"
+    pull_policy: if-not-present
   before_script:
     - apk add --no-cache git
   script:
@@ -43,7 +47,9 @@ test:go:
 
 build:binaries:
   stage: build
-  image: "$GO_VERSION_IMAGE"
+  image:
+    name: "$GO_VERSION_IMAGE"
+    pull_policy: if-not-present
   before_script:
     - apk add --no-cache git
   script:
@@ -63,6 +69,7 @@ build:image:
   image:
     name: "$BUILDKIT_IMAGE"
     entrypoint: [""]
+    pull_policy: if-not-present
   needs:
     - job: build:binaries
       artifacts: true
@@ -87,7 +94,9 @@ build:image:
 
 update:gitops:
   stage: update-gitops
-  image: "$ALPINE_IMAGE"
+  image:
+    name: "$ALPINE_IMAGE"
+    pull_policy: if-not-present
   needs:
     - job: build:image
   before_script:
