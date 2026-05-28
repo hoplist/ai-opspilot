@@ -15,6 +15,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/contracts"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/skillregistry"
 )
 
 const defaultBackend = "http://127.0.0.1:18080"
@@ -56,6 +57,8 @@ func run(args []string, out io.Writer) error {
 		return runCapabilities(opts, args[1:], out)
 	case "doctor":
 		return runDoctor(opts, args[1:], out)
+	case "skills":
+		return runSkillsRegistry(opts, args[1:], out)
 	case "inventory":
 		endpoint, values = inventoryCommand(args[1:])
 	case "metrics":
@@ -311,6 +314,91 @@ func writeCapabilitiesHuman(result capabilityResult) func(io.Writer) error {
 		}
 		if len(result.MissingEvidence) > 0 {
 			fmt.Fprintf(w, "Missing evidence: %s\n", strings.Join(result.MissingEvidence, "; "))
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		return nil
+	}
+}
+
+type skillsRegistryResult struct {
+	Version         string                `json:"version"`
+	ItemCount       int                   `json:"item_count"`
+	IntegratedCount int                   `json:"integrated_count"`
+	Items           []skillregistry.Skill `json:"items"`
+	Warnings        []string              `json:"warnings,omitempty"`
+}
+
+func runSkillsRegistry(opts globalOptions, args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] != "registry" && args[0] != "list" {
+		return fmt.Errorf("expected skills subcommand: registry")
+	}
+	if len(args) > 0 {
+		args = args[1:]
+	}
+	fs := flag.NewFlagSet("skills registry", flag.ExitOnError)
+	category := fs.String("category", "", "skill category filter")
+	integratedOnly := fs.Bool("integrated-only", false, "show only integrated skills")
+	local := fs.Bool("local", false, "use embedded CLI registry instead of backend")
+	_ = fs.Parse(args)
+
+	result, err := fetchSkillsRegistry(opts.backendURL, *category, *integratedOnly, *local)
+	if err != nil {
+		return err
+	}
+	return writeOutput(out, opts.output, result, writeSkillsRegistryHuman(result))
+}
+
+func fetchSkillsRegistry(backendURL, category string, integratedOnly, local bool) (skillsRegistryResult, error) {
+	if local {
+		return skillsResultFromCatalog(skillregistry.Registry(category, integratedOnly), nil), nil
+	}
+	body, err := get(backendURL, "/api/skills/registry", url.Values{
+		"category":        {category},
+		"integrated_only": {strconv.FormatBool(integratedOnly)},
+	})
+	if err != nil {
+		warning := "backend skills registry unavailable; using CLI embedded registry: " + err.Error()
+		return skillsResultFromCatalog(skillregistry.Registry(category, integratedOnly), []string{warning}), nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return skillsRegistryResult{}, err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return skillsRegistryResult{}, fmt.Errorf("skills registry response missing data")
+	}
+	raw, _ := json.Marshal(data)
+	var catalog skillregistry.Catalog
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		return skillsRegistryResult{}, err
+	}
+	return skillsResultFromCatalog(catalog, stringList(payload["warnings"])), nil
+}
+
+func skillsResultFromCatalog(catalog skillregistry.Catalog, warnings []string) skillsRegistryResult {
+	return skillsRegistryResult{
+		Version:         catalog.Version,
+		ItemCount:       catalog.ItemCount,
+		IntegratedCount: catalog.IntegratedCount,
+		Items:           catalog.Items,
+		Warnings:        warnings,
+	}
+}
+
+func writeSkillsRegistryHuman(result skillsRegistryResult) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Skills registry: version=%s items=%d integrated=%d\n", result.Version, result.ItemCount, result.IntegratedCount)
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "SKILL\tCATEGORY\tTIER\tINTEGRATED\tCOMMANDS")
+		for _, item := range result.Items {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%t\t%s\n",
+				item.Name, item.Category, item.IntegrationTier, item.Integrated, oneLine(strings.Join(item.Commands, ", "), 100))
+		}
+		if err := tw.Flush(); err != nil {
+			return err
 		}
 		if len(result.Warnings) > 0 {
 			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
@@ -942,18 +1030,19 @@ func inspectCommand(opts globalOptions, args []string, out io.Writer) error {
 }
 
 type fixPlanResult struct {
-	TargetType         string              `json:"target_type"`
-	Target             string              `json:"target"`
-	Namespace          string              `json:"namespace,omitempty"`
-	DryRun             bool                `json:"dry_run"`
-	Status             string              `json:"status"`
-	Summary            string              `json:"summary"`
-	Evidence           []evidenceItem      `json:"evidence"`
-	MissingEvidence    []string            `json:"missing_evidence,omitempty"`
-	LikelyCauses       []likelyCause       `json:"likely_causes,omitempty"`
-	RecommendedActions []recommendedAction `json:"recommended_actions"`
-	Warnings           []string            `json:"warnings,omitempty"`
-	Raw                any                 `json:"raw,omitempty"`
+	TargetType           string                         `json:"target_type"`
+	Target               string                         `json:"target"`
+	Namespace            string                         `json:"namespace,omitempty"`
+	DryRun               bool                           `json:"dry_run"`
+	Status               string                         `json:"status"`
+	Summary              string                         `json:"summary"`
+	Evidence             []evidenceItem                 `json:"evidence"`
+	MissingEvidence      []string                       `json:"missing_evidence,omitempty"`
+	LikelyCauses         []likelyCause                  `json:"likely_causes,omitempty"`
+	RecommendedActions   []recommendedAction            `json:"recommended_actions"`
+	SkillRecommendations []skillregistry.Recommendation `json:"skill_recommendations,omitempty"`
+	Warnings             []string                       `json:"warnings,omitempty"`
+	Raw                  any                            `json:"raw,omitempty"`
 }
 
 func fixCommand(opts globalOptions, args []string, out io.Writer) error {
@@ -1012,8 +1101,10 @@ func runFixService(opts globalOptions, args []string, out io.Writer) error {
 		MissingEvidence:    pack.MissingEvidence,
 		LikelyCauses:       pack.LikelyCauses,
 		RecommendedActions: fixActionsFromEvidence("service", inspection.Service, pack),
-		Warnings:           inspection.Warnings,
-		Raw:                inspection,
+		SkillRecommendations: skillregistry.Recommend("service", pack.Status, pack.MissingEvidence,
+			append([]string{pack.Summary}, evidenceItemMessages(pack.Evidence)...)),
+		Warnings: inspection.Warnings,
+		Raw:      inspection,
 	}
 	return writeOutput(out, opts.output, result, writeFixPlanHuman(result))
 }
@@ -1053,7 +1144,9 @@ func runFixPod(opts globalOptions, args []string, out io.Writer) error {
 		MissingEvidence:    pack.MissingEvidence,
 		LikelyCauses:       pack.LikelyCauses,
 		RecommendedActions: fixActionsFromEvidence("pod", inspection.Pod, pack),
-		Raw:                inspection,
+		SkillRecommendations: skillregistry.Recommend("pod", pack.Status, pack.MissingEvidence,
+			append([]string{pack.Summary}, evidenceItemMessages(pack.Evidence)...)),
+		Raw: inspection,
 	}
 	return writeOutput(out, opts.output, result, writeFixPlanHuman(result))
 }
@@ -1106,10 +1199,21 @@ func writeFixPlanHuman(result fixPlanResult) func(io.Writer) error {
 				fmt.Fprintf(w, "- %s %s: %s\n", action.Type, action.Target, action.Instruction)
 			}
 		}
+		writeSkillRecommendationsHuman(w, result.SkillRecommendations)
 		if len(result.Warnings) > 0 {
 			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
 		}
 		return nil
+	}
+}
+
+func writeSkillRecommendationsHuman(w io.Writer, recommendations []skillregistry.Recommendation) {
+	if len(recommendations) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "Recommended skills:")
+	for _, item := range recommendations {
+		fmt.Fprintf(w, "- %s: %s\n", item.Name, item.Reason)
 	}
 }
 
@@ -1173,46 +1277,48 @@ func fetchFilesystems(backendURL, source string) (filesystemsResult, error) {
 }
 
 type inspectPodResult struct {
-	Namespace            string         `json:"namespace"`
-	Pod                  string         `json:"pod"`
-	Node                 string         `json:"node,omitempty"`
-	Status               string         `json:"status,omitempty"`
-	Ready                bool           `json:"ready"`
-	RestartCount         int            `json:"restart_count"`
-	CPUCore              float64        `json:"cpu_cores"`
-	MemoryMiB            float64        `json:"memory_mib"`
-	KubernetesLogBytes   int            `json:"kubernetes_log_bytes"`
-	ElasticsearchLogHits int            `json:"elasticsearch_log_hits"`
-	EvidenceGaps         []string       `json:"evidence_gaps"`
-	AvailableEvidence    []string       `json:"available_evidence,omitempty"`
-	MissingEvidence      []string       `json:"missing_evidence,omitempty"`
-	CapabilityWarnings   []string       `json:"capability_warnings,omitempty"`
-	Findings             []string       `json:"findings"`
-	Raw                  map[string]any `json:"raw,omitempty"`
+	Namespace            string                         `json:"namespace"`
+	Pod                  string                         `json:"pod"`
+	Node                 string                         `json:"node,omitempty"`
+	Status               string                         `json:"status,omitempty"`
+	Ready                bool                           `json:"ready"`
+	RestartCount         int                            `json:"restart_count"`
+	CPUCore              float64                        `json:"cpu_cores"`
+	MemoryMiB            float64                        `json:"memory_mib"`
+	KubernetesLogBytes   int                            `json:"kubernetes_log_bytes"`
+	ElasticsearchLogHits int                            `json:"elasticsearch_log_hits"`
+	EvidenceGaps         []string                       `json:"evidence_gaps"`
+	AvailableEvidence    []string                       `json:"available_evidence,omitempty"`
+	MissingEvidence      []string                       `json:"missing_evidence,omitempty"`
+	CapabilityWarnings   []string                       `json:"capability_warnings,omitempty"`
+	Findings             []string                       `json:"findings"`
+	SkillRecommendations []skillregistry.Recommendation `json:"skill_recommendations,omitempty"`
+	Raw                  map[string]any                 `json:"raw,omitempty"`
 }
 
 type inspectServiceResult struct {
-	Service            string             `json:"service"`
-	Environment        string             `json:"environment,omitempty"`
-	Namespace          string             `json:"namespace,omitempty"`
-	Deployment         string             `json:"deployment,omitempty"`
-	Status             string             `json:"status,omitempty"`
-	Stage              string             `json:"stage,omitempty"`
-	Image              string             `json:"image,omitempty"`
-	PodCount           int                `json:"pod_count"`
-	TotalCPUCore       float64            `json:"total_cpu_cores"`
-	TotalMemoryMiB     float64            `json:"total_memory_mib"`
-	RestartCount       int                `json:"restart_count"`
-	Pods               []inspectPodResult `json:"pods,omitempty"`
-	ReleaseGaps        []string           `json:"release_gaps,omitempty"`
-	EvidenceGaps       []string           `json:"evidence_gaps,omitempty"`
-	AvailableEvidence  []string           `json:"available_evidence,omitempty"`
-	MissingEvidence    []string           `json:"missing_evidence,omitempty"`
-	CapabilityWarnings []string           `json:"capability_warnings,omitempty"`
-	Findings           []string           `json:"findings"`
-	Next               []string           `json:"next,omitempty"`
-	Warnings           []string           `json:"warnings,omitempty"`
-	Raw                map[string]any     `json:"raw,omitempty"`
+	Service              string                         `json:"service"`
+	Environment          string                         `json:"environment,omitempty"`
+	Namespace            string                         `json:"namespace,omitempty"`
+	Deployment           string                         `json:"deployment,omitempty"`
+	Status               string                         `json:"status,omitempty"`
+	Stage                string                         `json:"stage,omitempty"`
+	Image                string                         `json:"image,omitempty"`
+	PodCount             int                            `json:"pod_count"`
+	TotalCPUCore         float64                        `json:"total_cpu_cores"`
+	TotalMemoryMiB       float64                        `json:"total_memory_mib"`
+	RestartCount         int                            `json:"restart_count"`
+	Pods                 []inspectPodResult             `json:"pods,omitempty"`
+	ReleaseGaps          []string                       `json:"release_gaps,omitempty"`
+	EvidenceGaps         []string                       `json:"evidence_gaps,omitempty"`
+	AvailableEvidence    []string                       `json:"available_evidence,omitempty"`
+	MissingEvidence      []string                       `json:"missing_evidence,omitempty"`
+	CapabilityWarnings   []string                       `json:"capability_warnings,omitempty"`
+	Findings             []string                       `json:"findings"`
+	Next                 []string                       `json:"next,omitempty"`
+	Warnings             []string                       `json:"warnings,omitempty"`
+	SkillRecommendations []skillregistry.Recommendation `json:"skill_recommendations,omitempty"`
+	Raw                  map[string]any                 `json:"raw,omitempty"`
 }
 
 func runInspectService(opts globalOptions, args []string, out io.Writer) error {
@@ -1264,6 +1370,7 @@ func runInspectService(opts globalOptions, args []string, out io.Writer) error {
 		if len(result.MissingEvidence) > 0 {
 			fmt.Fprintf(w, "Missing evidence: %s\n", strings.Join(result.MissingEvidence, "; "))
 		}
+		writeSkillRecommendationsHuman(w, result.SkillRecommendations)
 		if len(result.Pods) > 0 {
 			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "POD\tSTATUS\tREADY\tRESTARTS\tCPU\tMEMORY\tK8S LOG\tELK")
@@ -1360,6 +1467,9 @@ func fetchInspectService(backendURL, service, envName, source string, tail, sinc
 	if len(result.ReleaseGaps) > 0 || len(result.EvidenceGaps) > 0 {
 		result.Findings = append(result.Findings, "Some evidence is missing; treat the healthy checks as partial.")
 	}
+	result.SkillRecommendations = skillregistry.Recommend("service", serviceEvidenceStatus(result),
+		uniqueStrings(append(append(result.MissingEvidence, result.EvidenceGaps...), result.ReleaseGaps...)),
+		append(result.Findings, result.Next...))
 	return result, nil
 }
 
@@ -1399,6 +1509,7 @@ func runInspectPod(opts globalOptions, args []string, out io.Writer) error {
 		if len(result.Findings) > 0 {
 			fmt.Fprintf(w, "Findings: %s\n", strings.Join(result.Findings, "; "))
 		}
+		writeSkillRecommendationsHuman(w, result.SkillRecommendations)
 		if len(result.CapabilityWarnings) > 0 {
 			fmt.Fprintf(w, "Capability warnings: %s\n", strings.Join(result.CapabilityWarnings, "; "))
 		}
@@ -1485,21 +1596,24 @@ func fetchInspectPod(backendURL, namespace, pod, source string, tail, since int)
 	if result.RestartCount > 0 {
 		result.Findings = append(result.Findings, fmt.Sprintf("Pod has historical restarts: %d.", result.RestartCount))
 	}
+	result.SkillRecommendations = skillregistry.Recommend("pod", podEvidenceStatus(result),
+		uniqueStrings(append(result.MissingEvidence, result.EvidenceGaps...)), result.Findings)
 	return result, nil
 }
 
 type inspectClusterResult struct {
-	AbnormalPods       map[string]any   `json:"abnormal_pods"`
-	Nodes              []map[string]any `json:"nodes"`
-	TopCPU             []map[string]any `json:"top_cpu_pods"`
-	TopMemory          []map[string]any `json:"top_memory_pods"`
-	Restarts24h        []metricItem     `json:"restarts_24h"`
-	Filesystems        []filesystemRow  `json:"filesystems"`
-	AvailableEvidence  []string         `json:"available_evidence,omitempty"`
-	MissingEvidence    []string         `json:"missing_evidence,omitempty"`
-	CapabilityWarnings []string         `json:"capability_warnings,omitempty"`
-	Findings           []string         `json:"findings"`
-	Raw                map[string]any   `json:"raw,omitempty"`
+	AbnormalPods         map[string]any                 `json:"abnormal_pods"`
+	Nodes                []map[string]any               `json:"nodes"`
+	TopCPU               []map[string]any               `json:"top_cpu_pods"`
+	TopMemory            []map[string]any               `json:"top_memory_pods"`
+	Restarts24h          []metricItem                   `json:"restarts_24h"`
+	Filesystems          []filesystemRow                `json:"filesystems"`
+	AvailableEvidence    []string                       `json:"available_evidence,omitempty"`
+	MissingEvidence      []string                       `json:"missing_evidence,omitempty"`
+	CapabilityWarnings   []string                       `json:"capability_warnings,omitempty"`
+	Findings             []string                       `json:"findings"`
+	SkillRecommendations []skillregistry.Recommendation `json:"skill_recommendations,omitempty"`
+	Raw                  map[string]any                 `json:"raw,omitempty"`
 }
 
 func runInspectCluster(opts globalOptions, args []string, out io.Writer) error {
@@ -1525,6 +1639,7 @@ func runInspectCluster(opts globalOptions, args []string, out io.Writer) error {
 		if len(result.CapabilityWarnings) > 0 {
 			fmt.Fprintf(w, "Capability warnings: %s\n", strings.Join(result.CapabilityWarnings, "; "))
 		}
+		writeSkillRecommendationsHuman(w, result.SkillRecommendations)
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "\nNODES\tCPU\tMEMORY\tROOTFS")
 		for _, node := range result.Nodes {
@@ -2109,6 +2224,7 @@ func fetchInspectCluster(backendURL, source string, limit int) (inspectClusterRe
 	if len(result.Restarts24h) > 0 {
 		result.Findings = append(result.Findings, fmt.Sprintf("%d containers have restarts in the last 24h.", len(result.Restarts24h)))
 	}
+	result.SkillRecommendations = skillregistry.Recommend("cluster", clusterEvidenceStatus(result), result.MissingEvidence, result.Findings)
 	return result, nil
 }
 
@@ -2164,14 +2280,15 @@ type recommendedAction struct {
 }
 
 type evidencePack struct {
-	Subject            evidenceSubject     `json:"subject"`
-	Status             string              `json:"status"`
-	Summary            string              `json:"summary"`
-	Evidence           []evidenceItem      `json:"evidence"`
-	MissingEvidence    []string            `json:"missing_evidence,omitempty"`
-	LikelyCauses       []likelyCause       `json:"likely_causes,omitempty"`
-	RecommendedActions []recommendedAction `json:"recommended_actions,omitempty"`
-	Raw                any                 `json:"raw,omitempty"`
+	Subject              evidenceSubject                `json:"subject"`
+	Status               string                         `json:"status"`
+	Summary              string                         `json:"summary"`
+	Evidence             []evidenceItem                 `json:"evidence"`
+	MissingEvidence      []string                       `json:"missing_evidence,omitempty"`
+	LikelyCauses         []likelyCause                  `json:"likely_causes,omitempty"`
+	RecommendedActions   []recommendedAction            `json:"recommended_actions,omitempty"`
+	SkillRecommendations []skillregistry.Recommendation `json:"skill_recommendations,omitempty"`
+	Raw                  any                            `json:"raw,omitempty"`
 }
 
 func buildEvidencePack(payload any) evidencePack {
@@ -2187,20 +2304,26 @@ func buildEvidencePack(payload any) evidencePack {
 			RecommendedActions: []recommendedAction{
 				{Type: "next_check", Target: "cli", Instruction: strings.Join(v.Next, "; ")},
 			},
+			SkillRecommendations: skillregistry.Recommend("opspilot", statusFromBool(v.Ready), v.MissingEvidence, v.Findings),
 		}
 	case inspectPodResult:
+		status := podEvidenceStatus(v)
+		missing := uniqueStrings(append(v.MissingEvidence, v.EvidenceGaps...))
 		return evidencePack{
 			Subject:         evidenceSubject{Type: "pod", Name: v.Pod, Namespace: v.Namespace},
-			Status:          podEvidenceStatus(v),
+			Status:          status,
 			Summary:         strings.Join(v.Findings, "; "),
 			Evidence:        podEvidenceItems(v),
-			MissingEvidence: uniqueStrings(append(v.MissingEvidence, v.EvidenceGaps...)),
+			MissingEvidence: missing,
 			LikelyCauses:    podLikelyCauses(v),
 			RecommendedActions: []recommendedAction{
 				{Type: "next_check", Target: "pod", Instruction: "Review events, recent logs, resource usage, and missing evidence before changing code."},
 			},
+			SkillRecommendations: skillregistry.Recommend("pod", status, missing, v.Findings),
 		}
 	case inspectServiceResult:
+		status := serviceEvidenceStatus(v)
+		missing := uniqueStrings(append(append(v.MissingEvidence, v.EvidenceGaps...), v.ReleaseGaps...))
 		actions := []recommendedAction{
 			{Type: "code_or_config_review", Target: "repo", Instruction: "If logs or events point to application errors, inspect the service repository and generate a small fix."},
 		}
@@ -2209,17 +2332,20 @@ func buildEvidencePack(payload any) evidencePack {
 		}
 		return evidencePack{
 			Subject:            evidenceSubject{Type: "service", Name: v.Service, Namespace: v.Namespace},
-			Status:             serviceEvidenceStatus(v),
+			Status:             status,
 			Summary:            strings.Join(v.Findings, "; "),
 			Evidence:           serviceEvidenceItems(v),
-			MissingEvidence:    uniqueStrings(append(append(v.MissingEvidence, v.EvidenceGaps...), v.ReleaseGaps...)),
+			MissingEvidence:    missing,
 			LikelyCauses:       serviceLikelyCauses(v),
 			RecommendedActions: actions,
+			SkillRecommendations: skillregistry.Recommend("service", status, missing,
+				append(v.Findings, v.Next...)),
 		}
 	case inspectClusterResult:
+		status := clusterEvidenceStatus(v)
 		return evidencePack{
 			Subject:         evidenceSubject{Type: "cluster"},
-			Status:          clusterEvidenceStatus(v),
+			Status:          status,
 			Summary:         strings.Join(v.Findings, "; "),
 			Evidence:        clusterEvidenceItems(v),
 			MissingEvidence: v.MissingEvidence,
@@ -2227,16 +2353,18 @@ func buildEvidencePack(payload any) evidencePack {
 			RecommendedActions: []recommendedAction{
 				{Type: "next_check", Target: "cluster", Instruction: "Inspect abnormal Pods, high restart containers, and high filesystem or memory usage first."},
 			},
+			SkillRecommendations: skillregistry.Recommend("cluster", status, v.MissingEvidence, v.Findings),
 		}
 	case fixPlanResult:
 		return evidencePack{
-			Subject:            evidenceSubject{Type: v.TargetType, Name: v.Target, Namespace: v.Namespace},
-			Status:             v.Status,
-			Summary:            v.Summary,
-			Evidence:           v.Evidence,
-			MissingEvidence:    v.MissingEvidence,
-			LikelyCauses:       v.LikelyCauses,
-			RecommendedActions: v.RecommendedActions,
+			Subject:              evidenceSubject{Type: v.TargetType, Name: v.Target, Namespace: v.Namespace},
+			Status:               v.Status,
+			Summary:              v.Summary,
+			Evidence:             v.Evidence,
+			MissingEvidence:      v.MissingEvidence,
+			LikelyCauses:         v.LikelyCauses,
+			RecommendedActions:   v.RecommendedActions,
+			SkillRecommendations: v.SkillRecommendations,
 		}
 	case map[string]any:
 		return evidencePack{
@@ -2277,6 +2405,16 @@ func evidenceItems(source string, messages []string) []evidenceItem {
 		}
 	}
 	return out
+}
+
+func evidenceItemMessages(items []evidenceItem) []string {
+	messages := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Message) != "" {
+			messages = append(messages, item.Message)
+		}
+	}
+	return messages
 }
 
 func podEvidenceStatus(v inspectPodResult) string {

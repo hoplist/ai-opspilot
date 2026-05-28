@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/skillregistry"
 )
 
 func TestSchemaCommand(t *testing.T) {
@@ -151,6 +153,20 @@ func TestDoctorCommandEvidenceOutput(t *testing.T) {
 	}
 }
 
+func TestSkillsRegistryLocalCommand(t *testing.T) {
+	var out bytes.Buffer
+	if err := run([]string{"--output", "json", "skills", "registry", "--local", "--integrated-only"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload skillsRegistryResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.IntegratedCount < 6 || !hasSkillName(payload.Items, "kubernetes-specialist") || !hasSkillName(payload.Items, "debugging-wizard") {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestReleaseHistoryCommand(t *testing.T) {
 	endpoint, values := releaseCommand([]string{"history", "--service", "opspilot-core", "--limit", "5"})
 	if endpoint != "/api/release/history" {
@@ -159,6 +175,15 @@ func TestReleaseHistoryCommand(t *testing.T) {
 	if values.Get("service") != "opspilot-core" || values.Get("limit") != "5" {
 		t.Fatalf("values = %#v", values)
 	}
+}
+
+func hasSkillName(items []skillregistry.Skill, name string) bool {
+	for _, item := range items {
+		if item.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCheckReleaseAlias(t *testing.T) {

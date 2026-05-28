@@ -40,6 +40,7 @@ If the user asks what the platform can do:
 
 ```powershell
 .\opspilot\scripts\opspilot.ps1 schema
+.\opspilot\scripts\opspilot.ps1 skills registry --output human
 ```
 
 ## Kubernetes Workflow
@@ -127,6 +128,8 @@ For AI follow-up, prefer evidence output:
 
 Use `fix ... --dry-run` only as a plan generator. It does not mutate code,
 repositories, or clusters.
+Read `skill_recommendations` to decide whether the evidence should be followed
+up with Kubernetes, monitoring, release, RCA, or debugging rules.
 
 Summarize:
 

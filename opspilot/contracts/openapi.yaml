@@ -16,6 +16,23 @@ paths:
       responses:
         "200":
           description: Capability status, available evidence, and missing evidence
+  /api/skills/registry:
+    get:
+      summary: Return OpsPilot skill registry and AI routing metadata
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            description: Optional skill category filter
+        - name: integrated_only
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Integrated Codex skills mapped to OpsPilot command and evidence surfaces
   /api/inventory/overview:
     get:
       summary: Return inventory overview

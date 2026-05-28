@@ -19,6 +19,7 @@ import (
 	prom "github.com/dualistpeng-netizen/ai-observability/opspilot/internal/prometheus"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/release"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/response"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/skillregistry"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/version"
 )
 
@@ -87,6 +88,10 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 	}))
 	mux.HandleFunc("/api/capabilities", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return buildCapabilities(ctx, client, promRegistry, agentRegistry, logClient, releaseRegistry)
+	}))
+	mux.HandleFunc("/api/skills/registry", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		return skillregistry.Registry(q.Get("category"), boolQuery(r, "integrated_only")), nil, nil
 	}))
 	mux.HandleFunc("/api/errors/recent", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
@@ -534,11 +539,18 @@ func buildCapabilities(ctx context.Context, client *k8s.Client, promRegistry *pr
 		[]string{"Argo CD Application CRD/RBAC 不可用，无法读取 sync/health；Kubernetes Pod 排查仍可继续。"},
 		"Argo CD is optional unless release evidence is requested.", argoDetails))
 
+	skillCatalog := skillregistry.Registry("", true)
+	add(capabilityItem("skills_registry", "OpsPilot Skills Registry", "ai", true, skillCatalog.IntegratedCount > 0,
+		[]string{"AI skill routing metadata", "integrated skill-to-command mapping", "safe follow-up instructions"},
+		[]string{"Skills registry is empty, so AI cannot route evidence to domain-specific troubleshooting rules."},
+		"Skills registry maps Codex skills into deterministic OpsPilot evidence and command surfaces.", skillregistry.Summary(skillCatalog)))
+
 	return map[string]any{
 		"ready":              k8sReady,
 		"capabilities":       capabilities,
 		"available_evidence": uniqueStringsCore(availableEvidence),
 		"missing_evidence":   uniqueStringsCore(missingEvidence),
+		"skills":             skillregistry.Summary(skillCatalog),
 		"summary": map[string]any{
 			"core_ready":       k8sReady,
 			"capability_count": len(capabilities),

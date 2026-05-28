@@ -26,6 +26,11 @@
       "description": "Check CLI/backend reachability and summarize available or missing evidence sources. Use this before deeper AI-assisted troubleshooting."
     },
     {
+      "name": "skills registry",
+      "readonly": true,
+      "description": "Return the OpsPilot skills registry that maps integrated Codex skills to deterministic OpsPilot commands, evidence sources, boundaries, and AI follow-up routing."
+    },
+    {
       "name": "inventory overview",
       "readonly": true,
       "description": "Return cluster, server, workload, pod, and container overview."
