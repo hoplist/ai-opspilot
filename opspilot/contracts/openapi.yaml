@@ -192,7 +192,7 @@ paths:
           description: Pod list
   /api/k8s/logs/pod:
     get:
-      summary: Read short-window Pod logs
+      summary: Read Pod logs, defaulting to a 10-hour troubleshooting window
       parameters:
         - name: namespace
           in: query
@@ -218,7 +218,7 @@ paths:
           in: query
           schema:
             type: integer
-            default: 1800
+            default: 36000
             maximum: 86400
         - name: limit_bytes
           in: query

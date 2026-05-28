@@ -10,6 +10,8 @@ external integrations.
 
 - Changed the Kubernetes Pod log default window from 30 minutes to 10 hours
   (`36000` seconds).
+- Updated CLI/OpenAPI contract defaults for `k8s logs pod` to match the
+  10-hour default.
 - Added `/api/live` as a lightweight core liveness/readiness endpoint.
 - Updated `opspilot-core` readiness and liveness probes to use `/api/live`
   instead of `/api/health`.

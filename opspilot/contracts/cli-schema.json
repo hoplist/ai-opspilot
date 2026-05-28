@@ -78,10 +78,10 @@
     {
       "name": "k8s logs pod",
       "readonly": true,
-      "description": "Read short-window Kubernetes Pod logs through pods/log.",
+      "description": "Read Kubernetes Pod logs through pods/log, defaulting to the last 10 hours.",
       "limits": {
         "tail_lines_default": 300,
-        "since_seconds_default": 1800,
+        "since_seconds_default": 36000,
         "limit_bytes_default": 1048576
       }
     },
