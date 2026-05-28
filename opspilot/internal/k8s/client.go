@@ -20,7 +20,7 @@ import (
 
 const (
 	DefaultTailLines    = 300
-	DefaultSinceSeconds = 1800
+	DefaultSinceSeconds = 36000
 	DefaultLimitBytes   = 1024 * 1024
 	MaxTailLines        = 1000
 	MaxSinceSeconds     = 86400
@@ -388,7 +388,7 @@ func (c *Client) PodContext(ctx context.Context, namespace, pod string) (map[str
 			Pod:          pod,
 			Container:    container,
 			TailLines:    120,
-			SinceSeconds: 1800,
+			SinceSeconds: DefaultSinceSeconds,
 			LimitBytes:   256 * 1024,
 			Previous:     previous,
 		})

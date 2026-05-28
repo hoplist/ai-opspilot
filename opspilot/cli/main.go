@@ -25,6 +25,8 @@ type globalOptions struct {
 	output     string
 }
 
+const defaultPodLogSinceSeconds = 36000
+
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, `{"ok":false,"error":`+strconv.Quote(err.Error())+`}`)
@@ -375,7 +377,7 @@ func runNaturalLanguage(opts globalOptions, args []string, out io.Writer) error 
 	}
 	switch intent.Action {
 	case "inspect_service":
-		payload, err := fetchInspectService(opts.backendURL, intent.Service, "test", "", 300, 1800)
+		payload, err := fetchInspectService(opts.backendURL, intent.Service, "test", "", 300, defaultPodLogSinceSeconds)
 		if err != nil {
 			return err
 		}
@@ -856,7 +858,7 @@ func k8sCommand(args []string) (string, url.Values) {
 		container := fs.String("container", "", "container")
 		fs.StringVar(container, "c", "", "container")
 		tail := fs.Int("tail", 300, "tail lines")
-		since := fs.Int("since", 1800, "since seconds")
+		since := fs.Int("since", defaultPodLogSinceSeconds, "since seconds")
 		limitBytes := fs.Int("limit-bytes", 1024*1024, "limit bytes")
 		previous := fs.Bool("previous", false, "previous logs")
 		timestamps := fs.Bool("timestamps", false, "timestamps")
@@ -979,7 +981,7 @@ func runFixService(opts globalOptions, args []string, out io.Writer) error {
 	envName := fs.String("env", "test", "target environment")
 	source := fs.String("source", "", "prometheus datasource")
 	tail := fs.Int("tail", 300, "tail lines")
-	since := fs.Int("since", 1800, "since seconds")
+	since := fs.Int("since", defaultPodLogSinceSeconds, "since seconds")
 	dryRun := fs.Bool("dry-run", false, "plan only; do not mutate repositories or clusters")
 	_ = fs.Parse(args)
 	if *service == "" {
@@ -1023,7 +1025,7 @@ func runFixPod(opts globalOptions, args []string, out io.Writer) error {
 	pod := fs.String("pod", "", "pod")
 	source := fs.String("source", "", "prometheus datasource")
 	tail := fs.Int("tail", 300, "tail lines")
-	since := fs.Int("since", 1800, "since seconds")
+	since := fs.Int("since", defaultPodLogSinceSeconds, "since seconds")
 	dryRun := fs.Bool("dry-run", false, "plan only; do not mutate repositories or clusters")
 	_ = fs.Parse(args)
 	if *pod == "" && fs.NArg() > 0 {
@@ -1224,7 +1226,7 @@ func runInspectService(opts globalOptions, args []string, out io.Writer) error {
 	envName := fs.String("env", "test", "target environment")
 	source := fs.String("source", "", "prometheus datasource")
 	tail := fs.Int("tail", 300, "tail lines")
-	since := fs.Int("since", 1800, "since seconds")
+	since := fs.Int("since", defaultPodLogSinceSeconds, "since seconds")
 	_ = fs.Parse(args)
 	if *service == "" {
 		*service = positionalService
@@ -1368,7 +1370,7 @@ func runInspectPod(opts globalOptions, args []string, out io.Writer) error {
 	pod := fs.String("pod", "", "pod")
 	source := fs.String("source", "", "prometheus datasource")
 	tail := fs.Int("tail", 300, "tail lines")
-	since := fs.Int("since", 1800, "since seconds")
+	since := fs.Int("since", defaultPodLogSinceSeconds, "since seconds")
 	_ = fs.Parse(args)
 	if *pod == "" && fs.NArg() > 0 {
 		*pod = fs.Arg(0)

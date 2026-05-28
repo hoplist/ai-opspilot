@@ -605,7 +605,7 @@ func addPodLogs(ctx context.Context, evidence map[string]any, client *k8s.Client
 	k8sLogs := []any{}
 	for _, pod := range pods {
 		name := fmt.Sprint(pod["name"])
-		log, err := client.ReadPodLog(ctx, k8s.LogRequest{Namespace: namespace, Pod: name, TailLines: 80, SinceSeconds: 1800, LimitBytes: 128 * 1024})
+		log, err := client.ReadPodLog(ctx, k8s.LogRequest{Namespace: namespace, Pod: name, TailLines: 80, SinceSeconds: k8s.DefaultSinceSeconds, LimitBytes: 128 * 1024})
 		if err != nil {
 			*warnings = append(*warnings, "logs "+name+": "+err.Error())
 			continue

@@ -66,6 +66,12 @@ func main() {
 }
 
 func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, errorCollector *errorevidence.Collector) {
+	mux.HandleFunc("/api/live", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		return map[string]any{
+			"version": version.Version,
+			"ready":   true,
+		}, nil, nil
+	}))
 	mux.HandleFunc("/api/health", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return map[string]any{
 			"version":    version.Version,
@@ -136,7 +142,7 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 			Pod:          required(q.Get("pod"), "pod"),
 			Container:    q.Get("container"),
 			TailLines:    intQueryAliases(r, []string{"tail_lines", "tail"}, 300),
-			SinceSeconds: intQueryAliases(r, []string{"since_seconds", "since"}, 1800),
+			SinceSeconds: intQueryAliases(r, []string{"since_seconds", "since"}, k8s.DefaultSinceSeconds),
 			LimitBytes:   intQuery(r, "limit_bytes", 1024*1024),
 			Previous:     boolQuery(r, "previous"),
 			Timestamps:   boolQuery(r, "timestamps"),
