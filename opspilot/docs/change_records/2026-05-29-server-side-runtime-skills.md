@@ -105,3 +105,9 @@ Run:
 go test ./opspilot/...
 go run ./opspilot/cli skills registry --local --output human
 ```
+
+Pipeline note:
+
+- Go test/build jobs are kept offline-friendly with `GOFLAGS=-buildvcs=false`
+  and no `apk add git` step, because node206 Runner should not depend on
+  external Alpine package mirrors for normal OpsPilot releases.

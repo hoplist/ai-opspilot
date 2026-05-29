@@ -11,6 +11,7 @@ variables:
   IMAGE_NAME: "$CI_REGISTRY_IMAGE/opspilot-core"
   IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
   BUILDKIT_CACHE_IMAGE: "$CI_REGISTRY_IMAGE/opspilot-core:buildcache"
+  GOFLAGS: "-buildvcs=false"
   GITOPS_REPO: "http://oauth2:${GITOPS_TOKEN}@192.168.48.206:8929/platform/gitops-manifests.git"
   GITOPS_APP_PATH: "clusters/test/apps/opspilot-core"
   GITOPS_APP_FILE: "apps/opspilot-core-application.yaml"
@@ -36,8 +37,6 @@ test:go:
   stage: test
   image:
     name: "$GO_VERSION_IMAGE"
-  before_script:
-    - apk add --no-cache git
   script:
     - go test ./opspilot/...
   rules:
@@ -47,8 +46,6 @@ build:binaries:
   stage: build
   image:
     name: "$GO_VERSION_IMAGE"
-  before_script:
-    - apk add --no-cache git
   script:
     - mkdir -p build/linux-amd64
     - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o build/linux-amd64/opspilot-core ./opspilot/core
