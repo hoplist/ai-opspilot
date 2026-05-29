@@ -37,6 +37,50 @@ func TestRecommendPodIncludesKubernetesAndDebugging(t *testing.T) {
 
 func TestRegistryWithOptionsLoadsDynamicSkills(t *testing.T) {
 	dir := t.TempDir()
+	writeTestSkillRepo(t, dir)
+	catalog, warnings := RegistryWithOptions("", true, Options{DynamicEnabled: true, SkillsDir: dir})
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %#v", warnings)
+	}
+	if catalog.Source != "dynamic+embedded" || catalog.SourceVersion != "abc123" || catalog.DynamicCount != 1 {
+		t.Fatalf("catalog source = %#v", catalog)
+	}
+	found := false
+	for _, item := range catalog.Items {
+		if item.Name == "opspilot-ops" {
+			found = true
+			if item.Label != "OpsPilot Ops Dynamic" || !hasString(item.Commands, "ask") {
+				t.Fatalf("dynamic skill not applied: %#v", item)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("dynamic opspilot-ops not found")
+	}
+}
+
+func TestRegistryWithOptionsLoadsDynamicSkillsFromSymlinkRoot(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "releases", "abc123")
+	if err := os.MkdirAll(releaseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestSkillRepo(t, releaseDir)
+	current := filepath.Join(dir, "current")
+	if err := os.Symlink(filepath.Join("releases", "abc123"), current); err != nil {
+		t.Skipf("symlink not available: %v", err)
+	}
+	catalog, warnings := RegistryWithOptions("", true, Options{DynamicEnabled: true, SkillsDir: current})
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %#v", warnings)
+	}
+	if catalog.Source != "dynamic+embedded" || catalog.DynamicCount != 1 || !hasSkill(catalog.Items, "opspilot-ops") {
+		t.Fatalf("catalog = %#v", catalog)
+	}
+}
+
+func writeTestSkillRepo(t *testing.T, dir string) {
+	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, ".opspilot-skills-version"), []byte("abc123"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -59,25 +103,6 @@ boundaries:
 `
 	if err := os.WriteFile(filepath.Join(skillDir, "skill.yaml"), []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)
-	}
-	catalog, warnings := RegistryWithOptions("", true, Options{DynamicEnabled: true, SkillsDir: dir})
-	if len(warnings) != 0 {
-		t.Fatalf("warnings = %#v", warnings)
-	}
-	if catalog.Source != "dynamic+embedded" || catalog.SourceVersion != "abc123" || catalog.DynamicCount != 1 {
-		t.Fatalf("catalog source = %#v", catalog)
-	}
-	found := false
-	for _, item := range catalog.Items {
-		if item.Name == "opspilot-ops" {
-			found = true
-			if item.Label != "OpsPilot Ops Dynamic" || !hasString(item.Commands, "ask") {
-				t.Fatalf("dynamic skill not applied: %#v", item)
-			}
-		}
-	}
-	if !found {
-		t.Fatal("dynamic opspilot-ops not found")
 	}
 }
 

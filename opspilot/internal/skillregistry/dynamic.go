@@ -64,10 +64,14 @@ func loadDynamicSkills(root string) ([]Skill, string, []string) {
 	if !info.IsDir() {
 		return nil, "", []string{"skills: dynamic path is not a directory; using embedded registry"}
 	}
+	walkRoot := root
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		walkRoot = resolved
+	}
 	version := readTrimmed(filepath.Join(root, ".opspilot-skills-version"))
 	warnings := []string{}
 	files := []string{}
-	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(walkRoot, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			warnings = append(warnings, "skills: cannot walk "+path+": "+walkErr.Error())
 			return nil

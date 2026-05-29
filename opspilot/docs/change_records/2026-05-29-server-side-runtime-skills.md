@@ -29,6 +29,8 @@ commands, and keeps the embedded registry as fallback.
 - `GET /api/skills/registry` now loads dynamic skills when available.
 - If dynamic skills are missing or invalid, OpsPilot returns the embedded
   registry and includes warnings.
+- The loader resolves a symlinked skills root before scanning, which matches
+  the sidecar's `current -> releases/<commit>` switch model.
 - `GET /api/capabilities` reports the active skills source, source path,
   source version, dynamic count, and any sync/load warnings.
 - The CLI `opspilot skills registry` displays the active source and dynamic
