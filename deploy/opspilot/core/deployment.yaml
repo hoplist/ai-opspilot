@@ -101,7 +101,7 @@ spec:
                 printf '%s\n' "$commit" > "$target.tmp/.opspilot-skills-version"
                 rm -rf "$target"
                 mv "$target.tmp" "$target"
-                ln -sfn "$target" /skills/current
+                ln -sfn "releases/$commit" /skills/current
                 echo "skills synced at $commit"
               }
               while true; do

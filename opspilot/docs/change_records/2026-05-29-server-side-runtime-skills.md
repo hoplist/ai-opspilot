@@ -15,6 +15,9 @@ commands, and keeps the embedded registry as fallback.
 - The cluster deployment uses an `emptyDir` volume and a `skills-sync` sidecar.
 - The sidecar uses the same OpsPilot image, so node200 pulls from the node206
   GitLab Registry after the standard release flow updates GitOps.
+- The sidecar switches `/opt/opspilot/skills/current` through a relative
+  symlink so both containers can read the same release directory even though
+  they mount the shared volume at different paths.
 - `hostPath` is not used for skills because it binds runtime state to one node.
 - PVC can be added later if the skills repository becomes large or needs a
   persistent cache.
