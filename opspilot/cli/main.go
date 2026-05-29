@@ -324,8 +324,12 @@ func writeCapabilitiesHuman(result capabilityResult) func(io.Writer) error {
 
 type skillsRegistryResult struct {
 	Version         string                `json:"version"`
+	Source          string                `json:"source"`
+	SourcePath      string                `json:"source_path,omitempty"`
+	SourceVersion   string                `json:"source_version,omitempty"`
 	ItemCount       int                   `json:"item_count"`
 	IntegratedCount int                   `json:"integrated_count"`
+	DynamicCount    int                   `json:"dynamic_count,omitempty"`
 	Items           []skillregistry.Skill `json:"items"`
 	Warnings        []string              `json:"warnings,omitempty"`
 }
@@ -381,8 +385,12 @@ func fetchSkillsRegistry(backendURL, category string, integratedOnly, local bool
 func skillsResultFromCatalog(catalog skillregistry.Catalog, warnings []string) skillsRegistryResult {
 	return skillsRegistryResult{
 		Version:         catalog.Version,
+		Source:          catalog.Source,
+		SourcePath:      catalog.SourcePath,
+		SourceVersion:   catalog.SourceVersion,
 		ItemCount:       catalog.ItemCount,
 		IntegratedCount: catalog.IntegratedCount,
+		DynamicCount:    catalog.DynamicCount,
 		Items:           catalog.Items,
 		Warnings:        warnings,
 	}
@@ -390,7 +398,14 @@ func skillsResultFromCatalog(catalog skillregistry.Catalog, warnings []string) s
 
 func writeSkillsRegistryHuman(result skillsRegistryResult) func(io.Writer) error {
 	return func(w io.Writer) error {
-		fmt.Fprintf(w, "Skills registry: version=%s items=%d integrated=%d\n", result.Version, result.ItemCount, result.IntegratedCount)
+		fmt.Fprintf(w, "Skills registry: version=%s source=%s items=%d integrated=%d dynamic=%d\n",
+			result.Version, result.Source, result.ItemCount, result.IntegratedCount, result.DynamicCount)
+		if result.SourcePath != "" {
+			fmt.Fprintf(w, "Source path: %s\n", result.SourcePath)
+		}
+		if result.SourceVersion != "" {
+			fmt.Fprintf(w, "Source version: %s\n", result.SourceVersion)
+		}
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "SKILL\tCATEGORY\tTIER\tINTEGRATED\tCOMMANDS")
 		for _, item := range result.Items {

@@ -1,0 +1,25 @@
+name: debugging-wizard
+label: Debugging Wizard
+category: ai-debugging
+integration_tier: core
+integrated: true
+priority: 60
+summary: Hypothesis-driven debugging loop that turns logs, stack traces, events, metrics, and release evidence into safe next actions.
+use_when:
+  - evidence contains errors
+  - root cause is unclear
+  - AI needs a bounded fix plan
+evidence:
+  - findings
+  - likely causes
+  - recommended actions
+  - missing evidence
+commands:
+  - check service --output evidence
+  - check pod --output evidence
+  - fix service --dry-run --output evidence
+  - fix pod --dry-run --output evidence
+boundaries:
+  - do not guess beyond evidence
+  - separate code fixes from platform fixes
+source_description: Runtime AI debugging routing metadata for OpsPilot.

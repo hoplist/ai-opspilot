@@ -23,8 +23,12 @@ type Skill struct {
 
 type Catalog struct {
 	Version         string  `json:"version"`
+	Source          string  `json:"source"`
+	SourcePath      string  `json:"source_path,omitempty"`
+	SourceVersion   string  `json:"source_version,omitempty"`
 	ItemCount       int     `json:"item_count"`
 	IntegratedCount int     `json:"integrated_count"`
+	DynamicCount    int     `json:"dynamic_count,omitempty"`
 	Items           []Skill `json:"items"`
 }
 
@@ -37,8 +41,15 @@ type Recommendation struct {
 }
 
 func Registry(category string, integratedOnly bool) Catalog {
+	return registryFromItems(allSkills(), category, integratedOnly, Catalog{
+		Version: Version,
+		Source:  "embedded",
+	})
+}
+
+func registryFromItems(sourceItems []Skill, category string, integratedOnly bool, catalog Catalog) Catalog {
 	items := []Skill{}
-	for _, skill := range allSkills() {
+	for _, skill := range sourceItems {
 		if category != "" && !strings.EqualFold(skill.Category, category) {
 			continue
 		}
@@ -47,12 +58,16 @@ func Registry(category string, integratedOnly bool) Catalog {
 		}
 		items = append(items, skill)
 	}
-	return Catalog{
-		Version:         Version,
-		ItemCount:       len(items),
-		IntegratedCount: countIntegrated(items),
-		Items:           items,
+	catalog.ItemCount = len(items)
+	catalog.IntegratedCount = countIntegrated(items)
+	catalog.Items = items
+	if catalog.Version == "" {
+		catalog.Version = Version
 	}
+	if catalog.Source == "" {
+		catalog.Source = "embedded"
+	}
+	return catalog
 }
 
 func Summary(catalog Catalog) map[string]any {
@@ -64,8 +79,12 @@ func Summary(catalog Catalog) map[string]any {
 	}
 	return map[string]any{
 		"version":          catalog.Version,
+		"source":           catalog.Source,
+		"source_path":      catalog.SourcePath,
+		"source_version":   catalog.SourceVersion,
 		"item_count":       catalog.ItemCount,
 		"integrated_count": catalog.IntegratedCount,
+		"dynamic_count":    catalog.DynamicCount,
 		"names":            names,
 		"categories":       categories,
 	}

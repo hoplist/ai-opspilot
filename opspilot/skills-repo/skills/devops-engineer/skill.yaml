@@ -1,0 +1,32 @@
+name: devops-engineer
+label: DevOps Engineer
+category: release
+integration_tier: core
+integrated: true
+priority: 65
+summary: Release and onboarding workflow for Dockerfile, GitLab CI, BuildKit, Registry, GitOps, Argo CD, rollback, and repo governance.
+use_when:
+  - service release status is needed
+  - build or deploy failed
+  - repository needs platform onboarding
+  - rollback evidence is needed
+evidence:
+  - GitLab pipeline
+  - BuildKit job
+  - Registry tag
+  - GitOps desired image
+  - Argo CD sync and health
+  - repository preflight
+commands:
+  - release service
+  - release status
+  - release jobs
+  - release logs
+  - release history
+  - release rollback
+  - repo preflight
+  - repo autofix
+boundaries:
+  - publish through GitLab Runner BuildKit Registry GitOps Argo CD
+  - avoid direct Kubernetes mutation
+source_description: Runtime release and platform delivery metadata for OpsPilot.

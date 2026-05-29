@@ -30,9 +30,16 @@ spec:
             - secretRef:
                 name: opspilot-release-secrets
                 optional: true
+            - secretRef:
+                name: opspilot-skills-secrets
+                optional: true
           ports:
             - name: http
               containerPort: 18080
+          volumeMounts:
+            - name: opspilot-skills
+              mountPath: /opt/opspilot/skills
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -52,3 +59,71 @@ spec:
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20
+        - name: skills-sync
+          image: opspilot-core:0.1.9-release-evidence
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              set -eu
+              setup_auth() {
+                if [ -n "${OPSPILOT_SKILLS_GIT_USERNAME:-}" ] && [ -n "${OPSPILOT_SKILLS_GIT_PASSWORD:-}" ]; then
+                  host="$(printf '%s\n' "$OPSPILOT_SKILLS_GIT_URL" | sed -E 's#https?://([^/:]+).*#\1#')"
+                  printf 'machine %s login %s password %s\n' "$host" "$OPSPILOT_SKILLS_GIT_USERNAME" "$OPSPILOT_SKILLS_GIT_PASSWORD" > /root/.netrc
+                  chmod 0600 /root/.netrc
+                fi
+              }
+              sync_once() {
+                if [ -z "${OPSPILOT_SKILLS_GIT_URL:-}" ]; then
+                  echo "OPSPILOT_SKILLS_GIT_URL is empty; skip skills sync"
+                  return 0
+                fi
+                setup_auth
+                mkdir -p /skills/releases
+                if [ ! -d /skills/repo/.git ]; then
+                  rm -rf /skills/repo
+                  git clone --depth=1 --branch "${OPSPILOT_SKILLS_GIT_REF:-main}" "$OPSPILOT_SKILLS_GIT_URL" /skills/repo
+                else
+                  git -C /skills/repo fetch --depth=1 origin "${OPSPILOT_SKILLS_GIT_REF:-main}"
+                  git -C /skills/repo reset --hard "origin/${OPSPILOT_SKILLS_GIT_REF:-main}"
+                fi
+                if [ ! -d /skills/repo/skills ]; then
+                  echo "skills directory missing in repo; keep previous skills"
+                  return 0
+                fi
+                commit="$(git -C /skills/repo rev-parse --short HEAD)"
+                target="/skills/releases/$commit"
+                rm -rf "$target.tmp"
+                mkdir -p "$target.tmp"
+                cp -R /skills/repo/skills/. "$target.tmp/"
+                printf '%s\n' "$commit" > "$target.tmp/.opspilot-skills-version"
+                rm -rf "$target"
+                mv "$target.tmp" "$target"
+                ln -sfn "$target" /skills/current
+                echo "skills synced at $commit"
+              }
+              while true; do
+                sync_once || echo "skills sync failed; keeping previous skills"
+                sleep "${OPSPILOT_SKILLS_SYNC_SECONDS:-60}"
+              done
+          envFrom:
+            - configMapRef:
+                name: opspilot-core-config
+            - secretRef:
+                name: opspilot-skills-secrets
+                optional: true
+          volumeMounts:
+            - name: opspilot-skills
+              mountPath: /skills
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      volumes:
+        - name: opspilot-skills
+          emptyDir: {}

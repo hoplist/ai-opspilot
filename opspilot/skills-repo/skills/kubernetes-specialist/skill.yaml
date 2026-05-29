@@ -1,0 +1,26 @@
+name: kubernetes-specialist
+label: Kubernetes Specialist
+category: kubernetes
+integration_tier: core
+integrated: true
+priority: 80
+summary: Kubernetes workload and Pod troubleshooting rules for status, readiness, restarts, probes, events, RBAC, and scheduling.
+use_when:
+  - Pod is not ready
+  - containers are restarting
+  - events mention scheduling image pull probe CNI or RBAC issues
+evidence:
+  - Pod status
+  - Pod events
+  - current and previous logs
+  - Deployment ReplicaSet and Node metadata
+commands:
+  - k8s pods --status abnormal
+  - context pod
+  - diagnose pod
+  - k8s logs pod
+  - inspect cluster
+boundaries:
+  - prefer declarative GitOps fixes
+  - do not use imperative kubectl mutation from OpsPilot
+source_description: Runtime Kubernetes troubleshooting metadata for OpsPilot.

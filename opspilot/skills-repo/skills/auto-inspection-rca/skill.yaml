@@ -1,0 +1,27 @@
+name: auto-inspection-rca
+label: Auto Inspection RCA
+category: rca
+integration_tier: core
+integrated: true
+priority: 90
+summary: RCA evidence grouping for Pods, services, events, logs, release context, and AI-readable fix planning.
+use_when:
+  - turn raw evidence into an RCA pack
+  - explain partial evidence
+  - prepare AI follow-up fixes
+evidence:
+  - events
+  - logs
+  - metrics
+  - release gaps
+  - likely causes
+commands:
+  - errors recent
+  - inspect pod
+  - inspect service
+  - fix pod --dry-run
+  - fix service --dry-run
+boundaries:
+  - read-only evidence first
+  - fix commands generate plans unless explicitly extended
+source_description: Runtime RCA routing metadata for OpsPilot evidence packs.

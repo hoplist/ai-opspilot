@@ -1,0 +1,30 @@
+name: opspilot-ops
+label: OpsPilot Ops
+category: platform
+integration_tier: core
+integrated: true
+priority: 100
+summary: CLI-first OpsPilot workflow for Kubernetes, Prometheus, Docker node-agent, logs, evidence, and release checks.
+use_when:
+  - start any OpsPilot investigation
+  - inspect current platform health
+  - summarize evidence without bypassing the CLI
+evidence:
+  - capabilities
+  - doctor
+  - inspect
+  - release status
+  - metrics
+  - logs
+commands:
+  - doctor
+  - capabilities
+  - check cluster
+  - check pod
+  - check service
+  - release status
+boundaries:
+  - CLI first
+  - no direct cluster mutation
+  - report missing evidence explicitly
+source_description: Server-side runtime skill used by OpsPilot API and CLI clients.

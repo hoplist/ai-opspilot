@@ -91,7 +91,8 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 	}))
 	mux.HandleFunc("/api/skills/registry", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
-		return skillregistry.Registry(q.Get("category"), boolQuery(r, "integrated_only")), nil, nil
+		catalog, warnings := skillregistry.RegistryFromEnv(q.Get("category"), boolQuery(r, "integrated_only"))
+		return catalog, warnings, nil
 	}))
 	mux.HandleFunc("/api/errors/recent", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
@@ -539,7 +540,8 @@ func buildCapabilities(ctx context.Context, client *k8s.Client, promRegistry *pr
 		[]string{"Argo CD Application CRD/RBAC 不可用，无法读取 sync/health；Kubernetes Pod 排查仍可继续。"},
 		"Argo CD is optional unless release evidence is requested.", argoDetails))
 
-	skillCatalog := skillregistry.Registry("", true)
+	skillCatalog, skillWarnings := skillregistry.RegistryFromEnv("", true)
+	warnings = append(warnings, skillWarnings...)
 	add(capabilityItem("skills_registry", "OpsPilot Skills Registry", "ai", true, skillCatalog.IntegratedCount > 0,
 		[]string{"AI skill routing metadata", "integrated skill-to-command mapping", "safe follow-up instructions"},
 		[]string{"Skills registry is empty, so AI cannot route evidence to domain-specific troubleshooting rules."},

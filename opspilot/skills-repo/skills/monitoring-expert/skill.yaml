@@ -1,0 +1,26 @@
+name: monitoring-expert
+label: Monitoring Expert
+category: observability
+integration_tier: core
+integrated: true
+priority: 70
+summary: Prometheus, filesystem, log-source, and capability-gap reasoning for runtime troubleshooting.
+use_when:
+  - CPU memory restart or disk evidence is needed
+  - log source is missing
+  - cluster or service health needs resource context
+evidence:
+  - Prometheus node metrics
+  - Pod metrics
+  - filesystem metrics
+  - ELK or OpenSearch readiness
+  - capability gaps
+commands:
+  - metrics health
+  - metrics nodes --source all
+  - metrics pods --source all
+  - metrics filesystems --source all
+  - logs search
+boundaries:
+  - metrics enrich Kubernetes evidence but do not block Pod-first checks
+source_description: Runtime observability routing metadata for OpsPilot.
