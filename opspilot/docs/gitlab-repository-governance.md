@@ -85,16 +85,16 @@ Snapshot date: 2026-05-29.
 | `platform/opspilot` | `[PLATFORM]` | `tpo/platform/opspilot/opspilot-core` | Keep as current source until CI, image paths, release mapping, and GitOps are updated. |
 | `platform/opspilot-skills` | `[SKILL]` | `tpo/platform/opspilot/opspilot-skills` | Move after OpsPilot `OPSPILOT_SKILLS_GIT_URL` is updated and verified. |
 | `platform/gitops-manifests` | `[DEPLOY]` | `tpo/deploy/gitops-manifests` | Move only after Argo CD Application source URLs and OpsPilot release mappings are updated. |
-| `tpo/devex/opspilot/cluster-etcd-backups` | `[BACKUP]` | `tpo/ops/backups/node200-etcd-snapshots` | Move after backup job remote URL is updated and a fresh snapshot push is verified. |
-| `tpo/devex/opspilot/opspilot-core` | `[LEGACY]` | `tpo/platform/opspilot/opspilot-core` | Compare with `platform/opspilot`; archive when confirmed duplicate. |
-| `tpo/devex/demo/demo-api` | `[SANDBOX]` | `tpo/sandbox/devex/demo-api` | Move when demo CI/GitOps references are no longer needed. |
-| `platform/devex/demo/ai-loop-demo` | `[SANDBOX]` | `tpo/sandbox/devex/ai-loop-demo` | Move after demo release mapping is updated or remove if no longer needed. |
-| `platform/devex/frontend-vite-demo` | `[SANDBOX]` | `tpo/sandbox/devex/frontend-vite-demo` | Move or archive after validation window. |
-| `platform/devex/java-spring-demo` | `[SANDBOX]` | `tpo/sandbox/devex/java-spring-demo` | Move or archive after validation window. |
-| `platform/devex/python-fastapi-demo` | `[SANDBOX]` | `tpo/sandbox/devex/python-fastapi-demo` | Move or archive after validation window. |
-| `platform/devex/demo/resource-guardrail-demo` | `[SANDBOX]` | `tpo/sandbox/devex/resource-guardrail-demo` | Move or archive after validation window. |
-| `root/test-cluster-backup` | `[BACKUP]` | `tpo/ops/backups/test-cluster-backup` | Move if still used; archive if superseded by node200 etcd backups. |
-| `root/yaml` | `[OPS]` | `tpo/ops/yaml` or `tpo/deploy/manual-yaml` | Inspect contents before moving; do not mix with GitOps desired state. |
+| `tpo/ops/backups/node200-etcd-snapshots` | `[BACKUP]` | current | Moved from `tpo/devex/opspilot/cluster-etcd-backups` in phase 2; node200 backup remote updated and verified. |
+| `tpo/devex/opspilot/opspilot-core` | `[SHARED]` | `tpo/shared/ci-templates` | This is a GitLab CI include source, not the live OpsPilot core. Move after generated service `.gitlab-ci.yml` includes are updated. |
+| `tpo/devex/demo/demo-api` | `[SANDBOX]` | `tpo/sandbox/devex/demo-api` | Phase 2 transfer blocked by existing GitLab Container Registry tags; requires image cleanup or rebuild plan first. |
+| `platform/devex/demo/ai-loop-demo` | `[SANDBOX]` | `tpo/sandbox/devex/ai-loop-demo` | Phase 2 transfer blocked by existing GitLab Container Registry tags; requires image cleanup or rebuild plan first. |
+| `platform/devex/frontend-vite-demo` | `[SANDBOX]` | `tpo/sandbox/devex/frontend-vite-demo` | Phase 2 transfer blocked by existing GitLab Container Registry tags; requires image cleanup or rebuild plan first. |
+| `platform/devex/java-spring-demo` | `[SANDBOX]` | `tpo/sandbox/devex/java-spring-demo` | Phase 2 transfer blocked by existing GitLab Container Registry tags; requires image cleanup or rebuild plan first. |
+| `platform/devex/python-fastapi-demo` | `[SANDBOX]` | `tpo/sandbox/devex/python-fastapi-demo` | Phase 2 transfer blocked by existing GitLab Container Registry tags; requires image cleanup or rebuild plan first. |
+| `platform/devex/demo/resource-guardrail-demo` | `[SANDBOX]` | `tpo/sandbox/devex/resource-guardrail-demo` | Phase 2 transfer blocked by existing GitLab Container Registry tags; requires image cleanup or rebuild plan first. |
+| `tpo/ops/backups/test-cluster-backup` | `[BACKUP]` | current | Moved from `root/test-cluster-backup` in phase 2; keep for audit and later retirement review. |
+| `tpo/ops/yaml` | `[OPS]` | current | Moved from `root/yaml` in phase 2; currently empty manual YAML holding area, not GitOps desired state. |
 | `platform/demo-api-deletion_scheduled-6` | `[ARCHIVE]` | none | Leave scheduled for deletion; do not use. |
 | `platform/password-deletion_scheduled-4` | `[ARCHIVE]` | none | Leave scheduled for deletion; do not use. |
 
@@ -110,9 +110,12 @@ Current status on 2026-05-29:
 
 - Target groups under `tpo` have been created.
 - Existing project descriptions have been updated with visible type prefixes.
-- No repository paths have been moved yet.
+- Backup and ops holding repositories have been moved under `tpo/ops`.
+- Sandbox/demo repository moves are blocked by existing GitLab Container
+  Registry tags. Do not delete those tags without a rebuild or retirement plan.
 - CI, Registry, GitOps, Argo CD, backup jobs, and OpsPilot release mappings
-  still use the existing project paths.
+  still use the existing paths for sandbox/demo, platform, skills, and GitOps
+  repositories.
 
 1. **Metadata first**
    Add descriptions and topics so GitLab's project list is readable without
@@ -123,8 +126,15 @@ Current status on 2026-05-29:
    `tpo/sandbox` as needed. This is non-breaking.
 
 3. **Move sandbox and backups**
-   Move demo and backup repositories first. These have lower release-chain
-   blast radius than GitOps and OpsPilot core.
+   Move demo and backup repositories first. Backup and ops holding repositories
+   were moved in phase 2. Demo repositories were not moved because GitLab blocks
+   project transfer when Container Registry tags still exist.
+
+3a. **Prepare demo registry migration**
+   For each demo repository, either retire and delete old demo registry tags, or
+   rebuild the demo through the standard pipeline after moving. Update
+   `OPSPILOT_RELEASE_SERVICES` and GitOps image bases only after the target
+   project path can publish images successfully.
 
 4. **Move runtime skills**
    Move `platform/opspilot-skills`, update `OPSPILOT_SKILLS_GIT_URL`, let

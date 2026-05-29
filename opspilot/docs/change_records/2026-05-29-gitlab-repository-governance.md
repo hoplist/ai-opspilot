@@ -102,3 +102,44 @@ Not changed in this phase:
 - Project descriptions now show the repository type prefix in the GitLab project
   list.
 - No GitLab repository path was moved in this change.
+
+## Phase 2 Migration
+
+Applied after explicit confirmation on 2026-05-29.
+
+Moved low-risk backup and ops repositories:
+
+| Old path | New path | Validation |
+| --- | --- | --- |
+| `tpo/devex/opspilot/cluster-etcd-backups` | `tpo/ops/backups/node200-etcd-snapshots` | node200 backup remote updated; manual service run pushed a fresh snapshot successfully. |
+| `root/test-cluster-backup` | `tpo/ops/backups/test-cluster-backup` | Project transfer completed; kept for audit and later retirement review. |
+| `root/yaml` | `tpo/ops/yaml` | Project transfer completed; repository is empty and remains a manual YAML holding area. |
+
+Corrected one project classification:
+
+| Project | Old prefix | New prefix | Reason |
+| --- | --- | --- | --- |
+| `tpo/devex/opspilot/opspilot-core` | `[LEGACY]` | `[SHARED]` | Repository README identifies it as a GitLab CI include source for generated service repositories, not the live OpsPilot core. |
+
+Sandbox/demo project transfers were attempted but blocked by GitLab because the
+projects still have Container Registry tags. No registry tags were deleted in
+this phase.
+
+| Project | Registry repositories | Tags | Status |
+| --- | ---: | ---: | --- |
+| `tpo/devex/demo/demo-api` | 1 | 2 | transfer blocked |
+| `platform/devex/demo/ai-loop-demo` | 1 | 5 | transfer blocked |
+| `platform/devex/frontend-vite-demo` | 1 | 2 | transfer blocked |
+| `platform/devex/java-spring-demo` | 1 | 2 | transfer blocked |
+| `platform/devex/python-fastapi-demo` | 1 | 2 | transfer blocked |
+| `platform/devex/demo/resource-guardrail-demo` | 1 | 2 | transfer blocked |
+
+Additional backup fix discovered during validation:
+
+- `main` on the node200 etcd backup repository was protected with force-push
+  disabled, but the backup job intentionally rewrites `main` to keep only the
+  latest three snapshots.
+- Enabled force-push for `main` on
+  `tpo/ops/backups/node200-etcd-snapshots`.
+- Verified the timer remains active and the latest manual run completed with
+  `Result=success` and `ExecMainStatus=0`.

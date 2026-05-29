@@ -11,9 +11,13 @@ Kubernetes workloads.
 Created a private GitLab project for backups:
 
 ```text
-tpo/devex/opspilot/cluster-etcd-backups
-ssh://git@192.168.48.206:2224/tpo/devex/opspilot/cluster-etcd-backups.git
+tpo/ops/backups/node200-etcd-snapshots
+ssh://git@192.168.48.206:2224/tpo/ops/backups/node200-etcd-snapshots.git
 ```
+
+Original path on 2026-05-26 was
+`tpo/devex/opspilot/cluster-etcd-backups`. It was moved during the GitLab
+repository governance phase 2 migration on 2026-05-29.
 
 Access uses a dedicated SSH deploy key:
 
@@ -76,6 +80,15 @@ Manual test run completed successfully on 2026-05-26:
   - `snapshots/etcd-node200-2026-05-26.db.meta.txt`
   - `snapshots/etcd-node200-2026-05-26.db.status.txt`
 - `etcdctl endpoint health` remained healthy after the backup.
+
+After the repository move on 2026-05-29:
+
+- node200 backup script remote was updated to the new `tpo/ops/backups` path.
+- The local backup repository remote was updated.
+- `main` force-push was enabled on the backup repository because the job
+  intentionally rewrites the branch to retain only the latest three snapshots.
+- A manual service run completed successfully and pushed snapshots for
+  `2026-05-27`, `2026-05-28`, and `2026-05-29`.
 
 ## Security Note
 
