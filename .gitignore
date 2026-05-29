@@ -18,6 +18,7 @@ deploy/db/mysql-31326/mysql-31326.yaml
 
 # Runtime data and generated outputs
 data/
+backups/
 outputs/
 logs/
 *.log

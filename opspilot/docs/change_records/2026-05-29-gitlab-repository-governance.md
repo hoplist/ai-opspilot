@@ -122,8 +122,8 @@ Corrected one project classification:
 | `tpo/devex/opspilot/opspilot-core` | `[LEGACY]` | `[SHARED]` | Repository README identifies it as a GitLab CI include source for generated service repositories, not the live OpsPilot core. |
 
 Sandbox/demo project transfers were attempted but blocked by GitLab because the
-projects still have Container Registry tags. No registry tags were deleted in
-this phase.
+projects still had Container Registry tags. The follow-up cleanup and rebuild is
+recorded in `2026-05-29-demo-registry-cleanup-migration.md`.
 
 | Project | Registry repositories | Tags | Status |
 | --- | ---: | ---: | --- |
@@ -133,6 +133,15 @@ this phase.
 | `platform/devex/java-spring-demo` | 1 | 2 | transfer blocked |
 | `platform/devex/python-fastapi-demo` | 1 | 2 | transfer blocked |
 | `platform/devex/demo/resource-guardrail-demo` | 1 | 2 | transfer blocked |
+
+Follow-up status:
+
+- Old demo registry tags were backed up where they were runnable, then deleted.
+- Demo projects were moved to `tpo/sandbox/devex`.
+- Active demos were rebuilt through the standard GitLab Runner -> BuildKit ->
+  Registry -> GitOps -> Argo CD flow.
+- `demo-api` source was retained under sandbox, but unused GitOps deployment
+  residue was removed.
 
 Additional backup fix discovered during validation:
 
