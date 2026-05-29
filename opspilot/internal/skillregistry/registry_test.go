@@ -79,8 +79,32 @@ func TestRegistryWithOptionsLoadsDynamicSkillsFromSymlinkRoot(t *testing.T) {
 	}
 }
 
+func TestRegistryWithOptionsLoadsGitSyncStyleSkillsSubdir(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "root", "abc123")
+	if err := os.MkdirAll(releaseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestSkillRepo(t, filepath.Join(releaseDir, "skills"))
+	_ = os.Remove(filepath.Join(releaseDir, "skills", ".opspilot-skills-version"))
+	current := filepath.Join(dir, "current")
+	if err := os.Symlink(filepath.Join("root", "abc123"), current); err != nil {
+		t.Skipf("symlink not available: %v", err)
+	}
+	catalog, warnings := RegistryWithOptions("", true, Options{DynamicEnabled: true, SkillsDir: filepath.Join(current, "skills")})
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %#v", warnings)
+	}
+	if catalog.SourceVersion != "abc123" || catalog.DynamicCount != 1 || !hasSkill(catalog.Items, "opspilot-ops") {
+		t.Fatalf("catalog = %#v", catalog)
+	}
+}
+
 func writeTestSkillRepo(t *testing.T, dir string) {
 	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, ".opspilot-skills-version"), []byte("abc123"), 0o600); err != nil {
 		t.Fatal(err)
 	}

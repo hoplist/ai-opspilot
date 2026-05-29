@@ -18,6 +18,8 @@ spec:
         app.kubernetes.io/part-of: opspilot
     spec:
       serviceAccountName: opspilot-core
+      securityContext:
+        fsGroup: 65533
       imagePullSecrets:
         - name: gitlab-registry-pull
       containers:
@@ -60,60 +62,47 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 20
         - name: skills-sync
-          image: opspilot-core:0.1.9-release-evidence
+          image: 192.168.48.206:5050/platform/opspilot/git-sync:v4.6.0
           imagePullPolicy: IfNotPresent
-          command:
-            - /bin/sh
-            - -c
           args:
-            - |
-              set -eu
-              setup_auth() {
-                if [ -n "${OPSPILOT_SKILLS_GIT_USERNAME:-}" ] && [ -n "${OPSPILOT_SKILLS_GIT_PASSWORD:-}" ]; then
-                  host="$(printf '%s\n' "$OPSPILOT_SKILLS_GIT_URL" | sed -E 's#https?://([^/:]+).*#\1#')"
-                  printf 'machine %s login %s password %s\n' "$host" "$OPSPILOT_SKILLS_GIT_USERNAME" "$OPSPILOT_SKILLS_GIT_PASSWORD" > /root/.netrc
-                  chmod 0600 /root/.netrc
-                fi
-              }
-              sync_once() {
-                if [ -z "${OPSPILOT_SKILLS_GIT_URL:-}" ]; then
-                  echo "OPSPILOT_SKILLS_GIT_URL is empty; skip skills sync"
-                  return 0
-                fi
-                setup_auth
-                mkdir -p /skills/releases
-                if [ ! -d /skills/repo/.git ]; then
-                  rm -rf /skills/repo
-                  git clone --depth=1 --branch "${OPSPILOT_SKILLS_GIT_REF:-main}" "$OPSPILOT_SKILLS_GIT_URL" /skills/repo
-                else
-                  git -C /skills/repo fetch --depth=1 origin "${OPSPILOT_SKILLS_GIT_REF:-main}"
-                  git -C /skills/repo reset --hard "origin/${OPSPILOT_SKILLS_GIT_REF:-main}"
-                fi
-                if [ ! -d /skills/repo/skills ]; then
-                  echo "skills directory missing in repo; keep previous skills"
-                  return 0
-                fi
-                commit="$(git -C /skills/repo rev-parse --short HEAD)"
-                target="/skills/releases/$commit"
-                rm -rf "$target.tmp"
-                mkdir -p "$target.tmp"
-                cp -R /skills/repo/skills/. "$target.tmp/"
-                printf '%s\n' "$commit" > "$target.tmp/.opspilot-skills-version"
-                rm -rf "$target"
-                mv "$target.tmp" "$target"
-                ln -sfn "releases/$commit" /skills/current
-                echo "skills synced at $commit"
-              }
-              while true; do
-                sync_once || echo "skills sync failed; keeping previous skills"
-                sleep "${OPSPILOT_SKILLS_SYNC_SECONDS:-60}"
-              done
-          envFrom:
-            - configMapRef:
-                name: opspilot-core-config
-            - secretRef:
-                name: opspilot-skills-secrets
-                optional: true
+            - --repo=$(OPSPILOT_SKILLS_GIT_URL)
+            - --ref=$(OPSPILOT_SKILLS_GIT_REF)
+            - --root=/skills/root
+            - --link=/skills/current
+            - --period=$(OPSPILOT_SKILLS_SYNC_SECONDS)s
+            - --depth=1
+            - --max-failures=-1
+            - --group-write
+          env:
+            - name: OPSPILOT_SKILLS_GIT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: opspilot-core-config
+                  key: OPSPILOT_SKILLS_GIT_URL
+            - name: OPSPILOT_SKILLS_GIT_REF
+              valueFrom:
+                configMapKeyRef:
+                  name: opspilot-core-config
+                  key: OPSPILOT_SKILLS_GIT_REF
+            - name: OPSPILOT_SKILLS_SYNC_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: opspilot-core-config
+                  key: OPSPILOT_SKILLS_SYNC_SECONDS
+            - name: GITSYNC_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: opspilot-skills-secrets
+                  key: OPSPILOT_SKILLS_GIT_USERNAME
+                  optional: true
+            - name: GITSYNC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opspilot-skills-secrets
+                  key: OPSPILOT_SKILLS_GIT_PASSWORD
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
           volumeMounts:
             - name: opspilot-skills
               mountPath: /skills

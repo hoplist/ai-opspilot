@@ -69,6 +69,9 @@ func loadDynamicSkills(root string) ([]Skill, string, []string) {
 		walkRoot = resolved
 	}
 	version := readTrimmed(filepath.Join(root, ".opspilot-skills-version"))
+	if version == "" {
+		version = sourceVersionFromPath(walkRoot)
+	}
 	warnings := []string{}
 	files := []string{}
 	err = filepath.WalkDir(walkRoot, func(path string, entry os.DirEntry, walkErr error) error {
@@ -316,6 +319,17 @@ func readTrimmed(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+func sourceVersionFromPath(path string) string {
+	base := filepath.Base(path)
+	if base == "skills" {
+		base = filepath.Base(filepath.Dir(path))
+	}
+	if base == "." || base == string(filepath.Separator) {
+		return ""
+	}
+	return base
 }
 
 func env(key, fallback string) string {

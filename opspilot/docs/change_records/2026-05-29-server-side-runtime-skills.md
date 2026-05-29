@@ -10,14 +10,14 @@ commands, and keeps the embedded registry as fallback.
 ## Decisions
 
 - GitLab is the source of truth for runtime skills.
-- OpsPilot reads skills from `OPSPILOT_SKILLS_DIR`, defaulting to
-  `/opt/opspilot/skills/current`.
-- The cluster deployment uses an `emptyDir` volume and a `skills-sync` sidecar.
+- OpsPilot reads skills from `OPSPILOT_SKILLS_DIR`, currently
+  `/opt/opspilot/skills/current/skills`.
+- The cluster deployment uses an `emptyDir` volume and a git-sync-based
+  `skills-sync` sidecar.
 - The sidecar uses the same OpsPilot image, so node200 pulls from the node206
   GitLab Registry after the standard release flow updates GitOps.
-- The sidecar switches `/opt/opspilot/skills/current` through a relative
-  symlink so both containers can read the same release directory even though
-  they mount the shared volume at different paths.
+- git-sync switches `/opt/opspilot/skills/current` through a symlink so both
+  containers can read the same synced worktree.
 - `hostPath` is not used for skills because it binds runtime state to one node.
 - PVC can be added later if the skills repository becomes large or needs a
   persistent cache.
@@ -64,7 +64,7 @@ platform/opspilot-skills
 Recommended first version:
 
 ```text
-GitLab skills repo -> skills-sync sidecar -> emptyDir -> /opt/opspilot/skills/current
+GitLab skills repo -> git-sync sidecar -> emptyDir -> /opt/opspilot/skills/current/skills
 ```
 
 `emptyDir` is enough because GitLab is the source of truth and the mounted
