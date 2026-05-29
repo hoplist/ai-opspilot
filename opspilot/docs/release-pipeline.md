@@ -12,7 +12,8 @@ node206 GitLab
 -> node200 Argo CD automatic deployment
 ```
 
-For the test environment, use the node206 GitLab Container Registry:
+For the test environment, application runtime images should use the node206
+GitLab Container Registry:
 
 ```text
 http://192.168.48.206:5050
@@ -26,8 +27,15 @@ http://192.168.48.206:5050
   patching for normal releases.
 - Build jobs should run on the node206 GitLab Runner.
 - Image packaging should use rootless BuildKit.
+- Application images should be pushed to node206 GitLab Registry via
+  `$CI_REGISTRY_IMAGE`.
+- `docker-hub.tpo.xzoa.com` is not the default runtime image registry; pushes to
+  that private registry require explicit confirmation and a recorded exception.
 - Kubernetes desired state should be changed through the GitOps repository.
 - node200 Argo CD should reconcile changes into the cluster.
+
+See [registry-policy.md](registry-policy.md) for the registry priority and
+exception rules.
 
 ## Local Work
 

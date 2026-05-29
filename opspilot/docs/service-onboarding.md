@@ -312,10 +312,15 @@ opspilot repo autofix --project tpo/devex/skillshub/skillshub-api --write
 Generated Deployments do not create or reference a per-namespace
 `imagePullSecret`.
 
-In the test environment, image pull authentication is owned by the node
-runtime. Configure the internal private registry and credentials in
-`containerd`, then service manifests stay clean and new namespaces do not need
-registry Secret bootstrap.
+In the test environment, application images should be pushed to the node206
+GitLab Container Registry through `$CI_REGISTRY_IMAGE`, and image pull
+authentication is owned by the node runtime. Configure registry trust and
+credentials in `containerd`, then service manifests stay clean and new
+namespaces do not need registry Secret bootstrap.
+
+`docker-hub.tpo.xzoa.com` is an explicit exception path, not the default release
+registry. Do not push generated service images there unless the platform owner
+confirms that exception.
 
 Do not commit registry credentials into a service repository or GitOps app
 directory.
