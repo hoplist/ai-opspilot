@@ -5,9 +5,9 @@ stages:
   - update-gitops
 
 variables:
-  JAVA_VERSION_IMAGE: "docker-hub.tpo.xzoa.com/opspilot/ci-maven:3.9.9-jdk21-alpine"
-  BUILDKIT_IMAGE: "docker-hub.tpo.xzoa.com/opspilot/ci-buildkit:rootless"
-  ALPINE_IMAGE: "docker-hub.tpo.xzoa.com/opspilot/ci-alpine:3.20"
+  JAVA_VERSION_IMAGE: "192.168.48.206:5050/platform/opspilot/ci-maven:3.9.9-jdk21-alpine"
+  BUILDKIT_IMAGE: "192.168.48.206:5050/platform/opspilot/ci-buildkit:rootless"
+  ALPINE_IMAGE: "192.168.48.206:5050/platform/opspilot/ci-alpine:3.20"
   APP_NAME: "$CI_PROJECT_NAME"
   DOCKERFILE_PATH: "Dockerfile"
   GITOPS_REPO: "http://oauth2:${GITOPS_TOKEN}@192.168.48.206:8929/platform/gitops-manifests.git"

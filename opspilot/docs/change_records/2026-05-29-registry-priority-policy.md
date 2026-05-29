@@ -23,7 +23,16 @@ configured as trusted.
 
 ## Follow-up
 
-To make CI base images also come from node206 GitLab Registry, configure the
-node206 GitLab Runner Docker daemon to trust `192.168.48.206:5050` or enable a
-TLS registry endpoint. After that, the CI image variables can move from the
-temporary private mirror to GitLab Registry.
+Configured the node206 Docker daemon to trust `192.168.48.206:5050` as an HTTP
+registry, then moved OpsPilot and shared CI template base images from the
+temporary private mirror to node206 GitLab Registry:
+
+- `192.168.48.206:5050/platform/opspilot/ci-alpine:3.20`
+- `192.168.48.206:5050/platform/opspilot/ci-golang:1.23-alpine`
+- `192.168.48.206:5050/platform/opspilot/ci-buildkit:rootless`
+- `192.168.48.206:5050/platform/opspilot/ci-python:3.12-alpine`
+- `192.168.48.206:5050/platform/opspilot/ci-node:20-alpine`
+- `192.168.48.206:5050/platform/opspilot/ci-maven:3.9.9-jdk21-alpine`
+
+The temporary `docker-hub.tpo.xzoa.com/opspilot/ci-*` mirror is no longer used
+by the checked-in OpsPilot CI templates.

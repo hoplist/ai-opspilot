@@ -29,6 +29,12 @@ image, CI base image, or temporary bootstrap artifact.
 
 CI job images are separate from runtime application images.
 
+The preferred CI base-image location is also node206 GitLab Registry:
+
+```text
+192.168.48.206:5050/platform/opspilot/ci-*:*
+```
+
 If the node206 GitLab Runner cannot pull CI base images from the GitLab Registry
 because the Docker executor does not trust the HTTP registry endpoint, either:
 

@@ -5,9 +5,9 @@ stages:
   - update-gitops
 
 variables:
-  GO_VERSION_IMAGE: "docker-hub.tpo.xzoa.com/opspilot/ci-golang:1.23-alpine"
-  BUILDKIT_IMAGE: "docker-hub.tpo.xzoa.com/opspilot/ci-buildkit:rootless"
-  ALPINE_IMAGE: "docker-hub.tpo.xzoa.com/opspilot/ci-alpine:3.20"
+  GO_VERSION_IMAGE: "192.168.48.206:5050/platform/opspilot/ci-golang:1.23-alpine"
+  BUILDKIT_IMAGE: "192.168.48.206:5050/platform/opspilot/ci-buildkit:rootless"
+  ALPINE_IMAGE: "192.168.48.206:5050/platform/opspilot/ci-alpine:3.20"
   APP_NAME: "$CI_PROJECT_NAME"
   BUILD_ENTRY: "./cmd/$CI_PROJECT_NAME"
   BUILD_OUTPUT: "build/$CI_PROJECT_NAME"
