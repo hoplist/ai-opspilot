@@ -9,6 +9,11 @@ a generated intermediate file that operators can review when needed.
 
 ## GitLab And Namespace Model
 
+Repository purpose and target GitLab group layout are governed by
+[gitlab-repository-governance.md](gitlab-repository-governance.md). Service
+onboarding only applies to application source repositories, not GitOps,
+backups, runtime skills, or sandbox repositories.
+
 Use `tpo` as the GitLab root group. Current services are grouped under
 `devex` first:
 
