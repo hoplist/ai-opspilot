@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +66,11 @@ type PodLog struct {
 	LimitBytes   int    `json:"limit_bytes"`
 	Truncated    bool   `json:"truncated"`
 	Text         string `json:"text"`
+}
+
+type JobRequest struct {
+	Namespace string
+	Job       map[string]any
 }
 
 func NewClient() *Client {
@@ -310,6 +316,92 @@ func (c *Client) ListEvents(ctx context.Context, namespace, involvedName string,
 	return ListResult{Items: events[:limit], ItemCount: limit, TotalCount: total, Truncated: total > limit}, nil
 }
 
+func (c *Client) CreateJob(ctx context.Context, namespace string, job map[string]any) (map[string]any, error) {
+	if namespace == "" {
+		return nil, errors.New("namespace is required")
+	}
+	if job == nil {
+		return nil, errors.New("job is required")
+	}
+	if c.mode == "in-cluster" {
+		path := "/apis/batch/v1/namespaces/" + url.PathEscape(namespace) + "/jobs"
+		return c.postJSON(ctx, path, job)
+	}
+	body, err := json.Marshal(job)
+	if err != nil {
+		return nil, err
+	}
+	text, err := c.kubectlTextInput(ctx, []string{"create", "-f", "-", "-o", "json"}, string(body))
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetJob(ctx context.Context, namespace, name string) (map[string]any, error) {
+	if namespace == "" || name == "" {
+		return nil, errors.New("namespace and job are required")
+	}
+	path := "/apis/batch/v1/namespaces/" + url.PathEscape(namespace) + "/jobs/" + url.PathEscape(name)
+	return c.json(ctx, path, []string{"get", "job", name, "-n", namespace, "-o", "json"})
+}
+
+func (c *Client) ListJobsByLabels(ctx context.Context, namespace string, labels map[string]string, limit int) (ListResult, error) {
+	if namespace == "" {
+		return ListResult{}, errors.New("namespace is required")
+	}
+	selector := labelSelector(labels)
+	path := "/apis/batch/v1/namespaces/" + url.PathEscape(namespace) + "/jobs"
+	args := []string{"get", "jobs", "-n", namespace, "-o", "json"}
+	if selector != "" {
+		path += "?" + url.Values{"labelSelector": []string{selector}}.Encode()
+		args = []string{"get", "jobs", "-n", namespace, "-l", selector, "-o", "json"}
+	}
+	payload, err := c.json(ctx, path, args)
+	if err != nil {
+		return ListResult{}, err
+	}
+	jobs := []map[string]any{}
+	for _, item := range items(payload) {
+		jobs = append(jobs, JobSummary(item))
+	}
+	sort.SliceStable(jobs, func(i, j int) bool {
+		return fmt.Sprint(jobs[i]["created_at"]) > fmt.Sprint(jobs[j]["created_at"])
+	})
+	if limit < 0 {
+		limit = 0
+	}
+	total := len(jobs)
+	if limit == 0 || limit > total {
+		limit = total
+	}
+	return ListResult{Items: jobs[:limit], ItemCount: limit, TotalCount: total, Truncated: total > limit}, nil
+}
+
+func (c *Client) ReadJobLog(ctx context.Context, namespace, jobName string, limitBytes int) (PodLog, error) {
+	if namespace == "" || jobName == "" {
+		return PodLog{}, errors.New("namespace and job are required")
+	}
+	pods, err := c.ListPodsByLabels(ctx, namespace, map[string]any{"job-name": jobName}, 1)
+	if err != nil {
+		return PodLog{}, err
+	}
+	if len(pods.Items) == 0 {
+		return PodLog{}, errors.New("job pod not found")
+	}
+	podName := fmt.Sprint(pods.Items[0]["name"])
+	return c.ReadPodLog(ctx, LogRequest{
+		Namespace:  namespace,
+		Pod:        podName,
+		TailLines:  MaxTailLines,
+		LimitBytes: limitBytes,
+	})
+}
+
 func (c *Client) ReadPodLog(ctx context.Context, req LogRequest) (PodLog, error) {
 	req = BoundedLogRequest(req)
 	if req.Namespace == "" || req.Pod == "" {
@@ -509,10 +601,63 @@ func (c *Client) raw(ctx context.Context, path string) (string, error) {
 	return string(body), nil
 }
 
+func (c *Client) postJSON(ctx context.Context, path string, payload any) (map[string]any, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	tokenBytes, err := os.ReadFile(c.tokenPath)
+	if err != nil {
+		return nil, err
+	}
+	endpoint := "https://" + c.host + ":" + c.port + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(tokenBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	client := c.http
+	if fileExists(c.caPath) {
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			pool = x509.NewCertPool()
+		}
+		ca, err := os.ReadFile(c.caPath)
+		if err == nil {
+			pool.AppendCertsFromPEM(ca)
+		}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+		client = &http.Client{Timeout: 20 * time.Second, Transport: transport}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("kubernetes api %d: %s", resp.StatusCode, string(bytes.TrimSpace(respBody)))
+	}
+	var out map[string]any
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *Client) kubectlText(ctx context.Context, args []string) (string, error) {
+	return c.kubectlTextInput(ctx, args, "")
+}
+
+func (c *Client) kubectlTextInput(ctx context.Context, args []string, stdin string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, c.kubectl, args...)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -528,6 +673,23 @@ func (c *Client) kubectlText(ctx context.Context, args []string) (string, error)
 		return "", fmt.Errorf("kubectl failed: %s", msg)
 	}
 	return stdout.String(), nil
+}
+
+func labelSelector(labels map[string]string) string {
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := []string{}
+	for _, key := range keys {
+		value := strings.TrimSpace(labels[key])
+		if key == "" || value == "" {
+			continue
+		}
+		parts = append(parts, key+"="+value)
+	}
+	return strings.Join(parts, ",")
 }
 
 func items(payload map[string]any) []map[string]any {

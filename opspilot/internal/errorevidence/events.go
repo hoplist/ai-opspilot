@@ -196,7 +196,7 @@ func releaseEvents(ctx context.Context, releases *release.Registry, client *k8s.
 	events := []Event{}
 	warnings := []string{}
 	for _, service := range releases.Services() {
-		status, releaseWarnings, err := releases.Status(ctx, service, client, promRegistry, logClient)
+		status, releaseWarnings, err := releases.Status(ctx, service, client, promRegistry, logClient, release.QualitySettings{Enabled: false})
 		warnings = append(warnings, prefixWarnings("release "+service, releaseWarnings)...)
 		if err != nil {
 			events = append(events, Event{

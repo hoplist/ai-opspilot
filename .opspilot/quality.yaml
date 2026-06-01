@@ -1,0 +1,12 @@
+quality:
+  enabled: true
+  optional: true
+  baseURL: http://opspilot-core.opspilot.svc.cluster.local:18080
+  smoke:
+    timeoutSeconds: 3
+    latencyP95Ms: 1000
+    endpoints:
+      - name: live
+        method: GET
+        path: /api/live
+        expectStatus: 200

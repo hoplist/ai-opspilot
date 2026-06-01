@@ -49,6 +49,8 @@ go run ./opspilot/cli release service opspilot-core --trigger --ref main --outpu
 go run ./opspilot/cli release status --service opspilot-core --output human
 go run ./opspilot/cli release jobs --service opspilot-core --output human
 go run ./opspilot/cli release logs --service opspilot-core --job build-image --tail 200 --output human
+go run ./opspilot/cli quality run service opspilot-core --output human
+go run ./opspilot/cli quality status service opspilot-core --output evidence
 go run ./opspilot/cli onboard repo tpo/devex/demo/demo-api --write --output human
 go run ./opspilot/cli onboard service --config opspilot.service.yaml --write
 go run ./opspilot/cli repo preflight --repo . --project tpo/devex/demo/demo-api --output human
@@ -59,6 +61,9 @@ go run ./opspilot/cli ask "发布 opspilot-core" --dry-run --output human
 Generated onboarding manifests include CPU/memory requests and limits,
 readiness/liveness probes, plus namespace `LimitRange` and `ResourceQuota`
 guardrails. `repo preflight` blocks release readiness when those are missing.
+Onboarding also writes optional `.opspilot/quality.yaml` API smoke checks.
+Those checks are release evidence only; missing quality config or runner setup
+does not block Kubernetes-first troubleshooting or normal release status.
 
 `capabilities` reports which evidence sources are currently usable and which
 ones are missing. `inspect pod`, `inspect service`, `inspect cluster`, and

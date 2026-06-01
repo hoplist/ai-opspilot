@@ -146,7 +146,7 @@ func (r *Registry) Health() map[string]any {
 	}
 }
 
-func (r *Registry) Status(ctx context.Context, serviceName string, client *k8s.Client, promRegistry *prom.Registry, logClient *logsearch.Client) (map[string]any, []string, error) {
+func (r *Registry) Status(ctx context.Context, serviceName string, client *k8s.Client, promRegistry *prom.Registry, logClient *logsearch.Client, qualitySettings QualitySettings) (map[string]any, []string, error) {
 	service, ok := r.services[serviceName]
 	if !ok {
 		return nil, nil, fmt.Errorf("unknown release service: %s", serviceName)
@@ -215,6 +215,12 @@ func (r *Registry) Status(ctx context.Context, serviceName string, client *k8s.C
 			status = "degraded"
 			stage = "argocd"
 		}
+	}
+	if qualityEvidence, qualityWarnings, err := r.QualityStatus(ctx, serviceName, client, qualitySettings); err != nil {
+		warnings = append(warnings, "quality: "+err.Error())
+	} else {
+		evidence["quality"] = qualityEvidence
+		warnings = append(warnings, qualityWarnings...)
 	}
 
 	return map[string]any{

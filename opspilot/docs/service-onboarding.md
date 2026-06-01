@@ -111,6 +111,7 @@ The check verifies:
 - `deploy/k8s/deployment.yaml`.
 - `deploy/k8s/service.yaml`.
 - `deploy/k8s/kustomization.yaml`.
+- optional `.opspilot/quality.yaml`.
 - optional `opspilot.release-service.txt`.
 
 This command is intended for local onboarding and as a future GitLab CI
@@ -134,6 +135,8 @@ opspilot repo autofix --repo . --project tpo/devex/skillshub/skillshub-api --wri
 - Dockerfile presence and obvious local-only or unsafe patterns.
 - `.gitlab-ci.yml` usage of the platform BuildKit/GitOps template.
 - `deploy/k8s/namespace.yaml`, Deployment, Service, and Kustomize entrypoint.
+- optional `.opspilot/quality.yaml` API smoke checks. Missing quality config is
+  a warning only, not a release blocker.
 - inferred namespace ownership from the GitLab project path.
 - Deployment namespace, probes, and disallowed fields such as `hostPath`,
   `hostNetwork`, and `privileged`.
@@ -273,6 +276,7 @@ deploy/k8s/namespace.yaml
 deploy/k8s/deployment.yaml
 deploy/k8s/service.yaml
 deploy/k8s/kustomization.yaml
+.opspilot/quality.yaml
 opspilot.release-service.txt
 ```
 

@@ -558,6 +558,7 @@ func checkOnboardRepository(cfg onboardServiceConfig) onboardCheckResult {
 		checkFile("deployment", filepath.Join("deploy", "k8s", "deployment.yaml"), true, "Kubernetes Deployment manifest"),
 		checkFile("service", filepath.Join("deploy", "k8s", "service.yaml"), true, "Kubernetes Service manifest"),
 		checkFile("kustomization", filepath.Join("deploy", "k8s", "kustomization.yaml"), true, "Kustomize entrypoint"),
+		checkFile("quality_config", filepath.Join(".opspilot", "quality.yaml"), false, "optional OpsPilot API quality checks"),
 		checkFile("release_mapping", "opspilot.release-service.txt", false, "OpsPilot release service mapping"),
 	}
 	items = append(items, checkOnboardDeploymentGuardrails(cfg)...)
@@ -651,6 +652,8 @@ func nextOnboardAction(item onboardCheckItem) string {
 		return "generate deploy/k8s manifests with opspilot onboard service --write"
 	case "release_mapping":
 		return "copy opspilot.release-service.txt into OpsPilot release service config"
+	case "quality_config":
+		return "generate optional .opspilot/quality.yaml with opspilot onboard service --write"
 	default:
 		return "run opspilot onboard service --write"
 	}
@@ -683,6 +686,7 @@ func onboardFiles(cfg onboardServiceConfig) []generatedFile {
 		generatedFile{path: filepath.Join("deploy", "k8s", "deployment.yaml"), body: deploymentTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "service.yaml"), body: serviceTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "kustomization.yaml"), body: kustomizationTemplate()},
+		generatedFile{path: filepath.Join(".opspilot", "quality.yaml"), body: qualityTemplate(cfg)},
 		generatedFile{path: "opspilot.release-service.txt", body: releaseMapping(cfg) + "\n"},
 	)
 	return files
@@ -743,6 +747,7 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 		"deployment":     fileExists(filepath.Join("deploy", "k8s", "deployment.yaml")),
 		"service":        fileExists(filepath.Join("deploy", "k8s", "service.yaml")),
 		"kustomization":  fileExists(filepath.Join("deploy", "k8s", "kustomization.yaml")),
+		"qualityConfig":  fileExists(filepath.Join(".opspilot", "quality.yaml")),
 		"releaseMapping": fileExists("opspilot.release-service.txt"),
 	}
 	result := onboardDetectResult{Service: cfg.Name, Ready: true, Config: cfg, Files: files}
@@ -1847,6 +1852,22 @@ spec:
       port: %d
       targetPort: http
 `, c.Name, c.Namespace, c.Name, c.Port)
+}
+
+func qualityTemplate(c onboardServiceConfig) string {
+	return fmt.Sprintf(`quality:
+  enabled: true
+  optional: true
+  baseURL: http://%s.%s.svc.cluster.local:%d
+  smoke:
+    timeoutSeconds: 3
+    latencyP95Ms: 1000
+    endpoints:
+      - name: health
+        method: GET
+        path: %s
+        expectStatus: 200
+`, c.Name, c.Namespace, c.Port, firstNonEmpty(c.HealthPath, "/health"))
 }
 
 func kustomizationTemplate() string {

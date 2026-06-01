@@ -99,6 +99,43 @@ func EventSummary(item map[string]any) map[string]any {
 	}
 }
 
+func JobSummary(item map[string]any) map[string]any {
+	meta := object(item, "metadata")
+	status := object(item, "status")
+	conditions := []any{}
+	for _, raw := range array(status, "conditions") {
+		cond := asMap(raw)
+		conditions = append(conditions, map[string]any{
+			"type":    stringValue(cond, "type"),
+			"status":  stringValue(cond, "status"),
+			"reason":  stringValue(cond, "reason"),
+			"message": stringValue(cond, "message"),
+		})
+	}
+	state := "unknown"
+	switch {
+	case intValue(status, "active") > 0:
+		state = "running"
+	case intValue(status, "succeeded") > 0:
+		state = "succeeded"
+	case intValue(status, "failed") > 0:
+		state = "failed"
+	}
+	return map[string]any{
+		"namespace":       stringValue(meta, "namespace"),
+		"name":            stringValue(meta, "name"),
+		"labels":          object(meta, "labels"),
+		"created_at":      stringValue(meta, "creationTimestamp"),
+		"state":           state,
+		"active":          intValue(status, "active"),
+		"succeeded":       intValue(status, "succeeded"),
+		"failed":          intValue(status, "failed"),
+		"start_time":      stringValue(status, "startTime"),
+		"completion_time": stringValue(status, "completionTime"),
+		"conditions":      conditions,
+	}
+}
+
 func MatchesStatus(item map[string]any, status string) bool {
 	wanted := strings.ToLower(status)
 	phase := strings.ToLower(fmt.Sprint(item["phase"]))

@@ -1,6 +1,6 @@
 {
   "name": "opspilot",
-  "version": "0.1.20-capability-detection",
+  "version": "0.1.21-optional-quality-checks",
   "description": "Deterministic CLI schema for OpsPilot.",
   "default_output": "json",
   "outputs": ["json", "pretty", "human", "table", "evidence"],
@@ -243,6 +243,21 @@
       "name": "release rollback",
       "readonly": false,
       "description": "Rollback a configured service by committing a previous tag, full image, or GitOps revision to the GitOps repository. Requires --confirm and does not mutate Kubernetes directly."
+    },
+    {
+      "name": "quality run service",
+      "readonly": false,
+      "description": "Submit an optional short-lived Kubernetes Job that runs the service repository .opspilot/quality.yaml API smoke and latency checks. Missing config or runner setup returns skipped/unavailable evidence and does not block release."
+    },
+    {
+      "name": "quality status service",
+      "readonly": true,
+      "description": "Read the latest optional API quality Job status, logs, and JSON report for one configured release service."
+    },
+    {
+      "name": "quality runner",
+      "readonly": true,
+      "description": "Internal runner used by OpsPilot-created Kubernetes Jobs. Reads OPSPILOT_QUALITY_CONFIG_JSON or --config and emits a JSON quality report."
     },
     {
       "name": "onboard repo",

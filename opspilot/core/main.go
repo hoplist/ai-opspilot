@@ -55,9 +55,16 @@ func main() {
 		GitOpsProject: env("OPSPILOT_GITOPS_PROJECT", ""),
 		GitOpsRef:     env("OPSPILOT_GITOPS_REF", "main"),
 	})
+	qualitySettings := release.QualitySettings{
+		Enabled:         boolEnv("OPSPILOT_QUALITY_ENABLED", true),
+		RunnerImage:     env("OPSPILOT_QUALITY_RUNNER_IMAGE", ""),
+		Ref:             env("OPSPILOT_QUALITY_REF", ""),
+		TTLSeconds:      intEnv("OPSPILOT_QUALITY_JOB_TTL_SECONDS", 3600),
+		DeadlineSeconds: intEnv("OPSPILOT_QUALITY_DEADLINE_SECONDS", 120),
+	}
 	errorCollector := errorevidence.NewCollector(env("OPSPILOT_ERROR_EVENT_DIR", "/var/lib/opspilot/error-events"))
 	mux := http.NewServeMux()
-	registerRoutes(mux, client, promRegistry, agentRegistry, logClient, releaseRegistry, errorCollector)
+	registerRoutes(mux, client, promRegistry, agentRegistry, logClient, releaseRegistry, errorCollector, qualitySettings)
 	addr := *host + ":" + *port
 	fmt.Printf("opspilot-core %s listening on http://%s\n", version.Version, addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
@@ -66,7 +73,7 @@ func main() {
 	}
 }
 
-func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, errorCollector *errorevidence.Collector) {
+func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, errorCollector *errorevidence.Collector, qualitySettings release.QualitySettings) {
 	mux.HandleFunc("/api/live", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return map[string]any{
 			"version": version.Version,
@@ -84,10 +91,14 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 				"configured": releaseRegistry.Configured(),
 				"services":   releaseRegistry.Services(),
 			},
+			"quality": map[string]any{
+				"enabled":      qualitySettings.Enabled,
+				"runner_image": qualitySettings.RunnerImage,
+			},
 		}, nil, nil
 	}))
 	mux.HandleFunc("/api/capabilities", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		return buildCapabilities(ctx, client, promRegistry, agentRegistry, logClient, releaseRegistry)
+		return buildCapabilities(ctx, client, promRegistry, agentRegistry, logClient, releaseRegistry, qualitySettings)
 	}))
 	mux.HandleFunc("/api/skills/registry", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
@@ -219,7 +230,23 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 			return nil, nil, fmt.Errorf("release services are not configured")
 		}
 		q := r.URL.Query()
-		return releaseRegistry.Status(ctx, required(q.Get("service"), "service"), client, promRegistry, logClient)
+		return releaseRegistry.Status(ctx, required(q.Get("service"), "service"), client, promRegistry, logClient, qualitySettings)
+	}))
+	mux.HandleFunc("/api/quality/status", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		if !releaseRegistry.Configured() {
+			return nil, nil, fmt.Errorf("release services are not configured")
+		}
+		q := r.URL.Query()
+		return releaseRegistry.QualityStatus(ctx, required(q.Get("service"), "service"), client, qualitySettings)
+	}))
+	mux.HandleFunc("/api/quality/run", wrapPost(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		if !releaseRegistry.Configured() {
+			return nil, nil, fmt.Errorf("release services are not configured")
+		}
+		if err := r.ParseForm(); err != nil {
+			return nil, nil, requestError{message: "form body is invalid"}
+		}
+		return releaseRegistry.RunQuality(ctx, required(r.Form.Get("service"), "service"), r.Form.Get("base_url"), client, qualitySettings)
 	}))
 	mux.HandleFunc("/api/release/jobs", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
@@ -446,7 +473,7 @@ func releaseVariablesFromForm(r *http.Request) map[string]string {
 	return variables
 }
 
-func buildCapabilities(ctx context.Context, client *k8s.Client, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry) (map[string]any, []string, error) {
+func buildCapabilities(ctx context.Context, client *k8s.Client, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, qualitySettings release.QualitySettings) (map[string]any, []string, error) {
 	warnings := []string{}
 	capabilities := []map[string]any{}
 	availableEvidence := []string{}
@@ -526,6 +553,16 @@ func buildCapabilities(ctx context.Context, client *k8s.Client, promRegistry *pr
 		[]string{"GitLab pipeline", "BuildKit job", "Registry tag", "GitOps desired image"},
 		[]string{"GitLab token/GitOps 数据源未配置，无法查询 pipeline、BuildKit、Registry 或 GitOps 证据。"},
 		"GitLab evidence is required for release and rollback evidence chains.", releaseHealth))
+	qualityReady := qualitySettings.Enabled && qualitySettings.RunnerImage != ""
+	add(capabilityItem("quality_checks", "Optional API Quality Checks", "release", qualitySettings.Enabled, qualityReady,
+		[]string{"Post-deploy API smoke checks", "response-time evidence", "quality Job logs"},
+		[]string{"Optional quality runner is not configured; release and Kubernetes inspection continue without API quality evidence."},
+		"Quality checks are optional release evidence and do not block core troubleshooting.", map[string]any{
+			"enabled":      qualitySettings.Enabled,
+			"runner_image": qualitySettings.RunnerImage,
+			"job_ttl":      qualitySettings.TTLSeconds,
+			"deadline":     qualitySettings.DeadlineSeconds,
+		}))
 
 	argoDetails := map[string]any{"namespace": "argocd"}
 	argoReady := false
@@ -678,6 +715,18 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func intEnv(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func boolEnv(key string, fallback bool) bool {

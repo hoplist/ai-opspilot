@@ -52,6 +52,20 @@ deployment must go through the CI/GitOps release flow above.
 OpsPilot integrates with this flow as a read-only evidence chain. See
 [release-evidence-chain.md](release-evidence-chain.md).
 
+## Optional Quality Evidence
+
+Services may include `.opspilot/quality.yaml` for lightweight post-deploy API
+smoke and response-time checks. OpsPilot can run those checks through:
+
+```powershell
+.\opspilot\scripts\opspilot.ps1 --output human quality run service <service>
+.\opspilot\scripts\opspilot.ps1 --output evidence quality status service <service>
+```
+
+This is optional evidence. Missing quality config, missing GitLab access, or a
+missing quality runner image is reported as `skipped` or `unavailable` and does
+not block release status, rollback, Kubernetes inspection, logs, or metrics.
+
 ## History And Rollback
 
 OpsPilot can now read release history from the GitOps repository and submit a

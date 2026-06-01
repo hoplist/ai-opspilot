@@ -148,6 +148,7 @@ func repoPreflight(project, catalogPath string) (repoPreflightResult, error) {
 		checkRepoDeployment(cfg),
 		checkRepoFile("service", filepath.Join("deploy", "k8s", "service.yaml"), "generate deploy/k8s/service.yaml"),
 		checkRepoFile("kustomization", filepath.Join("deploy", "k8s", "kustomization.yaml"), "generate deploy/k8s/kustomization.yaml"),
+		checkRepoQuality(),
 		checkRepoHealth(cfg),
 	}
 	items = append(items, checkRepoMiddleware(cfg)...)
@@ -271,6 +272,25 @@ func checkRepoFile(name, path, action string) repoPolicyItem {
 		return repoPolicyItem{Name: name, Path: path, Status: "fail", Level: "blocker", Message: err.Error(), Fixable: false, Action: "fix manifest filesystem error"}
 	}
 	return repoPolicyItem{Name: name, Path: path, Status: "fail", Level: "blocker", Message: "missing", Fixable: true, Action: action}
+}
+
+func checkRepoQuality() repoPolicyItem {
+	path := filepath.Join(".opspilot", "quality.yaml")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return repoPolicyItem{Name: "quality_config", Path: path, Status: "warn", Level: "warning", Message: "missing optional API quality checks", Fixable: true, Action: "run repo autofix --write to generate optional .opspilot/quality.yaml"}
+		}
+		return repoPolicyItem{Name: "quality_config", Path: path, Status: "warn", Level: "warning", Message: err.Error(), Fixable: false, Action: "fix quality config filesystem error"}
+	}
+	text := string(body)
+	if strings.Contains(text, "enabled: false") {
+		return repoPolicyItem{Name: "quality_config", Path: path, Status: "warn", Level: "warning", Message: "quality checks are explicitly disabled", Fixable: true, Action: "enable quality checks when service has a stable health endpoint"}
+	}
+	if !strings.Contains(text, "endpoints:") || !strings.Contains(text, "expectStatus:") {
+		return repoPolicyItem{Name: "quality_config", Path: path, Status: "warn", Level: "warning", Message: "quality config has no endpoint assertions", Fixable: true, Action: "run repo autofix --write --force to regenerate optional quality config"}
+	}
+	return repoPolicyItem{Name: "quality_config", Path: path, Status: "pass", Level: "info", Message: "optional API quality checks configured"}
 }
 
 func checkRepoDeployment(cfg onboardServiceConfig) repoPolicyItem {
