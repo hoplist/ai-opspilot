@@ -2552,6 +2552,31 @@ func buildEvidencePack(payload any) evidencePack {
 			SkillRecommendations: v.SkillRecommendations,
 		}
 	case map[string]any:
+		if report := mapValue(v, "report"); report != nil || (boolValue(v["optional"]) && strings.HasPrefix(stringValue(v["reason"]), "quality_")) || strings.Contains(stringValue(v["job_name"]), "quality") || mapValue(v, "job") != nil {
+			status := firstNonEmptyString(stringValue(v["status"]), stringValue(report["status"]), "unknown")
+			summary := firstNonEmptyString(stringValue(report["summary"]), stringValue(v["reason"]), "Optional API quality evidence.")
+			evidence := []evidenceItem{
+				{Source: "quality", Message: fmt.Sprintf("status=%s optional=%t", status, boolValue(v["optional"]))},
+			}
+			if report != nil {
+				evidence = append(evidence, evidenceItem{Source: "quality_report", Message: fmt.Sprintf("checks=%d passed=%d failed=%d duration=%dms",
+					intValue(report["check_count"]), intValue(report["passed_count"]), intValue(report["failed_count"]), intValue(report["duration_ms"]))})
+			}
+			actions := []recommendedAction{
+				{Type: "next_check", Target: "service", Instruction: "Use quality report together with release status, Pod logs, metrics, and events before changing code."},
+			}
+			if status == "failed" {
+				actions = append(actions, recommendedAction{Type: "code_or_config_review", Target: "api", Instruction: "Inspect the failing endpoint, route, health check, service port, and application startup path."})
+			}
+			return evidencePack{
+				Subject:            evidenceSubject{Type: "quality", Name: stringValue(v["service"]), Namespace: stringValue(v["namespace"])},
+				Status:             status,
+				Summary:            summary,
+				Evidence:           evidence,
+				RecommendedActions: actions,
+				Raw:                v,
+			}
+		}
 		return evidencePack{
 			Subject: evidenceSubject{Type: "api_response", Name: firstNonEmptyString(stringValue(v["service"]), stringValue(v["name"]))},
 			Status:  firstNonEmptyString(stringValue(v["status"]), "unknown"),
