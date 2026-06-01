@@ -58,6 +58,7 @@ func main() {
 	qualitySettings := release.QualitySettings{
 		Enabled:         boolEnv("OPSPILOT_QUALITY_ENABLED", true),
 		RunnerImage:     env("OPSPILOT_QUALITY_RUNNER_IMAGE", ""),
+		ImagePullSecret: env("OPSPILOT_QUALITY_IMAGE_PULL_SECRET", ""),
 		Ref:             env("OPSPILOT_QUALITY_REF", ""),
 		TTLSeconds:      intEnv("OPSPILOT_QUALITY_JOB_TTL_SECONDS", 3600),
 		DeadlineSeconds: intEnv("OPSPILOT_QUALITY_DEADLINE_SECONDS", 120),
@@ -92,8 +93,9 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 				"services":   releaseRegistry.Services(),
 			},
 			"quality": map[string]any{
-				"enabled":      qualitySettings.Enabled,
-				"runner_image": qualitySettings.RunnerImage,
+				"enabled":           qualitySettings.Enabled,
+				"runner_image":      qualitySettings.RunnerImage,
+				"image_pull_secret": qualitySettings.ImagePullSecret,
 			},
 		}, nil, nil
 	}))
@@ -560,6 +562,7 @@ func buildCapabilities(ctx context.Context, client *k8s.Client, promRegistry *pr
 		"Quality checks are optional release evidence and do not block core troubleshooting.", map[string]any{
 			"enabled":      qualitySettings.Enabled,
 			"runner_image": qualitySettings.RunnerImage,
+			"pull_secret":  qualitySettings.ImagePullSecret,
 			"job_ttl":      qualitySettings.TTLSeconds,
 			"deadline":     qualitySettings.DeadlineSeconds,
 		}))

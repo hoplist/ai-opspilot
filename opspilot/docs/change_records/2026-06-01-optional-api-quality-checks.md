@@ -92,6 +92,7 @@ step remains non-blocking unless a future policy explicitly changes that.
 - Namespace: service namespace.
 - Name: `<service>-quality-<timestamp>`.
 - Image: `OPSPILOT_QUALITY_RUNNER_IMAGE`.
+- Optional image pull secret: `OPSPILOT_QUALITY_IMAGE_PULL_SECRET`.
 - Command: `/usr/local/bin/opspilot quality runner`.
 - TTL: `OPSPILOT_QUALITY_JOB_TTL_SECONDS`, default 3600.
 - Deadline: `OPSPILOT_QUALITY_DEADLINE_SECONDS`, default 120.
@@ -103,6 +104,13 @@ Expected RBAC addition:
 
 If the RBAC is missing, `quality run` returns `unavailable` evidence rather
 than failing the whole release path.
+
+During node200 validation, the first quality Job exposed a real registry pull
+gap: the Job used the GitLab Registry OpsPilot image but did not include
+`imagePullSecrets`. The runner template now accepts
+`OPSPILOT_QUALITY_IMAGE_PULL_SECRET`; node200 config sets it to
+`gitlab-registry-pull`. Clusters with containerd-level registry trust can leave
+this value empty.
 
 ## User Flow
 

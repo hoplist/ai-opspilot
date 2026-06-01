@@ -14,6 +14,7 @@ import (
 type QualitySettings struct {
 	Enabled         bool
 	RunnerImage     string
+	ImagePullSecret string
 	Ref             string
 	TTLSeconds      int
 	DeadlineSeconds int
@@ -139,6 +140,7 @@ func (r *Registry) RunQuality(ctx context.Context, serviceName, baseURLOverride 
 		"namespace":    service.Namespace,
 		"job_name":     jobName,
 		"runner_image": settings.RunnerImage,
+		"pull_secret":  settings.ImagePullSecret,
 		"job":          k8s.JobSummary(created),
 		"next_checks":  []string{"run quality status service " + service.Name + " to read the Job result"},
 	}, config.Warnings, nil
@@ -194,6 +196,27 @@ func qualityJobManifest(service Service, jobName string, settings QualitySetting
 		"opspilot.io/quality-trigger":     "manual",
 		"opspilot.io/quality-runner-kind": "opspilot",
 	}
+	podSpec := map[string]any{
+		"restartPolicy": "Never",
+		"containers": []any{
+			map[string]any{
+				"name":            "quality-runner",
+				"image":           settings.RunnerImage,
+				"imagePullPolicy": "IfNotPresent",
+				"command":         []any{"/usr/local/bin/opspilot", "quality", "runner"},
+				"env": []any{
+					map[string]any{"name": "OPSPILOT_QUALITY_CONFIG_JSON", "value": cfgJSON},
+				},
+				"resources": map[string]any{
+					"requests": map[string]any{"cpu": "20m", "memory": "32Mi"},
+					"limits":   map[string]any{"cpu": "200m", "memory": "128Mi"},
+				},
+			},
+		},
+	}
+	if settings.ImagePullSecret != "" {
+		podSpec["imagePullSecrets"] = []any{map[string]any{"name": settings.ImagePullSecret}}
+	}
 	return map[string]any{
 		"apiVersion": "batch/v1",
 		"kind":       "Job",
@@ -208,24 +231,7 @@ func qualityJobManifest(service Service, jobName string, settings QualitySetting
 			"backoffLimit":            0,
 			"template": map[string]any{
 				"metadata": map[string]any{"labels": labels},
-				"spec": map[string]any{
-					"restartPolicy": "Never",
-					"containers": []any{
-						map[string]any{
-							"name":            "quality-runner",
-							"image":           settings.RunnerImage,
-							"imagePullPolicy": "IfNotPresent",
-							"command":         []any{"/usr/local/bin/opspilot", "quality", "runner"},
-							"env": []any{
-								map[string]any{"name": "OPSPILOT_QUALITY_CONFIG_JSON", "value": cfgJSON},
-							},
-							"resources": map[string]any{
-								"requests": map[string]any{"cpu": "20m", "memory": "32Mi"},
-								"limits":   map[string]any{"cpu": "200m", "memory": "128Mi"},
-							},
-						},
-					},
-				},
+				"spec":     podSpec,
 			},
 		},
 	}
