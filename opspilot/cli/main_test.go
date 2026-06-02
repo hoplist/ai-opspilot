@@ -1615,6 +1615,23 @@ func TestCITemplatesIncludeCodePrecheck(t *testing.T) {
 	}
 }
 
+func TestPlatformGitLabCIIncludesCodePrecheck(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", ".gitlab-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range [][]byte{
+		[]byte("  - code-precheck"),
+		[]byte("code-precheck:"),
+		[]byte("repo precheck --repo . --project platform/opspilot --write"),
+		[]byte(".opspilot/evidence/code-precheck.json"),
+	} {
+		if !bytes.Contains(body, expected) {
+			t.Fatalf(".gitlab-ci.yml missing %s", expected)
+		}
+	}
+}
+
 func TestRepoPreflightReportsMiddlewareIntent(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/orders-api\nrequire github.com/go-sql-driver/mysql v1.8.1\n"), 0o644); err != nil {

@@ -1,5 +1,6 @@
 stages:
   - preflight
+  - code-precheck
   - test
   - build
   - update-gitops
@@ -30,6 +31,20 @@ preflight:onboarding:
     - "grep -q 'resources:' deploy/opspilot/core/deployment.yaml"
     - "grep -q 'readinessProbe:' deploy/opspilot/core/deployment.yaml"
     - "grep -q 'livenessProbe:' deploy/opspilot/core/deployment.yaml"
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+code-precheck:
+  stage: code-precheck
+  image:
+    name: "$GO_VERSION_IMAGE"
+  script:
+    - go run ./opspilot/cli --output human repo precheck --repo . --project platform/opspilot --write
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - .opspilot/evidence/code-precheck.json
   rules:
     - if: $CI_COMMIT_BRANCH
 

@@ -114,6 +114,8 @@ developer push
   - `ci/templates/buildkit-gitops.python.yml`
   - `ci/templates/buildkit-gitops.frontend.yml`
   - `ci/templates/buildkit-gitops.java.yml`
+- Added `code-precheck` to the OpsPilot platform `.gitlab-ci.yml` itself so
+  `opspilot-core` releases also exercise the gate.
 - Added integrated skill registry entries for:
   - `code-reviewer`
   - `security-reviewer`
