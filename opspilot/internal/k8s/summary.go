@@ -23,10 +23,19 @@ func PodSummary(item map[string]any) map[string]any {
 		conditions[stringValue(c, "type")] = stringValue(c, "status")
 	}
 	containers := []any{}
+	specImages := map[string]string{}
+	for _, raw := range array(spec, "containers") {
+		container := asMap(raw)
+		name := stringValue(container, "name")
+		if name != "" {
+			specImages[name] = stringValue(container, "image")
+		}
+	}
 	waitingReasons := []any{}
 	restartCount := 0
 	for _, raw := range array(status, "containerStatuses") {
 		container := asMap(raw)
+		name := stringValue(container, "name")
 		state := object(container, "state")
 		waiting := object(state, "waiting")
 		reason := stringValue(waiting, "reason")
@@ -35,11 +44,16 @@ func PodSummary(item map[string]any) map[string]any {
 		}
 		restarts := intValue(container, "restartCount")
 		restartCount += restarts
+		specImage := specImages[name]
+		statusImage := stringValue(container, "image")
+		image := firstNonEmpty(specImage, statusImage)
 		containers = append(containers, map[string]any{
-			"name":           stringValue(container, "name"),
+			"name":           name,
 			"ready":          boolValue(container, "ready"),
 			"restart_count":  restarts,
-			"image":          stringValue(container, "image"),
+			"image":          image,
+			"spec_image":     specImage,
+			"status_image":   statusImage,
 			"image_id":       stringValue(container, "imageID"),
 			"state":          firstKey(state),
 			"waiting_reason": reason,
@@ -287,6 +301,15 @@ func defaultInt(value, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func clamp(value, minValue, maxValue int) int {

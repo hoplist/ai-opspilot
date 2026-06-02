@@ -27,6 +27,16 @@ func TestSchemaCommand(t *testing.T) {
 	}
 }
 
+func TestVersionCommand(t *testing.T) {
+	var out bytes.Buffer
+	if err := run([]string{"--version"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) == "" {
+		t.Fatal("version output is empty")
+	}
+}
+
 func TestConsumeGlobalFlags(t *testing.T) {
 	opts := globalOptions{backendURL: "default", output: "json"}
 	args := consumeGlobalFlags([]string{"--backend-url", "http://x", "--output", "table", "schema"}, &opts)
@@ -365,7 +375,20 @@ func TestInspectServiceAggregatesPods(t *testing.T) {
 			}})
 		case "/api/context/pod":
 			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
-				"summary": map[string]any{"namespace": "cicd-devex-demo", "name": "demo-api-abc", "node": "worker-1", "status": "Ready", "ready": true, "restart_count": 0},
+				"summary": map[string]any{
+					"namespace":     "cicd-devex-demo",
+					"name":          "demo-api-abc",
+					"node":          "worker-1",
+					"status":        "Ready",
+					"ready":         true,
+					"restart_count": 0,
+					"containers": []any{map[string]any{
+						"name":         "app",
+						"spec_image":   "registry/demo-api:new",
+						"status_image": "registry/demo-api:old",
+						"image_id":     "registry/demo-api@sha256:abc",
+					}},
+				},
 			}})
 		case "/api/metrics/pod":
 			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
@@ -399,6 +422,40 @@ func TestInspectServiceAggregatesPods(t *testing.T) {
 	}
 	if len(payload.AvailableEvidence) == 0 || len(payload.MissingEvidence) == 0 {
 		t.Fatalf("capability evidence missing: %#v", payload)
+	}
+	if len(payload.Pods) != 1 || payload.Pods[0].SpecImage != "registry/demo-api:new" || payload.Pods[0].StatusImage != "registry/demo-api:old" {
+		t.Fatalf("image evidence missing: %#v", payload.Pods)
+	}
+	if payload.Pods[0].ImageID != "registry/demo-api@sha256:abc" {
+		t.Fatalf("image id = %s", payload.Pods[0].ImageID)
+	}
+}
+
+func TestInspectPodImageAndLogHumanHints(t *testing.T) {
+	pod := inspectPodResult{
+		Pod:         "demo-api-abc",
+		Container:   "app",
+		SpecImage:   "registry/demo-api:new",
+		StatusImage: "registry/demo-api:old",
+		ImageID:     "registry/demo-api@sha256:abc",
+	}
+	if got := imageTagHint(pod); got != "new" {
+		t.Fatalf("image tag hint = %s", got)
+	}
+	var out bytes.Buffer
+	writeImageEvidenceHuman(&out, pod)
+	text := out.String()
+	if !bytes.Contains([]byte(text), []byte("Spec image: registry/demo-api:new")) || !bytes.Contains([]byte(text), []byte("Image note:")) {
+		t.Fatalf("image evidence output = %s", text)
+	}
+	findings := logEvidenceFindings(inspectPodResult{}, true, false)
+	joined := strings.Join(findings, " ")
+	if !strings.Contains(joined, "short-window logs are empty") || !strings.Contains(joined, "Pod-level checks remain usable") {
+		t.Fatalf("log findings = %#v", findings)
+	}
+	serviceFindings := strings.Join(serviceLogEvidenceFindings([]string{"kubernetes_logs_unavailable", "elk_logs_unavailable"}), " ")
+	if !strings.Contains(serviceFindings, "release evidence remain usable") || !strings.Contains(serviceFindings, "historical logs are incomplete") {
+		t.Fatalf("service log findings = %s", serviceFindings)
 	}
 }
 

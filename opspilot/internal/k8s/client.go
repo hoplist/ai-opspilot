@@ -407,6 +407,11 @@ func (c *Client) ReadPodLog(ctx context.Context, req LogRequest) (PodLog, error)
 	if req.Namespace == "" || req.Pod == "" {
 		return PodLog{}, errors.New("namespace and pod are required")
 	}
+	if req.Container == "" {
+		if rawPod, err := c.GetPod(ctx, req.Namespace, req.Pod); err == nil {
+			req.Container = firstContainerName(PodSummary(rawPod))
+		}
+	}
 	var text string
 	var err error
 	if c.mode == "in-cluster" {

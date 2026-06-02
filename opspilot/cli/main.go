@@ -18,6 +18,7 @@ import (
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/contracts"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/quality"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/skillregistry"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/version"
 )
 
 const defaultBackend = "http://127.0.0.1:18080"
@@ -49,6 +50,9 @@ func run(args []string, out io.Writer) error {
 	var endpoint string
 	var values url.Values
 	switch args[0] {
+	case "--version", "-version", "version":
+		fmt.Fprintln(out, version.Version)
+		return nil
 	case "schema":
 		_, err := out.Write(contracts.CLISchema)
 		if err == nil {
@@ -1302,6 +1306,10 @@ type inspectPodResult struct {
 	Status               string                         `json:"status,omitempty"`
 	Ready                bool                           `json:"ready"`
 	RestartCount         int                            `json:"restart_count"`
+	Container            string                         `json:"container,omitempty"`
+	SpecImage            string                         `json:"spec_image,omitempty"`
+	StatusImage          string                         `json:"status_image,omitempty"`
+	ImageID              string                         `json:"image_id,omitempty"`
 	CPUCore              float64                        `json:"cpu_cores"`
 	MemoryMiB            float64                        `json:"memory_mib"`
 	KubernetesLogBytes   int                            `json:"kubernetes_log_bytes"`
@@ -1392,10 +1400,10 @@ func runInspectService(opts globalOptions, args []string, out io.Writer) error {
 		writeSkillRecommendationsHuman(w, result.SkillRecommendations)
 		if len(result.Pods) > 0 {
 			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "POD\tSTATUS\tREADY\tRESTARTS\tCPU\tMEMORY\tK8S LOG\tELK")
+			fmt.Fprintln(tw, "POD\tSTATUS\tREADY\tRESTARTS\tIMAGE\tCPU\tMEMORY\tK8S LOG\tELK")
 			for _, pod := range result.Pods {
-				fmt.Fprintf(tw, "%s\t%s\t%t\t%d\t%.3f\t%.1fMiB\t%dB\t%d\n",
-					pod.Pod, pod.Status, pod.Ready, pod.RestartCount, pod.CPUCore, pod.MemoryMiB, pod.KubernetesLogBytes, pod.ElasticsearchLogHits)
+				fmt.Fprintf(tw, "%s\t%s\t%t\t%d\t%s\t%.3f\t%.1fMiB\t%dB\t%d\n",
+					pod.Pod, pod.Status, pod.Ready, pod.RestartCount, imageTagHint(pod), pod.CPUCore, pod.MemoryMiB, pod.KubernetesLogBytes, pod.ElasticsearchLogHits)
 			}
 			if err := tw.Flush(); err != nil {
 				return err
@@ -1474,6 +1482,7 @@ func fetchInspectService(backendURL, service, envName, source string, tail, sinc
 	result.ReleaseGaps = uniqueStrings(result.ReleaseGaps)
 	result.EvidenceGaps = uniqueStrings(result.EvidenceGaps)
 	result.Next = uniqueStrings(result.Next)
+	result.Findings = append(result.Findings, serviceLogEvidenceFindings(result.EvidenceGaps)...)
 	switch {
 	case result.Status == "healthy" && result.RestartCount == 0:
 		result.Findings = append(result.Findings, "Service rollout is healthy and no Pod restarts were found.")
@@ -1514,6 +1523,7 @@ func runInspectPod(opts globalOptions, args []string, out io.Writer) error {
 	return writeOutput(out, opts.output, result, func(w io.Writer) error {
 		fmt.Fprintf(w, "Pod: %s/%s\n", result.Namespace, result.Pod)
 		fmt.Fprintf(w, "Status: %s ready=%t restarts=%d node=%s\n", result.Status, result.Ready, result.RestartCount, result.Node)
+		writeImageEvidenceHuman(w, result)
 		fmt.Fprintf(w, "Usage: CPU %.3f cores, memory %.1f MiB\n", result.CPUCore, result.MemoryMiB)
 		fmt.Fprintf(w, "Logs: Kubernetes %d bytes, ELK hits %d\n", result.KubernetesLogBytes, result.ElasticsearchLogHits)
 		if len(result.EvidenceGaps) > 0 {
@@ -1559,6 +1569,7 @@ func fetchInspectPod(backendURL, namespace, pod, source string, tail, since int)
 			result.Status = stringValue(summary["status"])
 			result.Ready = boolValue(summary["ready"])
 			result.RestartCount = intValue(summary["restart_count"])
+			applyPrimaryContainerEvidence(&result, summary)
 		}
 	}
 	metricsBody, err := get(backendURL, "/api/metrics/pod", url.Values{"namespace": {namespace}, "pod": {pod}, "source": {source}})
@@ -1574,6 +1585,8 @@ func fetchInspectPod(backendURL, namespace, pod, source string, tail, since int)
 			}
 		}
 	}
+	k8sLogAvailable := false
+	elkLogAvailable := false
 	logBody, err := get(backendURL, "/api/k8s/logs/pod", url.Values{
 		"namespace":     {namespace},
 		"pod":           {pod},
@@ -1581,15 +1594,20 @@ func fetchInspectPod(backendURL, namespace, pod, source string, tail, since int)
 		"since_seconds": {strconv.Itoa(since)},
 	})
 	if err == nil {
+		k8sLogAvailable = true
 		var logPayload map[string]any
 		_ = json.Unmarshal(logBody, &logPayload)
 		result.Raw["kubernetes_logs"] = logPayload
 		if data := mapValue(logPayload, "data"); data != nil {
 			result.KubernetesLogBytes = len(stringValue(data["text"]))
 		}
+	} else {
+		result.Raw["kubernetes_logs_error"] = err.Error()
+		result.EvidenceGaps = append(result.EvidenceGaps, "kubernetes_logs_unavailable")
 	}
 	elkBody, err := get(backendURL, "/api/logs/search", url.Values{"namespace": {namespace}, "pod": {pod}, "limit": {"1"}})
 	if err == nil {
+		elkLogAvailable = true
 		var elkPayload map[string]any
 		_ = json.Unmarshal(elkBody, &elkPayload)
 		result.Raw["elk_logs"] = elkPayload
@@ -1599,19 +1617,20 @@ func fetchInspectPod(backendURL, namespace, pod, source string, tail, since int)
 				result.ElasticsearchLogHits = intValue(data["item_count"])
 			}
 		}
+	} else {
+		result.Raw["elk_logs_error"] = err.Error()
+		result.EvidenceGaps = append(result.EvidenceGaps, "elk_logs_unavailable")
 	}
-	if result.KubernetesLogBytes == 0 {
+	if k8sLogAvailable && result.KubernetesLogBytes == 0 {
 		result.EvidenceGaps = append(result.EvidenceGaps, "kubernetes_logs_empty")
 	}
-	if result.ElasticsearchLogHits == 0 {
+	if elkLogAvailable && result.ElasticsearchLogHits == 0 {
 		result.EvidenceGaps = append(result.EvidenceGaps, "elk_logs_missing_or_empty")
 	}
 	if result.Ready {
 		result.Findings = append(result.Findings, "Pod is currently ready.")
 	}
-	if result.Ready && result.KubernetesLogBytes == 0 && result.ElasticsearchLogHits == 0 {
-		result.Findings = append(result.Findings, "Pod is ready, but no log evidence was found in Kubernetes logs or ELK.")
-	}
+	result.Findings = append(result.Findings, logEvidenceFindings(result, k8sLogAvailable, elkLogAvailable)...)
 	if result.RestartCount > 0 {
 		result.Findings = append(result.Findings, fmt.Sprintf("Pod has historical restarts: %d.", result.RestartCount))
 	}
@@ -2854,6 +2873,96 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func applyPrimaryContainerEvidence(result *inspectPodResult, summary map[string]any) {
+	containers, _ := summary["containers"].([]any)
+	if len(containers) == 0 {
+		return
+	}
+	first, _ := containers[0].(map[string]any)
+	if first == nil {
+		return
+	}
+	result.Container = stringValue(first["name"])
+	result.SpecImage = firstNonEmptyString(stringValue(first["spec_image"]), stringValue(first["image"]))
+	result.StatusImage = stringValue(first["status_image"])
+	result.ImageID = stringValue(first["image_id"])
+}
+
+func imageTagHint(pod inspectPodResult) string {
+	image := firstNonEmptyString(pod.SpecImage, pod.StatusImage)
+	if image == "" {
+		return "-"
+	}
+	if idx := strings.LastIndex(image, ":"); idx >= 0 && idx < len(image)-1 {
+		return image[idx+1:]
+	}
+	if idx := strings.LastIndex(image, "@"); idx >= 0 && idx < len(image)-1 {
+		return image[idx+1:]
+	}
+	return image
+}
+
+func writeImageEvidenceHuman(w io.Writer, pod inspectPodResult) {
+	if pod.SpecImage == "" && pod.StatusImage == "" && pod.ImageID == "" {
+		return
+	}
+	if pod.Container != "" {
+		fmt.Fprintf(w, "Container: %s\n", pod.Container)
+	}
+	if pod.SpecImage != "" {
+		fmt.Fprintf(w, "Spec image: %s\n", pod.SpecImage)
+	}
+	if pod.StatusImage != "" {
+		fmt.Fprintf(w, "Status image: %s\n", pod.StatusImage)
+	}
+	if pod.ImageID != "" {
+		fmt.Fprintf(w, "Image ID: %s\n", pod.ImageID)
+	}
+	if pod.SpecImage != "" && pod.StatusImage != "" && pod.SpecImage != pod.StatusImage {
+		fmt.Fprintln(w, "Image note: Kubernetes status may show an older tag when both tags point to the same image digest; use spec image and image ID for rollout evidence.")
+	}
+}
+
+func logEvidenceFindings(result inspectPodResult, k8sLogAvailable, elkLogAvailable bool) []string {
+	findings := []string{}
+	switch {
+	case k8sLogAvailable && result.KubernetesLogBytes > 0:
+		findings = append(findings, "Kubernetes short-window logs are available.")
+	case k8sLogAvailable:
+		findings = append(findings, "Kubernetes short-window logs are empty; continue with Pod status, events, metrics, and release evidence.")
+	default:
+		findings = append(findings, "Kubernetes short-window logs could not be read; continue with Pod status, events, metrics, and release evidence.")
+	}
+	switch {
+	case elkLogAvailable && result.ElasticsearchLogHits > 0:
+		findings = append(findings, "ELK/OpenSearch log evidence is available.")
+	case elkLogAvailable:
+		findings = append(findings, "ELK/OpenSearch returned no matching logs for this Pod; this does not block Pod-level checks.")
+	default:
+		findings = append(findings, "ELK/OpenSearch is unavailable or not connected for this service; historical or rotated logs are missing, but Pod-level checks remain usable.")
+	}
+	return findings
+}
+
+func serviceLogEvidenceFindings(gaps []string) []string {
+	findings := []string{}
+	gapSet := map[string]bool{}
+	for _, gap := range gaps {
+		gapSet[gap] = true
+	}
+	switch {
+	case gapSet["kubernetes_logs_unavailable"]:
+		findings = append(findings, "Kubernetes short-window logs could not be read for at least one Pod; Pod status, events, metrics, and release evidence remain usable.")
+	case gapSet["kubernetes_logs_empty"]:
+		findings = append(findings, "Kubernetes short-window logs are empty for at least one Pod; this does not block status, event, metric, or release checks.")
+	}
+	switch {
+	case gapSet["elk_logs_unavailable"] || gapSet["elk_logs_missing_or_empty"] || gapSet["elk_logs_empty"] || gapSet["elk_logs_missing"]:
+		findings = append(findings, "ELK/OpenSearch log evidence is missing or unavailable; historical logs are incomplete, but current Pod-level checks remain usable.")
+	}
+	return findings
 }
 
 func availableCapabilityCount(items []capabilityItem) int {

@@ -18,7 +18,13 @@ func TestBoundedLogRequest(t *testing.T) {
 func TestPodSummaryAbnormal(t *testing.T) {
 	pod := map[string]any{
 		"metadata": map[string]any{"namespace": "default", "name": "demo"},
-		"spec":     map[string]any{"nodeName": "node-1"},
+		"spec": map[string]any{
+			"nodeName": "node-1",
+			"containers": []any{map[string]any{
+				"name":  "app",
+				"image": "registry.local/app:new",
+			}},
+		},
 		"status": map[string]any{
 			"phase":      "Running",
 			"conditions": []any{map[string]any{"type": "Ready", "status": "False"}},
@@ -26,6 +32,8 @@ func TestPodSummaryAbnormal(t *testing.T) {
 				"name":         "app",
 				"ready":        false,
 				"restartCount": float64(2),
+				"image":        "registry.local/app:old",
+				"imageID":      "registry.local/app@sha256:abc",
 				"state":        map[string]any{"waiting": map[string]any{"reason": "CrashLoopBackOff"}},
 			}},
 		},
@@ -39,6 +47,17 @@ func TestPodSummaryAbnormal(t *testing.T) {
 	}
 	if !MatchesStatus(summary, "crashloop") {
 		t.Fatal("expected crashloop match")
+	}
+	containers := summary["containers"].([]any)
+	first := containers[0].(map[string]any)
+	if first["image"] != "registry.local/app:new" {
+		t.Fatalf("image should prefer spec image, got %v", first["image"])
+	}
+	if first["spec_image"] != "registry.local/app:new" || first["status_image"] != "registry.local/app:old" {
+		t.Fatalf("unexpected image evidence: %#v", first)
+	}
+	if first["image_id"] != "registry.local/app@sha256:abc" {
+		t.Fatalf("image_id = %v", first["image_id"])
 	}
 }
 
