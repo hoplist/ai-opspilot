@@ -74,6 +74,7 @@ Detection infers:
 - namespace from the platform catalog or the project namespace convention.
 - middleware intent from dependency and config signals such as MySQL, Redis,
   RabbitMQ, MinIO/S3, OpenSearch/Elasticsearch, and Kafka clients.
+- storage intent from logs, runtime/upload, and cache/temp path signals.
 
 ## Auto Generate
 
@@ -140,6 +141,9 @@ opspilot repo autofix --repo . --project tpo/devex/skillshub/skillshub-api --wri
 - inferred namespace ownership from the GitLab project path.
 - Deployment namespace, probes, and disallowed fields such as `hostPath`,
   `hostNetwork`, and `privileged`.
+- Deployment storage policy: non-platform hostPath is blocked, platform-managed
+  hostPath is allowed only under `/data/opspilot/hostpath/`, and `emptyDir`
+  must include `sizeLimit`.
 - health path defaults.
 - middleware intent, using shared test-environment instances by default.
 
@@ -191,6 +195,20 @@ middleware:
     env: DATABASE_URL
     reason: detected MySQL database dependency; use shared-database and allocate database-user
 
+storage:
+  logs:
+    purpose: logs
+    mode: hostPath
+    mountPath: /app/logs
+    hostPath: /data/opspilot/hostpath/cicd-devex-skillshub/skillshub-api/logs
+    sizeHint: 10Gi
+    retentionDays: 7
+  cache:
+    purpose: cache
+    mode: emptyDir
+    mountPath: /tmp/cache
+    sizeLimit: 1Gi
+
 release:
   prometheusSource: node200-k8s
 ```
@@ -241,6 +259,29 @@ Dedicated middleware instances should be explicit exceptions for load testing,
 version compatibility testing, strong isolation, or middleware-specific
 configuration differences.
 
+## Storage
+
+OpsPilot supports a first version of storage governance for clusters that still
+use hostPath heavily.
+
+Generated services may declare storage intent in `opspilot.service.yaml`.
+OpsPilot then writes matching Deployment annotations, `volumeMounts`, and
+volumes:
+
+```text
+logs/runtime/uploads -> hostPath under /data/opspilot/hostpath/<namespace>/<service>/<volume>
+cache/temp           -> emptyDir with sizeLimit
+```
+
+Non-platform hostPath remains a release blocker because it can bypass capacity
+planning and cleanup. Platform-managed hostPath is allowed, but it is soft
+governance only: Kubernetes does not enforce a per-directory hard limit for a
+plain hostPath mount. `sizeHint` and `retentionDays` are metadata for OpsPilot
+inspection, cleanup planning, and a future node-side quota/retention agent.
+
+For cache and temporary files, OpsPilot generates `emptyDir.sizeLimit` so a
+single Pod has a bounded local scratch area.
+
 ## Modes
 
 - `dockerfile.mode: existing`: keep an existing Dockerfile and do not overwrite it.
@@ -273,6 +314,8 @@ ARG NO_PROXY
 Dockerfile                    # only when requested and missing
 .gitlab-ci.yml
 deploy/k8s/namespace.yaml
+deploy/k8s/limitrange.yaml
+deploy/k8s/resourcequota.yaml
 deploy/k8s/deployment.yaml
 deploy/k8s/service.yaml
 deploy/k8s/kustomization.yaml

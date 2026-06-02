@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/skillregistry"
@@ -765,6 +766,73 @@ func TestOnboardCheckFailsWhenBuildKitMissing(t *testing.T) {
 	}
 }
 
+func TestOnboardCheckBlocksRawHostPath(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	config := `name: demo-api
+language: go
+dockerfile:
+  path: Dockerfile
+deploy:
+  namespace: cicd-devex-demo
+`
+	if err := os.WriteFile("opspilot.service.yaml", []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("Dockerfile", []byte("FROM scratch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(".gitlab-ci.yml", []byte("include:\n  - file: /ci/templates/buildkit-gitops.go.yml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join("deploy", "k8s"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := onboardServiceConfig{Name: "demo-api", Namespace: "cicd-devex-demo"}
+	if err := cfg.defaults(); err != nil {
+		t.Fatal(err)
+	}
+	generated := map[string]string{
+		"namespace.yaml":     namespaceTemplate(cfg),
+		"limitrange.yaml":    limitRangeTemplate(cfg),
+		"resourcequota.yaml": resourceQuotaTemplate(cfg),
+		"deployment.yaml": deploymentTemplate(cfg) + `      volumes:
+        - name: raw-logs
+          hostPath:
+            path: /data/logs/demo-api
+            type: DirectoryOrCreate
+`,
+		"service.yaml":       serviceTemplate(cfg),
+		"kustomization.yaml": kustomizationTemplate(),
+	}
+	for name, body := range generated {
+		if err := os.WriteFile(filepath.Join("deploy", "k8s", name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	err = run([]string{"onboard", "check"}, &out)
+	if err == nil {
+		t.Fatal("expected onboard check to fail")
+	}
+	var payload onboardCheckResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(payload.Missing, "deployment_storage") || !bytes.Contains(out.Bytes(), []byte("outside /data/opspilot/hostpath")) {
+		t.Fatalf("expected deployment_storage failure: %s", out.String())
+	}
+}
+
 func TestOnboardDetectUsesNamespaceCatalog(t *testing.T) {
 	dir := t.TempDir()
 	wd, err := os.Getwd()
@@ -855,6 +923,51 @@ require (
 	}
 	if payload.Config.Middleware[0].Secret != "orders-api-mysql-conn" {
 		t.Fatalf("secret = %s", payload.Config.Middleware[0].Secret)
+	}
+}
+
+func TestOnboardDetectsStorageIntent(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("go.mod", []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := "LOG_DIR=/var/log/demo-api\nCACHE_DIR=/tmp/cache\nUPLOAD_DIR=/app/uploads\n"
+	if err := os.WriteFile(".env.example", []byte(env), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"onboard", "detect", "--project", "tpo/devex/demo/demo-api"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload onboardDetectResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Config.Storage) != 3 {
+		t.Fatalf("storage = %#v", payload.Config.Storage)
+	}
+	byName := map[string]onboardStorageConfig{}
+	for _, item := range payload.Config.Storage {
+		byName[item.Name] = item
+	}
+	if byName["logs"].Mode != "hostPath" || byName["logs"].MountPath != "/var/log/demo-api" || !strings.HasPrefix(byName["logs"].HostPath, defaultHostPathRoot+"/") {
+		t.Fatalf("logs storage = %#v", byName["logs"])
+	}
+	if byName["runtime"].Mode != "hostPath" || byName["runtime"].MountPath != "/app/uploads" {
+		t.Fatalf("runtime storage = %#v", byName["runtime"])
+	}
+	if byName["cache"].Mode != "emptyDir" || byName["cache"].SizeLimit != "1Gi" {
+		t.Fatalf("cache storage = %#v", byName["cache"])
 	}
 }
 
@@ -959,6 +1072,66 @@ func TestOnboardGenerateWritesMiddlewareIntent(t *testing.T) {
 	} {
 		if !bytes.Contains(body, expected) {
 			t.Fatalf("generated config missing %s:\n%s", expected, string(body))
+		}
+	}
+}
+
+func TestOnboardGenerateWritesStorageVolumes(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("go.mod", []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := "LOG_DIR=/var/log/demo-api\nCACHE_DIR=/tmp/cache\nUPLOAD_DIR=/app/uploads\n"
+	if err := os.WriteFile(".env.example", []byte(env), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"onboard", "generate", "--project", "tpo/devex/demo/demo-api", "--write"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	config, err := os.ReadFile("opspilot.service.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range [][]byte{
+		[]byte("storage:"),
+		[]byte("logs:"),
+		[]byte("mode: hostPath"),
+		[]byte(defaultHostPathRoot + "/cicd-devex-demo/demo-api/logs"),
+		[]byte("cache:"),
+		[]byte("mode: emptyDir"),
+		[]byte("sizeLimit: 1Gi"),
+	} {
+		if !bytes.Contains(config, expected) {
+			t.Fatalf("generated config missing %s:\n%s", expected, string(config))
+		}
+	}
+	deployment, err := os.ReadFile(filepath.Join("deploy", "k8s", "deployment.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range [][]byte{
+		[]byte(`opspilot.io/storage-managed: "true"`),
+		[]byte("volumeMounts:"),
+		[]byte("hostPath:"),
+		[]byte(defaultHostPathRoot + "/cicd-devex-demo/demo-api/logs"),
+		[]byte("emptyDir:"),
+		[]byte("sizeLimit: 1Gi"),
+		[]byte("mountPath: /var/log/demo-api"),
+		[]byte("mountPath: /app/uploads"),
+	} {
+		if !bytes.Contains(deployment, expected) {
+			t.Fatalf("generated deployment missing %s:\n%s", expected, string(deployment))
 		}
 	}
 }
@@ -1214,6 +1387,109 @@ func TestRepoAutofixWritesPlatformFiles(t *testing.T) {
 	out.Reset()
 	if err := run([]string{"repo", "preflight", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out); err != nil {
 		t.Fatalf("preflight after autofix failed: %v\n%s", err, out.String())
+	}
+}
+
+func TestRepoPreflightAllowsPlatformStorage(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := "LOG_DIR=/var/log/demo-api\nCACHE_DIR=/tmp/cache\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env.example"), []byte(env), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"repo", "autofix", "--repo", dir, "--project", "tpo/devex/demo/demo-api", "--write"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := run([]string{"repo", "preflight", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out); err != nil {
+		t.Fatalf("preflight with platform storage failed: %v\n%s", err, out.String())
+	}
+	var payload repoPreflightResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	foundStorage := false
+	for _, item := range payload.Items {
+		if item.Name == "storage_logs" && item.Status == "pass" && strings.Contains(item.Message, defaultHostPathRoot) {
+			foundStorage = true
+		}
+	}
+	if !foundStorage {
+		t.Fatalf("storage item missing: %#v", payload.Items)
+	}
+}
+
+func TestRepoPreflightBlocksRawHostPath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"repo", "autofix", "--repo", dir, "--project", "tpo/devex/demo/demo-api", "--write"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	rawDeployment := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-api
+  namespace: cicd-devex-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: demo-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demo-api
+    spec:
+      containers:
+        - name: demo-api
+          image: placeholder
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          volumeMounts:
+            - name: raw-logs
+              mountPath: /app/logs
+      volumes:
+        - name: raw-logs
+          hostPath:
+            path: /data/logs/demo-api
+            type: DirectoryOrCreate
+`
+	if err := os.WriteFile(filepath.Join(dir, "deploy", "k8s", "deployment.yaml"), []byte(rawDeployment), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	err := run([]string{"repo", "preflight", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out)
+	if err == nil {
+		t.Fatal("expected raw hostPath to fail preflight")
+	}
+	var payload repoPreflightResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(payload.Gaps, "deployment") || !bytes.Contains(out.Bytes(), []byte("outside /data/opspilot/hostpath")) {
+		t.Fatalf("expected hostPath policy failure: %s", out.String())
 	}
 }
 

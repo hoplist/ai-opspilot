@@ -37,6 +37,7 @@ type onboardServiceConfig struct {
 	Resources      onboardResourcesConfig      `json:"resources"`
 	NamespaceGuard onboardNamespaceGuardConfig `json:"namespace_guard"`
 	Middleware     []onboardMiddlewareConfig   `json:"middleware,omitempty"`
+	Storage        []onboardStorageConfig      `json:"storage,omitempty"`
 }
 
 type onboardResourcesConfig struct {
@@ -68,6 +69,20 @@ type onboardMiddlewareConfig struct {
 	Env        []string `json:"env"`
 	Reason     string   `json:"reason,omitempty"`
 	Evidence   []string `json:"evidence,omitempty"`
+}
+
+type onboardStorageConfig struct {
+	Name          string   `json:"name"`
+	Purpose       string   `json:"purpose"`
+	Mode          string   `json:"mode"`
+	MountPath     string   `json:"mount_path"`
+	HostPath      string   `json:"host_path,omitempty"`
+	SizeHint      string   `json:"size_hint,omitempty"`
+	SizeLimit     string   `json:"size_limit,omitempty"`
+	RetentionDays int      `json:"retention_days,omitempty"`
+	ReadOnly      bool     `json:"read_only,omitempty"`
+	Reason        string   `json:"reason,omitempty"`
+	Evidence      []string `json:"evidence,omitempty"`
 }
 
 type middlewareCatalogEntry struct {
@@ -269,6 +284,7 @@ const (
 	defaultNamespacePrefix   = "cicd"
 	defaultResourceProfile   = "small"
 	defaultCITemplateProject = "platform/opspilot"
+	defaultHostPathRoot      = "/data/opspilot/hostpath"
 )
 
 var resourceProfiles = map[string]onboardResourcesConfig{
@@ -563,6 +579,7 @@ func checkOnboardRepository(cfg onboardServiceConfig) onboardCheckResult {
 	}
 	items = append(items, checkOnboardDeploymentGuardrails(cfg)...)
 	items = append(items, checkOnboardMiddleware(cfg)...)
+	items = append(items, checkOnboardStorage(cfg)...)
 	result := onboardCheckResult{Service: cfg.Name, Ready: true, Items: items}
 	for _, item := range items {
 		if item.OK {
@@ -598,6 +615,34 @@ func checkOnboardMiddleware(cfg onboardServiceConfig) []onboardCheckItem {
 	return items
 }
 
+func checkOnboardStorage(cfg onboardServiceConfig) []onboardCheckItem {
+	if len(cfg.Storage) == 0 {
+		return []onboardCheckItem{{
+			Name:     "storage",
+			OK:       true,
+			Required: false,
+			Message:  "none configured",
+		}}
+	}
+	items := make([]onboardCheckItem, 0, len(cfg.Storage))
+	for _, item := range cfg.Storage {
+		message := fmt.Sprintf("%s uses %s mounted at %s", item.Purpose, item.Mode, item.MountPath)
+		if item.Mode == "hostPath" {
+			message += " hostPath=" + item.HostPath
+		}
+		if item.SizeLimit != "" {
+			message += " sizeLimit=" + item.SizeLimit
+		}
+		items = append(items, onboardCheckItem{
+			Name:     "storage_" + item.Name,
+			OK:       true,
+			Required: false,
+			Message:  message,
+		})
+	}
+	return items
+}
+
 func checkOnboardDeploymentGuardrails(cfg onboardServiceConfig) []onboardCheckItem {
 	path := filepath.Join("deploy", "k8s", "deployment.yaml")
 	body, err := os.ReadFile(path)
@@ -609,8 +654,25 @@ func checkOnboardDeploymentGuardrails(cfg onboardServiceConfig) []onboardCheckIt
 		{Name: "deployment_resources", Path: path, OK: hasDeploymentResources(text), Required: true, Message: "CPU/memory requests and limits"},
 		{Name: "deployment_probes", Path: path, OK: strings.Contains(text, "readinessProbe:") && strings.Contains(text, "livenessProbe:"), Required: true, Message: "readiness/liveness probes"},
 	}
+	if storageIssues, storageBlocker := deploymentStoragePolicyIssues(text, cfg); len(storageIssues) > 0 {
+		items = append(items, onboardCheckItem{
+			Name:     "deployment_storage",
+			Path:     path,
+			OK:       false,
+			Required: storageBlocker,
+			Message:  strings.Join(storageIssues, "; "),
+		})
+	} else {
+		items = append(items, onboardCheckItem{
+			Name:     "deployment_storage",
+			Path:     path,
+			OK:       true,
+			Required: false,
+			Message:  "storage policy",
+		})
+	}
 	for i := range items {
-		if !items[i].OK {
+		if !items[i].OK && items[i].Name != "deployment_storage" {
 			items[i].Message = "missing " + items[i].Message
 		}
 	}
@@ -648,7 +710,7 @@ func nextOnboardAction(item onboardCheckItem) string {
 		return "create Dockerfile or set dockerfile.mode: generate then run opspilot onboard service --write"
 	case "buildkit_ci":
 		return "generate .gitlab-ci.yml with opspilot onboard service --write or include /ci/templates/buildkit-gitops.<language>.yml"
-	case "namespace", "limitrange", "resourcequota", "deployment", "service", "kustomization", "deployment_resources", "deployment_probes":
+	case "namespace", "limitrange", "resourcequota", "deployment", "service", "kustomization", "deployment_resources", "deployment_probes", "deployment_storage":
 		return "generate deploy/k8s manifests with opspilot onboard service --write"
 	case "release_mapping":
 		return "copy opspilot.release-service.txt into OpsPilot release service config"
@@ -738,6 +800,7 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 		cfg.DockerMode = "generate"
 	}
 	cfg.Middleware = detectMiddlewareRequirements(cfg)
+	cfg.Storage = detectStorageRequirements(cfg)
 	files := map[string]bool{
 		"dockerfile":     fileExists(cfg.DockerPath),
 		"gitlab_ci":      fileExists(".gitlab-ci.yml"),
@@ -1153,9 +1216,10 @@ ci:
   mode: %s
 
 %s
+%s
 release:
   prometheusSource: %s
-`, c.Name, c.GitLabProject, c.Organization, c.Group, c.Project, c.Language, c.BuildEntry, c.BuildOutput, c.Port, c.HealthPath, c.Namespace, firstNonEmpty(c.NamespaceSrc, "manual"), c.Replicas, c.Container, c.Resources.Profile, c.Resources.RequestCPU, c.Resources.RequestMemory, c.Resources.LimitCPU, c.Resources.LimitMemory, c.NamespaceGuard.LimitRange, c.NamespaceGuard.ResourceQuota, c.NamespaceGuard.RequestsCPU, c.NamespaceGuard.RequestsMemory, c.NamespaceGuard.LimitsCPU, c.NamespaceGuard.LimitsMemory, c.NamespaceGuard.Pods, c.DockerMode, c.DockerPath, c.CIMode, middlewareConfigTemplate(c.Middleware), c.PromSource)
+`, c.Name, c.GitLabProject, c.Organization, c.Group, c.Project, c.Language, c.BuildEntry, c.BuildOutput, c.Port, c.HealthPath, c.Namespace, firstNonEmpty(c.NamespaceSrc, "manual"), c.Replicas, c.Container, c.Resources.Profile, c.Resources.RequestCPU, c.Resources.RequestMemory, c.Resources.LimitCPU, c.Resources.LimitMemory, c.NamespaceGuard.LimitRange, c.NamespaceGuard.ResourceQuota, c.NamespaceGuard.RequestsCPU, c.NamespaceGuard.RequestsMemory, c.NamespaceGuard.LimitsCPU, c.NamespaceGuard.LimitsMemory, c.NamespaceGuard.Pods, c.DockerMode, c.DockerPath, c.CIMode, middlewareConfigTemplate(c.Middleware), storageConfigTemplate(c.Storage), c.PromSource)
 	return base
 }
 
@@ -1174,6 +1238,39 @@ func middlewareConfigTemplate(items []onboardMiddlewareConfig) string {
 		b.WriteString(fmt.Sprintf("    resource: %s\n", item.Resource))
 		b.WriteString(fmt.Sprintf("    secret: %s\n", item.Secret))
 		b.WriteString(fmt.Sprintf("    env: %s\n", strings.Join(item.Env, ",")))
+		if item.Reason != "" {
+			b.WriteString(fmt.Sprintf("    reason: %s\n", item.Reason))
+		}
+	}
+	return b.String()
+}
+
+func storageConfigTemplate(items []onboardStorageConfig) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("storage:\n")
+	for _, item := range items {
+		b.WriteString(fmt.Sprintf("  %s:\n", item.Name))
+		b.WriteString(fmt.Sprintf("    purpose: %s\n", item.Purpose))
+		b.WriteString(fmt.Sprintf("    mode: %s\n", item.Mode))
+		b.WriteString(fmt.Sprintf("    mountPath: %s\n", item.MountPath))
+		if item.HostPath != "" {
+			b.WriteString(fmt.Sprintf("    hostPath: %s\n", item.HostPath))
+		}
+		if item.SizeHint != "" {
+			b.WriteString(fmt.Sprintf("    sizeHint: %s\n", item.SizeHint))
+		}
+		if item.SizeLimit != "" {
+			b.WriteString(fmt.Sprintf("    sizeLimit: %s\n", item.SizeLimit))
+		}
+		if item.RetentionDays > 0 {
+			b.WriteString(fmt.Sprintf("    retentionDays: %d\n", item.RetentionDays))
+		}
+		if item.ReadOnly {
+			b.WriteString("    readOnly: true\n")
+		}
 		if item.Reason != "" {
 			b.WriteString(fmt.Sprintf("    reason: %s\n", item.Reason))
 		}
@@ -1224,6 +1321,7 @@ func readOnboardServiceConfig(path string) (onboardServiceConfig, error) {
 		},
 	}
 	cfg.Middleware = middlewareFromValues(values)
+	cfg.Storage = storageFromValues(values)
 	return cfg, nil
 }
 
@@ -1288,6 +1386,7 @@ func (c *onboardServiceConfig) defaults() error {
 	c.Resources = defaultResources(c.Resources)
 	c.NamespaceGuard = defaultNamespaceGuardConfig(c.NamespaceGuard)
 	c.Middleware = normalizeMiddlewareRequirements(*c, c.Middleware)
+	c.Storage = normalizeStorageRequirements(*c, c.Storage)
 	return nil
 }
 
@@ -1358,6 +1457,42 @@ func middlewareFromValues(values map[string]string) []onboardMiddlewareConfig {
 			Secret:     values[prefix+"secret"],
 			Env:        splitCSV(values[prefix+"env"]),
 			Reason:     values[prefix+"reason"],
+		})
+	}
+	return items
+}
+
+func storageFromValues(values map[string]string) []onboardStorageConfig {
+	names := map[string]bool{}
+	for key := range values {
+		if !strings.HasPrefix(key, "storage.") {
+			continue
+		}
+		rest := strings.TrimPrefix(key, "storage.")
+		name, _, ok := strings.Cut(rest, ".")
+		if ok && name != "" {
+			names[name] = true
+		}
+	}
+	ordered := make([]string, 0, len(names))
+	for name := range names {
+		ordered = append(ordered, name)
+	}
+	sort.Strings(ordered)
+	items := []onboardStorageConfig{}
+	for _, name := range ordered {
+		prefix := "storage." + name + "."
+		items = append(items, onboardStorageConfig{
+			Name:          name,
+			Purpose:       values[prefix+"purpose"],
+			Mode:          values[prefix+"mode"],
+			MountPath:     values[prefix+"mountPath"],
+			HostPath:      values[prefix+"hostPath"],
+			SizeHint:      values[prefix+"sizeHint"],
+			SizeLimit:     values[prefix+"sizeLimit"],
+			RetentionDays: intFromString(values[prefix+"retentionDays"], 0),
+			ReadOnly:      boolFromString(values[prefix+"readOnly"], false),
+			Reason:        values[prefix+"reason"],
 		})
 	}
 	return items
@@ -1446,6 +1581,33 @@ func detectMiddlewareRequirements(c onboardServiceConfig) []onboardMiddlewareCon
 		items = append(items, item)
 	}
 	return items
+}
+
+func detectStorageRequirements(c onboardServiceConfig) []onboardStorageConfig {
+	signals := collectRepoSignals()
+	items := []onboardStorageConfig{}
+	if evidence := storageEvidence(signals, []string{"LOG_DIR", "LOG_PATH", "log.dir", "logging.file", "/logs", "logs/"}); len(evidence) > 0 {
+		item := defaultStorageRequirement(c, "logs")
+		item.MountPath = firstDetectedPath(evidence, []string{"LOG_DIR", "LOG_PATH"}, item.MountPath)
+		item.Evidence = evidence
+		item.Reason = "detected log path; use platform-managed hostPath with retention metadata"
+		items = append(items, item)
+	}
+	if evidence := storageEvidence(signals, []string{"upload", "uploads", "runtime", "files", "conversations"}); len(evidence) > 0 {
+		item := defaultStorageRequirement(c, "runtime")
+		item.MountPath = firstDetectedPath(evidence, []string{"UPLOAD_DIR", "UPLOAD_PATH", "RUNTIME_DIR", "FILES_DIR"}, item.MountPath)
+		item.Evidence = evidence
+		item.Reason = "detected runtime/upload file path; use platform-managed hostPath"
+		items = append(items, item)
+	}
+	if evidence := storageEvidence(signals, []string{"CACHE_DIR", "cache.dir", "/cache", "tmp/cache", "temp"}); len(evidence) > 0 {
+		item := defaultStorageRequirement(c, "cache")
+		item.MountPath = firstDetectedPath(evidence, []string{"CACHE_DIR", "TMP_DIR", "TEMP_DIR"}, item.MountPath)
+		item.Evidence = evidence
+		item.Reason = "detected cache/temp path; use bounded emptyDir"
+		items = append(items, item)
+	}
+	return normalizeStorageRequirements(c, items)
 }
 
 type repoSignal struct {
@@ -1543,6 +1705,32 @@ func middlewareEvidence(signals []repoSignal, tokens []string) []string {
 	return evidence
 }
 
+func storageEvidence(signals []repoSignal, tokens []string) []string {
+	evidence := []string{}
+	for _, signal := range signals {
+		for _, line := range strings.Split(signal.Text, "\n") {
+			lower := strings.ToLower(line)
+			for _, token := range tokens {
+				if token == "" || !strings.Contains(lower, strings.ToLower(token)) {
+					continue
+				}
+				snippet := strings.Join(strings.Fields(line), " ")
+				if len(snippet) > 120 {
+					snippet = snippet[:120]
+				}
+				if snippet == "" {
+					snippet = token
+				}
+				evidence = append(evidence, fmt.Sprintf("%s contains %s: %s", signal.Path, token, snippet))
+				if len(evidence) >= 3 {
+					return evidence
+				}
+			}
+		}
+	}
+	return evidence
+}
+
 func normalizeMiddlewareRequirements(c onboardServiceConfig, items []onboardMiddlewareConfig) []onboardMiddlewareConfig {
 	normalized := []onboardMiddlewareConfig{}
 	seen := map[string]bool{}
@@ -1582,6 +1770,213 @@ func normalizeMiddlewareRequirements(c onboardServiceConfig, items []onboardMidd
 		return middlewareCatalogRank(normalized[i].Kind) < middlewareCatalogRank(normalized[j].Kind)
 	})
 	return normalized
+}
+
+func normalizeStorageRequirements(c onboardServiceConfig, items []onboardStorageConfig) []onboardStorageConfig {
+	normalized := []onboardStorageConfig{}
+	seen := map[string]bool{}
+	for _, item := range items {
+		name := sanitizeDNSLabel(firstNonEmpty(item.Name, item.Purpose))
+		if name == "" {
+			continue
+		}
+		purpose := sanitizeDNSLabel(firstNonEmpty(item.Purpose, name))
+		mode := canonicalStorageMode(firstNonEmpty(item.Mode, defaultStorageMode(purpose)))
+		normalizedItem := onboardStorageConfig{
+			Name:          name,
+			Purpose:       purpose,
+			Mode:          mode,
+			MountPath:     firstNonEmpty(item.MountPath, defaultStorageMountPath(purpose)),
+			HostPath:      item.HostPath,
+			SizeHint:      item.SizeHint,
+			SizeLimit:     item.SizeLimit,
+			RetentionDays: item.RetentionDays,
+			ReadOnly:      item.ReadOnly,
+			Reason:        item.Reason,
+			Evidence:      item.Evidence,
+		}
+		switch mode {
+		case "emptyDir":
+			normalizedItem.HostPath = ""
+			normalizedItem.SizeHint = ""
+			if normalizedItem.SizeLimit == "" {
+				normalizedItem.SizeLimit = defaultStorageSizeLimit(purpose)
+			}
+		default:
+			normalizedItem.Mode = "hostPath"
+			if !isPlatformHostPath(normalizedItem.HostPath) {
+				normalizedItem.HostPath = platformHostPath(c, name)
+			}
+			if normalizedItem.SizeHint == "" {
+				normalizedItem.SizeHint = defaultStorageSizeHint(purpose)
+			}
+			if purpose == "logs" && normalizedItem.RetentionDays == 0 {
+				normalizedItem.RetentionDays = 7
+			}
+		}
+		if normalizedItem.MountPath == "" || seen[normalizedItem.Name] {
+			continue
+		}
+		seen[normalizedItem.Name] = true
+		normalized = append(normalized, normalizedItem)
+	}
+	sort.SliceStable(normalized, func(i, j int) bool {
+		return storageRank(normalized[i].Purpose, normalized[i].Name) < storageRank(normalized[j].Purpose, normalized[j].Name)
+	})
+	return normalized
+}
+
+func defaultStorageRequirement(c onboardServiceConfig, purpose string) onboardStorageConfig {
+	purpose = sanitizeDNSLabel(purpose)
+	if purpose == "" {
+		purpose = "data"
+	}
+	mode := defaultStorageMode(purpose)
+	item := onboardStorageConfig{
+		Name:      purpose,
+		Purpose:   purpose,
+		Mode:      mode,
+		MountPath: defaultStorageMountPath(purpose),
+	}
+	if mode == "emptyDir" {
+		item.SizeLimit = defaultStorageSizeLimit(purpose)
+	} else {
+		item.HostPath = platformHostPath(c, purpose)
+		item.SizeHint = defaultStorageSizeHint(purpose)
+		if purpose == "logs" {
+			item.RetentionDays = 7
+		}
+	}
+	return item
+}
+
+func defaultStorageMode(purpose string) string {
+	switch sanitizeDNSLabel(purpose) {
+	case "cache", "tmp", "temp":
+		return "emptyDir"
+	default:
+		return "hostPath"
+	}
+}
+
+func canonicalStorageMode(mode string) string {
+	switch strings.ToLower(strings.ReplaceAll(mode, "-", "")) {
+	case "emptydir":
+		return "emptyDir"
+	default:
+		return "hostPath"
+	}
+}
+
+func defaultStorageMountPath(purpose string) string {
+	switch sanitizeDNSLabel(purpose) {
+	case "logs":
+		return "/app/logs"
+	case "runtime", "uploads", "upload", "files", "data":
+		return "/app/runtime"
+	case "cache", "tmp", "temp":
+		return "/tmp/cache"
+	default:
+		return "/app/" + sanitizeDNSLabel(purpose)
+	}
+}
+
+func defaultStorageSizeHint(purpose string) string {
+	switch sanitizeDNSLabel(purpose) {
+	case "runtime", "uploads", "upload", "files", "data":
+		return "20Gi"
+	default:
+		return "10Gi"
+	}
+}
+
+func defaultStorageSizeLimit(purpose string) string {
+	switch sanitizeDNSLabel(purpose) {
+	case "cache", "tmp", "temp":
+		return "1Gi"
+	default:
+		return "1Gi"
+	}
+}
+
+func storageRank(purpose, name string) int {
+	switch sanitizeDNSLabel(firstNonEmpty(purpose, name)) {
+	case "logs":
+		return 0
+	case "runtime", "uploads", "upload", "files", "data":
+		return 1
+	case "cache", "tmp", "temp":
+		return 2
+	default:
+		return 10
+	}
+}
+
+func platformHostPath(c onboardServiceConfig, name string) string {
+	namespace := sanitizeDNSLabel(firstNonEmpty(c.Namespace, defaultNamespace(c.Group, c.Project)))
+	service := sanitizeDNSLabel(firstNonEmpty(c.Name, c.Container, "service"))
+	volume := sanitizeDNSLabel(firstNonEmpty(name, "data"))
+	return strings.TrimRight(defaultHostPathRoot, "/") + "/" + namespace + "/" + service + "/" + volume
+}
+
+func platformHostPathRoot(c onboardServiceConfig) string {
+	namespace := sanitizeDNSLabel(firstNonEmpty(c.Namespace, defaultNamespace(c.Group, c.Project)))
+	service := sanitizeDNSLabel(firstNonEmpty(c.Name, c.Container, "service"))
+	return strings.TrimRight(defaultHostPathRoot, "/") + "/" + namespace + "/" + service
+}
+
+func isPlatformHostPath(value string) bool {
+	value = strings.TrimSpace(value)
+	root := strings.TrimRight(defaultHostPathRoot, "/") + "/"
+	return strings.HasPrefix(value, root)
+}
+
+func firstDetectedPath(evidence []string, keys []string, fallback string) string {
+	for _, item := range evidence {
+		for _, key := range keys {
+			if path := extractPathAfterKey(item, key); path != "" {
+				return path
+			}
+		}
+	}
+	return fallback
+}
+
+func extractPathAfterKey(text, key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	lower := strings.ToLower(text)
+	markers := []string{
+		strings.ToLower(key) + "=",
+		strings.ToLower(key) + ":",
+		strings.ToLower(key) + " =",
+		strings.ToLower(key) + " :",
+	}
+	for _, marker := range markers {
+		idx := strings.Index(lower, marker)
+		if idx < 0 {
+			continue
+		}
+		raw := text[idx+len(marker):]
+		raw = strings.TrimLeft(raw, " \t\"'")
+		if strings.HasPrefix(raw, "=") || strings.HasPrefix(raw, ":") {
+			raw = strings.TrimLeft(raw[1:], " \t\"'")
+		}
+		end := len(raw)
+		for i, r := range raw {
+			if r == ' ' || r == '\t' || r == ',' || r == ';' || r == '"' || r == '\'' || r == '#' || r == '\r' {
+				end = i
+				break
+			}
+		}
+		candidate := strings.TrimRight(strings.TrimSpace(raw[:end]), "/")
+		if strings.HasPrefix(candidate, "/") {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func defaultMiddlewareRequirement(c onboardServiceConfig, entry middlewareCatalogEntry) onboardMiddlewareConfig {
@@ -1808,6 +2203,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: %s
+%s
     spec:
       containers:
         - name: %s
@@ -1835,7 +2231,71 @@ spec:
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20
-`, c.Name, c.Namespace, c.Name, c.Replicas, c.Name, c.Name, c.Container, c.Port, c.Resources.RequestCPU, c.Resources.RequestMemory, c.Resources.LimitCPU, c.Resources.LimitMemory, c.HealthPath, c.HealthPath)
+%s%s`, c.Name, c.Namespace, c.Name, c.Replicas, c.Name, c.Name, storagePodAnnotationsTemplate(c), c.Container, c.Port, c.Resources.RequestCPU, c.Resources.RequestMemory, c.Resources.LimitCPU, c.Resources.LimitMemory, c.HealthPath, c.HealthPath, storageVolumeMountsTemplate(c.Storage), storageVolumesTemplate(c.Storage))
+}
+
+func storagePodAnnotationsTemplate(c onboardServiceConfig) string {
+	if len(c.Storage) == 0 {
+		return ""
+	}
+	softLimit := storageSoftLimitSummary(c.Storage)
+	if softLimit == "" {
+		softLimit = "none"
+	}
+	return fmt.Sprintf(`      annotations:
+        opspilot.io/storage-managed: "true"
+        opspilot.io/storage-hostpath-root: "%s"
+        opspilot.io/storage-soft-limit: "%s"
+`, platformHostPathRoot(c), softLimit)
+}
+
+func storageSoftLimitSummary(items []onboardStorageConfig) string {
+	parts := []string{}
+	for _, item := range items {
+		limit := firstNonEmpty(item.SizeHint, item.SizeLimit)
+		if limit == "" {
+			continue
+		}
+		parts = append(parts, item.Name+"="+limit)
+	}
+	return strings.Join(parts, ",")
+}
+
+func storageVolumeMountsTemplate(items []onboardStorageConfig) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("          volumeMounts:\n")
+	for _, item := range items {
+		b.WriteString(fmt.Sprintf("            - name: %s\n", item.Name))
+		b.WriteString(fmt.Sprintf("              mountPath: %s\n", item.MountPath))
+		if item.ReadOnly {
+			b.WriteString("              readOnly: true\n")
+		}
+	}
+	return b.String()
+}
+
+func storageVolumesTemplate(items []onboardStorageConfig) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("      volumes:\n")
+	for _, item := range items {
+		b.WriteString(fmt.Sprintf("        - name: %s\n", item.Name))
+		switch item.Mode {
+		case "emptyDir":
+			b.WriteString("          emptyDir:\n")
+			b.WriteString(fmt.Sprintf("            sizeLimit: %s\n", firstNonEmpty(item.SizeLimit, defaultStorageSizeLimit(item.Purpose))))
+		default:
+			b.WriteString("          hostPath:\n")
+			b.WriteString(fmt.Sprintf("            path: %s\n", item.HostPath))
+			b.WriteString("            type: DirectoryOrCreate\n")
+		}
+	}
+	return b.String()
 }
 
 func serviceTemplate(c onboardServiceConfig) string {

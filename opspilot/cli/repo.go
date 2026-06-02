@@ -152,6 +152,7 @@ func repoPreflight(project, catalogPath string) (repoPreflightResult, error) {
 		checkRepoHealth(cfg),
 	}
 	items = append(items, checkRepoMiddleware(cfg)...)
+	items = append(items, checkRepoStorage(cfg)...)
 	result := repoPreflightResult{
 		Service:   cfg.Name,
 		Project:   cfg.GitLabProject,
@@ -309,9 +310,11 @@ func checkRepoDeployment(cfg onboardServiceConfig) repoPolicyItem {
 		issues = append(issues, "unsafe pod security field")
 		blocker = true
 	}
-	if strings.Contains(text, "hostPath:") {
-		issues = append(issues, "hostPath volume is not allowed by automatic policy")
-		blocker = true
+	if storageIssues, storageBlocker := deploymentStoragePolicyIssues(text, cfg); len(storageIssues) > 0 {
+		issues = append(issues, storageIssues...)
+		if storageBlocker {
+			blocker = true
+		}
 	}
 	if !strings.Contains(text, "readinessProbe:") {
 		issues = append(issues, "readinessProbe missing")
@@ -341,6 +344,114 @@ func checkRepoDeployment(cfg onboardServiceConfig) repoPolicyItem {
 	return repoPolicyItem{Name: "deployment", Path: path, Status: status, Level: level, Message: strings.Join(issues, "; "), Fixable: true, Action: "run repo autofix --write --force to regenerate Deployment manifest"}
 }
 
+func deploymentStoragePolicyIssues(text string, cfg onboardServiceConfig) ([]string, bool) {
+	issues := []string{}
+	blocker := false
+	hostPaths := deploymentHostPathValues(text)
+	if strings.Contains(text, "hostPath:") && len(hostPaths) == 0 {
+		issues = append(issues, "hostPath path missing")
+		blocker = true
+	}
+	platformHostPathCount := 0
+	for _, hostPath := range hostPaths {
+		if !isPlatformHostPath(hostPath) {
+			issues = append(issues, "hostPath path "+hostPath+" is outside "+defaultHostPathRoot)
+			blocker = true
+			continue
+		}
+		platformHostPathCount++
+	}
+	if platformHostPathCount > 0 && !hasStorageManagedAnnotation(text) {
+		issues = append(issues, "platform hostPath metadata annotation missing")
+	}
+	if hasStorageManagedAnnotation(text) && len(cfg.Storage) == 0 {
+		issues = append(issues, "storage metadata present but no storage intent detected")
+	}
+	if deploymentHasUnboundedEmptyDir(text) {
+		issues = append(issues, "emptyDir volume must include sizeLimit")
+		blocker = true
+	}
+	return issues, blocker
+}
+
+func deploymentHostPathValues(text string) []string {
+	paths := []string{}
+	inHostPath := false
+	hostIndent := 0
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := countLeadingSpaces(line)
+		if inHostPath && indent <= hostIndent {
+			inHostPath = false
+		}
+		if strings.HasPrefix(trimmed, "hostPath:") {
+			inHostPath = true
+			hostIndent = indent
+			continue
+		}
+		if !inHostPath || !strings.HasPrefix(trimmed, "path:") {
+			continue
+		}
+		_, value, _ := strings.Cut(trimmed, ":")
+		value = strings.Trim(strings.TrimSpace(value), `"'`)
+		if value != "" {
+			paths = append(paths, value)
+		}
+	}
+	return paths
+}
+
+func deploymentHasUnboundedEmptyDir(text string) bool {
+	inEmptyDir := false
+	emptyIndent := 0
+	hasSizeLimit := false
+	finish := func() bool {
+		if inEmptyDir && !hasSizeLimit {
+			return true
+		}
+		return false
+	}
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := countLeadingSpaces(line)
+		if inEmptyDir && indent <= emptyIndent {
+			if finish() {
+				return true
+			}
+			inEmptyDir = false
+			hasSizeLimit = false
+		}
+		if strings.HasPrefix(trimmed, "emptyDir:") {
+			if strings.Contains(trimmed, "{}") {
+				return true
+			}
+			inEmptyDir = true
+			emptyIndent = indent
+			hasSizeLimit = strings.Contains(trimmed, "sizeLimit:")
+			continue
+		}
+		if inEmptyDir && strings.HasPrefix(trimmed, "sizeLimit:") {
+			hasSizeLimit = true
+		}
+	}
+	return finish()
+}
+
+func hasStorageManagedAnnotation(text string) bool {
+	return strings.Contains(text, `opspilot.io/storage-managed: "true"`) ||
+		strings.Contains(text, "opspilot.io/storage-managed: true")
+}
+
+func countLeadingSpaces(value string) int {
+	return len(value) - len(strings.TrimLeft(value, " "))
+}
+
 func checkRepoHealth(cfg onboardServiceConfig) repoPolicyItem {
 	if cfg.HealthPath == "" {
 		return repoPolicyItem{Name: "health_path", Status: "warn", Level: "warning", Message: "health path missing; default /health will be used", Fixable: true, Action: "run repo autofix --write to persist health path"}
@@ -366,6 +477,40 @@ func checkRepoMiddleware(cfg onboardServiceConfig) []repoPolicyItem {
 		}
 		items = append(items, repoPolicyItem{
 			Name:    "middleware_" + item.Name,
+			Status:  "pass",
+			Level:   "info",
+			Message: message,
+		})
+	}
+	return items
+}
+
+func checkRepoStorage(cfg onboardServiceConfig) []repoPolicyItem {
+	if len(cfg.Storage) == 0 {
+		return []repoPolicyItem{{
+			Name:    "storage",
+			Status:  "pass",
+			Level:   "info",
+			Message: "none detected",
+		}}
+	}
+	items := make([]repoPolicyItem, 0, len(cfg.Storage))
+	for _, item := range cfg.Storage {
+		message := fmt.Sprintf("%s -> %s mount=%s", item.Purpose, item.Mode, item.MountPath)
+		if item.Mode == "hostPath" {
+			message += " hostPath=" + item.HostPath
+			if item.SizeHint != "" {
+				message += " sizeHint=" + item.SizeHint
+			}
+		}
+		if item.SizeLimit != "" {
+			message += " sizeLimit=" + item.SizeLimit
+		}
+		if len(item.Evidence) > 0 {
+			message += "; evidence: " + strings.Join(item.Evidence, "; ")
+		}
+		items = append(items, repoPolicyItem{
+			Name:    "storage_" + item.Name,
 			Status:  "pass",
 			Level:   "info",
 			Message: message,
