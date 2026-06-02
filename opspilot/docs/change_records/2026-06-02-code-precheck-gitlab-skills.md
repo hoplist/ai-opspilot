@@ -134,3 +134,20 @@ go run ./opspilot/cli --output human repo precheck --repo . --project platform/o
 
 The current OpsPilot repository returns warning-only precheck evidence and does
 not block its own release.
+
+## Standard Flow Retest
+
+2026-06-02:
+
+- Retest the full standard release flow with a real documentation commit:
+  node206 GitLab -> node206 GitLab Runner -> BuildKit rootless -> GitLab
+  Registry -> GitOps -> node200 Argo CD.
+- Expected result:
+  - `preflight:onboarding` succeeds.
+  - `code-precheck` succeeds and writes precheck evidence.
+  - `test:go` succeeds.
+  - `build:binaries` succeeds.
+  - `build:image` succeeds and pushes a commit-tagged image.
+  - `update:gitops` succeeds.
+  - node200 Argo CD syncs the new image and the `opspilot-core` Deployment
+    becomes Healthy.
