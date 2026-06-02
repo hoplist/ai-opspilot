@@ -2,7 +2,7 @@ package skillregistry
 
 import "strings"
 
-const Version = "2026-05-28-core-ops-skills"
+const Version = "2026-06-02-code-precheck-skills"
 
 type Skill struct {
 	Name              string   `json:"name"`
@@ -110,6 +110,12 @@ func Recommend(targetType, status string, missingEvidence, findings []string) []
 		want["auto-inspection-rca"] = "service evidence should be summarized for AI RCA and follow-up fixes"
 	case "release":
 		want["devops-engineer"] = "release status, logs, history, rollback, and GitOps evidence are the main workflow"
+	case "repo", "code", "code-precheck":
+		want["code-reviewer"] = "repo code precheck needs broad correctness and maintainability review"
+		want["security-reviewer"] = "repo code precheck needs secrets, unsafe execution, and injection risk review"
+		want["secure-code-guardian"] = "repo code precheck findings need secure remediation patterns"
+		want["database-optimizer"] = "repo code precheck includes full-table, destructive SQL, and N+1 risk"
+		want["devops-engineer"] = "repo code precheck is part of the GitLab CI release workflow"
 	}
 	if status != "" && status != "healthy" {
 		want["auto-inspection-rca"] = "non-healthy status needs RCA evidence grouping"
@@ -232,6 +238,62 @@ func allSkills() []Skill {
 			Commands:        []string{"release service", "release status", "release jobs", "release logs", "release history", "release rollback", "repo preflight", "repo autofix"},
 			Boundaries:      []string{"publish through GitLab Runner -> BuildKit -> Registry -> GitOps -> Argo CD", "avoid direct Kubernetes mutation"},
 			SourceSkillPath: "C:/Users/Administrator/.codex/skills/devops-engineer/SKILL.md",
+		},
+		{
+			Name:            "code-reviewer",
+			Label:           "Code Reviewer",
+			Category:        "code-quality",
+			IntegrationTier: "ci-evidence",
+			Integrated:      true,
+			Priority:        58,
+			Summary:         "Explains OpsPilot code-precheck evidence for correctness, dangerous logic, N+1 patterns, and maintainability risks.",
+			UseWhen:         []string{"GitLab code-precheck has warnings or blockers", "repository code needs safe review before release", "AI needs to explain source-level findings"},
+			Evidence:        []string{"code-precheck.json", "repo precheck", "file path", "line number", "rule id", "recommendation"},
+			Commands:        []string{"repo precheck", "repo precheck --write", "release jobs", "release logs"},
+			Boundaries:      []string{"do not block on style preferences", "only high-confidence blocker rules should stop CI"},
+			SourceSkillPath: "C:/Users/Administrator/.codex/skills/code-reviewer/SKILL.md",
+		},
+		{
+			Name:            "security-reviewer",
+			Label:           "Security Reviewer",
+			Category:        "security",
+			IntegrationTier: "ci-evidence",
+			Integrated:      true,
+			Priority:        57,
+			Summary:         "Explains code-precheck security evidence such as hardcoded secrets, unsafe shell execution, injection risk, and dependency scan gaps.",
+			UseWhen:         []string{"code-precheck reports secret_leak or dangerous_shell", "release is blocked by a security finding", "security remediation needs prioritization"},
+			Evidence:        []string{"code-precheck.json", "GitLab artifact", "rule severity", "security category"},
+			Commands:        []string{"repo precheck", "release jobs", "release logs"},
+			Boundaries:      []string{"report critical findings immediately", "do not expose sensitive secret values in summaries"},
+			SourceSkillPath: "C:/Users/Administrator/.codex/skills/security-reviewer/SKILL.md",
+		},
+		{
+			Name:            "secure-code-guardian",
+			Label:           "Secure Code Guardian",
+			Category:        "security",
+			IntegrationTier: "ci-evidence",
+			Integrated:      true,
+			Priority:        56,
+			Summary:         "Provides secure remediation guidance for precheck findings: parameterized SQL, input validation, authentication, and safe secret handling.",
+			UseWhen:         []string{"security finding needs a concrete code fix", "raw SQL construction needs parameterization", "input validation or auth hardening is needed"},
+			Evidence:        []string{"code-precheck.json", "raw_sql_construction", "secret_leak", "api_query_writes_data"},
+			Commands:        []string{"repo precheck", "fix service --dry-run"},
+			Boundaries:      []string{"prefer minimal safe patches", "never store secrets in source code"},
+			SourceSkillPath: "C:/Users/Administrator/.codex/skills/secure-code-guardian/SKILL.md",
+		},
+		{
+			Name:            "database-optimizer",
+			Label:           "Database Optimizer",
+			Category:        "database",
+			IntegrationTier: "ci-evidence",
+			Integrated:      true,
+			Priority:        55,
+			Summary:         "Explains database-related precheck evidence including destructive SQL, unguarded writes, full-table scans, and possible N+1 queries.",
+			UseWhen:         []string{"code-precheck reports database blockers", "query may scan full table", "loop contains database access", "pagination or index guidance is needed"},
+			Evidence:        []string{"code-precheck.json", "db_destructive_sql", "db_unguarded_write", "db_full_table_read", "possible_n_plus_one"},
+			Commands:        []string{"repo precheck", "release logs", "fix service --dry-run"},
+			Boundaries:      []string{"do not run production EXPLAIN from OpsPilot without explicit scope", "precheck rules are static hints unless runtime DB evidence is attached"},
+			SourceSkillPath: "C:/Users/Administrator/.codex/skills/database-optimizer/SKILL.md",
 		},
 		{
 			Name:            "debugging-wizard",

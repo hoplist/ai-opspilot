@@ -17,6 +17,10 @@ func TestRegistryIntegratedCoreSkills(t *testing.T) {
 		"kubernetes-specialist",
 		"monitoring-expert",
 		"devops-engineer",
+		"code-reviewer",
+		"security-reviewer",
+		"secure-code-guardian",
+		"database-optimizer",
 		"debugging-wizard",
 	}
 	for _, name := range required {
@@ -29,6 +33,15 @@ func TestRegistryIntegratedCoreSkills(t *testing.T) {
 func TestRecommendPodIncludesKubernetesAndDebugging(t *testing.T) {
 	recommendations := Recommend("pod", "unhealthy", []string{"elk_logs_missing"}, []string{"Pod is not ready", "restart count is high"})
 	for _, name := range []string{"opspilot-ops", "kubernetes-specialist", "monitoring-expert", "debugging-wizard", "auto-inspection-rca"} {
+		if !hasRecommendation(recommendations, name) {
+			t.Fatalf("missing recommendation %s: %#v", name, recommendations)
+		}
+	}
+}
+
+func TestRecommendCodePrecheckIncludesReviewSkills(t *testing.T) {
+	recommendations := Recommend("code-precheck", "blocker", []string{}, []string{"db_unguarded_write", "secret_leak"})
+	for _, name := range []string{"code-reviewer", "security-reviewer", "secure-code-guardian", "database-optimizer", "devops-engineer"} {
 		if !hasRecommendation(recommendations, name) {
 			t.Fatalf("missing recommendation %s: %#v", name, recommendations)
 		}

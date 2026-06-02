@@ -1493,6 +1493,128 @@ spec:
 	}
 }
 
+func TestRepoPrecheckWarnOnlyDoesNotFail(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source := `package main
+
+func users() string {
+	return "SELECT * FROM users"
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"repo", "precheck", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out); err != nil {
+		t.Fatalf("warning-only precheck should not fail: %v\n%s", err, out.String())
+	}
+	var payload codePrecheckResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Status != "warn" || !payload.Ready || payload.Summary.Warnings == 0 || payload.Summary.Blockers != 0 {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if payload.Items[0].Skill != "database-optimizer" {
+		t.Fatalf("skill = %s", payload.Items[0].Skill)
+	}
+}
+
+func TestRepoPrecheckBlocksDangerousCode(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source := `package main
+
+func wipe() string {
+	return "DELETE FROM users"
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := run([]string{"repo", "precheck", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out)
+	if err == nil {
+		t.Fatal("expected dangerous precheck to fail")
+	}
+	var payload codePrecheckResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Status != "blocker" || payload.Ready || payload.Summary.Blockers == 0 {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if payload.Items[0].ID != "db_unguarded_write" {
+		t.Fatalf("item = %#v", payload.Items[0])
+	}
+}
+
+func TestRepoPrecheckWritesEvidence(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source := `package main
+
+const apiToken = "0123456789abcdef"
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := run([]string{"repo", "precheck", "--repo", dir, "--project", "tpo/devex/demo/demo-api", "--write", "--warn-only"}, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, ".opspilot", "evidence", "code-precheck.json")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload codePrecheckResult
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.EvidencePath == "" || payload.Status != "blocker" || payload.Items[0].ID != "secret_leak" {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("code-precheck.json")) {
+		t.Fatalf("expected evidence path in output: %s", out.String())
+	}
+}
+
+func TestCITemplatesIncludeCodePrecheck(t *testing.T) {
+	root := filepath.Join("..", "..", "ci", "templates")
+	for _, name := range []string{
+		"buildkit-gitops.go.yml",
+		"buildkit-gitops.python.yml",
+		"buildkit-gitops.node.yml",
+		"buildkit-gitops.frontend.yml",
+		"buildkit-gitops.java.yml",
+	} {
+		body, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, expected := range [][]byte{
+			[]byte("  - code-precheck"),
+			[]byte("code-precheck:"),
+			[]byte(".opspilot/evidence/code-precheck.json"),
+			[]byte("security-reviewer"),
+			[]byte("database-optimizer"),
+		} {
+			if !bytes.Contains(body, expected) {
+				t.Fatalf("%s missing %s", name, expected)
+			}
+		}
+	}
+}
+
 func TestRepoPreflightReportsMiddlewareIntent(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/orders-api\nrequire github.com/go-sql-driver/mysql v1.8.1\n"), 0o644); err != nil {

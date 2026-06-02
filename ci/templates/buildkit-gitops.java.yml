@@ -1,5 +1,6 @@
 stages:
   - preflight
+  - code-precheck
   - test
   - build
   - update-gitops
@@ -38,6 +39,123 @@ preflight:onboarding:
     - "grep -q 'readinessProbe:' deploy/k8s/deployment.yaml"
     - "grep -q 'livenessProbe:' deploy/k8s/deployment.yaml"
     - grep -Eq 'buildkit-gitops|buildctl-daemonless.sh|BUILDKIT_IMAGE' .gitlab-ci.yml
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+code-precheck:
+  stage: code-precheck
+  image:
+    name: "$ALPINE_IMAGE"
+  before_script:
+    - apk add --no-cache python3
+  script:
+    - mkdir -p .opspilot/evidence
+    - |
+      python3 - <<'PY'
+      import json
+      import os
+      import re
+      import sys
+
+      skip_dirs = {'.git', '.opspilot', 'node_modules', 'vendor', 'dist', 'build', 'target', '.next', '.venv', 'venv', '__pycache__', 'coverage', '.pytest_cache', 'ci', 'docs', 'gitops-manifests-work'}
+      exts = {'.go', '.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.kt', '.php', '.cs', '.sql', '.yml', '.yaml', '.properties', '.toml'}
+      basenames = {'dockerfile', '.env', '.env.example', 'application.yml', 'application.yaml', 'application.properties'}
+      items = []
+
+      def add(rule, severity, category, path, line_no, message, line, skill, recommendation):
+          items.append({
+              'id': rule,
+              'severity': severity,
+              'category': category,
+              'path': path,
+              'line': line_no,
+              'message': message,
+              'snippet': ' '.join(line.strip().split())[:160],
+              'skill': skill,
+              'recommendation': recommendation,
+          })
+
+      def should_scan(path):
+          norm = path.replace('\\', '/')
+          if norm.startswith('./deploy/') or norm.startswith('./ci/') or norm.startswith('./docs/') or '/test/' in norm or '/tests/' in norm or '/fixtures/' in norm:
+              return False
+          base = os.path.basename(path).lower()
+          if base == '.gitlab-ci.yml' or base.endswith('_test.go') or base.endswith('.test.js') or base.endswith('.test.ts') or base.endswith('.spec.js') or base.endswith('.spec.ts'):
+              return False
+          return base in basenames or os.path.splitext(base)[1] in exts
+
+      def looks_like_secret(line):
+          lower = line.lower()
+          if not any(key in lower for key in ['password', 'passwd', 'secret', 'token', 'access_key', 'accesskey', 'api_key', 'apikey', 'private_key']):
+              return False
+          if ':' not in line and '=' not in line:
+              return False
+          if re.search(r'(\$\{|env\.|env\(|getenv|os\.getenv|secretref|valuefrom|example|placeholder|changeme|your_|<|xxx|token_or_api|missing|source_skill_path|image_pull_secret|pull_secret|settings\.|qualitysettings\.)', line, re.I):
+              return False
+          value = re.split(r'[:=]', line, maxsplit=1)[1].strip().strip("\"', ")
+          if len(value) < 16 or any(ch in value for ch in '()[]{}') or ' ' in value:
+              return False
+          return value.startswith(('glpat-', 'sk-')) or re.match(r'^[A-Za-z0-9_./+=:-]{16,}$', value) is not None
+
+      for root, dirs, files in os.walk('.'):
+          dirs[:] = [d for d in dirs if d not in skip_dirs]
+          for name in files:
+              path = os.path.join(root, name)
+              if not should_scan(path):
+                  continue
+              try:
+                  text = open(path, encoding='utf-8', errors='ignore').read()
+              except OSError:
+                  continue
+              for idx, line in enumerate(text.splitlines(), 1):
+                  raw = line.strip()
+                  if not raw or raw.startswith('//') or raw.startswith('#'):
+                      continue
+                  lower = raw.lower()
+                  sql = ' '.join(lower.split())
+                  if any(marker in lower for marker in ['codeprecheckfinding(', 'regexp.mustcompile(', 'containsany(', 'strings.contains(lower,', 'containsdangerousshellline(', 'add("', "add('"]):
+                      continue
+                  if looks_like_secret(raw):
+                      add('secret_leak', 'blocker', 'security', path, idx, 'possible hardcoded secret or token', raw, 'security-reviewer', 'Move the value to GitLab/Kubernetes Secret and rotate it if it is real.')
+                  elif 'rm -rf /' in lower or re.search(r'(curl|wget)\s+.*\|\s*(sh|bash)', lower) or 'mkfs.' in lower:
+                      add('dangerous_shell', 'blocker', 'security', path, idx, 'dangerous shell execution detected', raw, 'security-reviewer', 'Remove shell execution or replace it with a bounded reviewed command.')
+                  elif re.search(r'\b(drop|truncate)\s+(table|database|schema)\b', sql):
+                      add('db_destructive_sql', 'blocker', 'database', path, idx, 'destructive SQL detected', raw, 'database-optimizer', 'Move destructive operations to an explicit migration/admin workflow with safeguards.')
+                  elif re.search(r'\b(update\s+[a-zA-Z0-9_."`]+\s+set|delete\s+from\s+[a-zA-Z0-9_."`]+)\b', sql) and ' where ' not in sql:
+                      add('db_unguarded_write', 'blocker', 'database', path, idx, 'UPDATE/DELETE without a visible WHERE guard', raw, 'database-optimizer', 'Add a guarded WHERE condition and verify affected rows.')
+                  elif any(x in lower for x in ['query', 'search', 'list', 'get']) and any(x in lower for x in ['.save(', '.create(', '.insert(', '.update(', '.delete(', 'delete from', 'update ']):
+                      add('api_query_writes_data', 'blocker', 'code', path, idx, 'query-style handler appears to write data', raw, 'code-reviewer', 'Separate read and write paths or change handler semantics.')
+                  elif any(x in lower for x in ['writefile', 'create(', 'openfile', 'write(']) and any(x in lower for x in ['/logs', '/upload', '/uploads', '/runtime', 'log_dir', 'upload_dir', 'runtime_dir']):
+                      add('unbounded_file_write', 'blocker', 'storage', path, idx, 'possible unbounded write to logs/uploads/runtime path', raw, 'code-reviewer', 'Add file size, type, retention, and path validation before writing.')
+                  elif ('select *' in sql and ' where ' not in sql and ' limit ' not in sql) or re.search(r'\b(findall|find_all|all\(\))\b', sql):
+                      add('db_full_table_read', 'warning', 'database', path, idx, 'possible full-table read without pagination or filtering', raw, 'database-optimizer', 'Add WHERE, LIMIT, or pagination and verify indexes.')
+                  elif any(x in lower for x in ['http.get(', 'http.post(', 'requests.get(', 'requests.post(', 'new resttemplate', 'webclient.create(']) and 'timeout' not in lower:
+                      add('missing_timeout_hint', 'warning', 'reliability', path, idx, 'outbound client call may need an explicit timeout', raw, 'code-reviewer', 'Configure request/database/client timeout to avoid stuck workers.')
+
+      blockers = sum(1 for item in items if item['severity'] == 'blocker')
+      warnings = sum(1 for item in items if item['severity'] == 'warning')
+      payload = {
+          'service': os.environ.get('APP_NAME') or os.environ.get('CI_PROJECT_NAME', ''),
+          'project': os.environ.get('CI_PROJECT_PATH', ''),
+          'status': 'blocker' if blockers else ('warn' if warnings else 'pass'),
+          'ready': blockers == 0,
+          'summary': {'blockers': blockers, 'warnings': warnings, 'passed': 0},
+          'items': items,
+          'skills': ['code-reviewer', 'security-reviewer', 'secure-code-guardian', 'database-optimizer', 'debugging-wizard'],
+          'next': ['fix blocker findings before BuildKit packaging'] if blockers else ['continue to language tests and BuildKit packaging'],
+      }
+      os.makedirs('.opspilot/evidence', exist_ok=True)
+      with open('.opspilot/evidence/code-precheck.json', 'w', encoding='utf-8') as f:
+          json.dump(payload, f, ensure_ascii=False, indent=2)
+          f.write('\n')
+      print(f"code-precheck status={payload['status']} blockers={blockers} warnings={warnings}")
+      sys.exit(1 if blockers else 0)
+      PY
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - .opspilot/evidence/code-precheck.json
   rules:
     - if: $CI_COMMIT_BRANCH
 

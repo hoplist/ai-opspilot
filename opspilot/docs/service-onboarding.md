@@ -127,6 +127,7 @@ by the next automated run.
 
 ```powershell
 opspilot repo preflight --repo . --project tpo/devex/skillshub/skillshub-api
+opspilot repo precheck --repo . --project tpo/devex/skillshub/skillshub-api
 opspilot repo autofix --repo . --project tpo/devex/skillshub/skillshub-api --write
 opspilot repo autofix --repo . --project tpo/devex/skillshub/skillshub-api --write --force
 ```
@@ -146,6 +147,29 @@ opspilot repo autofix --repo . --project tpo/devex/skillshub/skillshub-api --wri
   must include `sizeLimit`.
 - health path defaults.
 - middleware intent, using shared test-environment instances by default.
+
+`repo precheck` scans repository source code for high-confidence dangerous
+patterns before image packaging:
+
+- hardcoded secret/token/password-like values.
+- destructive SQL and unguarded `UPDATE`/`DELETE`.
+- query-style handlers that write data.
+- full-table reads, `SELECT *`, and possible N+1 query patterns.
+- dangerous shell execution.
+- unbounded writes to logs/uploads/runtime paths.
+
+Warnings do not block the flow. Blockers fail `repo precheck` and the GitLab
+`code-precheck` job. Use `--write` to persist the AI-readable evidence file:
+
+```powershell
+opspilot repo precheck --repo . --project tpo/devex/skillshub/skillshub-api --write
+```
+
+This writes:
+
+```text
+.opspilot/evidence/code-precheck.json
+```
 
 `repo autofix --write` writes missing platform-managed files. Add `--force`
 when the repository already contains a local Dockerfile, local CI, or manifests
@@ -337,11 +361,15 @@ preflight:opspilot:
     - opspilot onboard check --config opspilot.service.yaml
 ```
 
-The shared `ci/templates/buildkit-gitops.go.yml` also includes a lightweight
-shell preflight job that checks `DOCKERFILE_PATH`, `deploy/k8s/namespace.yaml`,
-the workload manifests, and whether `.gitlab-ci.yml` references BuildKit. The
-same template writes the service manifests into GitOps and registers the Argo
-Application in the app-of-apps `apps/kustomization.yaml`.
+The shared `ci/templates/buildkit-gitops.go.yml` also includes:
+
+- `preflight:onboarding`: checks `DOCKERFILE_PATH`, namespace guardrails,
+  workload manifests, probes, resources, and BuildKit template usage.
+- `code-precheck`: scans source code, writes
+  `.opspilot/evidence/code-precheck.json`, and blocks only high-confidence
+  dangerous findings.
+- BuildKit packaging, GitOps update, and Argo Application registration in the
+  app-of-apps `apps/kustomization.yaml`.
 
 Initial platform templates are available for:
 

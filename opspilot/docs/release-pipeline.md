@@ -6,6 +6,7 @@ standard CI/GitOps release flow:
 ```text
 node206 GitLab
 -> node206 GitLab Runner
+-> Repository preflight and code-precheck
 -> BuildKit rootless image build
 -> Push image registry
 -> Update GitOps repository
@@ -26,6 +27,8 @@ http://192.168.48.206:5050
 - Do not run `kubectl apply`, `rollout restart`, `scale`, or direct image
   patching for normal releases.
 - Build jobs should run on the node206 GitLab Runner.
+- Repository preflight and `code-precheck` should run before BuildKit. Warning
+  findings are evidence only; blocker findings stop packaging.
 - Image packaging should use rootless BuildKit.
 - Application images should be pushed to node206 GitLab Registry via
   `$CI_REGISTRY_IMAGE`.
