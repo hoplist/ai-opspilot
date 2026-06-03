@@ -80,7 +80,7 @@ code-precheck:
           if norm.startswith('./deploy/') or norm.startswith('./ci/') or norm.startswith('./docs/') or '/test/' in norm or '/tests/' in norm or '/fixtures/' in norm:
               return False
           base = os.path.basename(path).lower()
-          if base == '.gitlab-ci.yml' or base.endswith('_test.go') or base.endswith('.test.js') or base.endswith('.test.ts') or base.endswith('.spec.js') or base.endswith('.spec.ts'):
+          if base in ['.gitlab-ci.yml', 'opspilot.service.yaml', 'opspilot.namespaces.yaml', 'opspilot.release-service.txt'] or base.endswith('_test.go') or base.endswith('.test.js') or base.endswith('.test.ts') or base.endswith('.spec.js') or base.endswith('.spec.ts'):
               return False
           return base in basenames or os.path.splitext(base)[1] in exts
 
