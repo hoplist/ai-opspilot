@@ -241,6 +241,25 @@ func (c *Client) DeploymentStatus(ctx context.Context, namespace, name string) (
 	}, nil
 }
 
+func (c *Client) FindDeploymentByName(ctx context.Context, name string) (map[string]any, error) {
+	if name == "" {
+		return nil, errors.New("deployment name is required")
+	}
+	raw, err := c.json(ctx, "/apis/apps/v1/deployments", []string{"get", "deployments", "-A", "-o", "json"})
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items(raw) {
+		meta := object(item, "metadata")
+		if stringValue(meta, "name") != name {
+			continue
+		}
+		namespace := stringValue(meta, "namespace")
+		return c.DeploymentStatus(ctx, namespace, name)
+	}
+	return nil, fmt.Errorf("deployment not found: %s", name)
+}
+
 func (c *Client) ArgoApplicationStatus(ctx context.Context, namespace, name string) (map[string]any, error) {
 	if namespace == "" || name == "" {
 		return nil, errors.New("namespace and application are required")

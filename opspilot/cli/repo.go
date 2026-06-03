@@ -213,6 +213,7 @@ func repoPreflight(project, catalogPath string) (repoPreflightResult, error) {
 		checkRepoFile("namespace", filepath.Join("deploy", "k8s", "namespace.yaml"), "generate deploy/k8s/namespace.yaml from ownership"),
 		checkRepoFile("limitrange", filepath.Join("deploy", "k8s", "limitrange.yaml"), "generate deploy/k8s/limitrange.yaml for namespace defaults"),
 		checkRepoFile("resourcequota", filepath.Join("deploy", "k8s", "resourcequota.yaml"), "generate deploy/k8s/resourcequota.yaml for namespace quota"),
+		checkRepoFile("serviceaccount", filepath.Join("deploy", "k8s", "serviceaccount.yaml"), "generate deploy/k8s/serviceaccount.yaml for image pull access"),
 		checkRepoDeployment(cfg),
 		checkRepoFile("service", filepath.Join("deploy", "k8s", "service.yaml"), "generate deploy/k8s/service.yaml"),
 		checkRepoFile("kustomization", filepath.Join("deploy", "k8s", "kustomization.yaml"), "generate deploy/k8s/kustomization.yaml"),

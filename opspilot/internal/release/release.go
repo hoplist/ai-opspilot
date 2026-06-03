@@ -149,13 +149,34 @@ func (r *Registry) Health() map[string]any {
 func (r *Registry) Status(ctx context.Context, serviceName string, client *k8s.Client, promRegistry *prom.Registry, logClient *logsearch.Client, qualitySettings QualitySettings) (map[string]any, []string, error) {
 	service, ok := r.services[serviceName]
 	if !ok {
-		return nil, nil, fmt.Errorf("unknown release service: %s", serviceName)
+		deployment, err := client.FindDeploymentByName(ctx, serviceName)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unknown release service: %s", serviceName)
+		}
+		service = Service{
+			Name:       serviceName,
+			Namespace:  fmt.Sprint(deployment["namespace"]),
+			Deployment: fmt.Sprint(deployment["name"]),
+			Source:     "node200-k8s",
+			Container:  serviceName,
+		}
+		if image := firstDeploymentImage(deployment); image != "" {
+			service.Image = image
+		}
 	}
 	warnings := []string{}
 	gaps := []string{}
 	evidence := map[string]any{}
 	stage := "unknown"
 	status := "unknown"
+	if !ok {
+		gaps = append(gaps, "release_mapping_missing")
+		warnings = append(warnings, "release mapping missing; fell back to Kubernetes deployment name lookup")
+		evidence["mapping"] = map[string]any{
+			"status":  "fallback",
+			"message": "service was not configured in OPSPILOT_RELEASE_SERVICES; Kubernetes evidence is available but GitLab/GitOps evidence may be incomplete",
+		}
+	}
 
 	deployment, err := client.DeploymentStatus(ctx, service.Namespace, service.Deployment)
 	if err != nil {

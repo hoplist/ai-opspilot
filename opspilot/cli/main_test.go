@@ -773,12 +773,13 @@ deploy:
 		t.Fatal(err)
 	}
 	generated := map[string]string{
-		"namespace.yaml":     namespaceTemplate(cfg),
-		"limitrange.yaml":    limitRangeTemplate(cfg),
-		"resourcequota.yaml": resourceQuotaTemplate(cfg),
-		"deployment.yaml":    deploymentTemplate(cfg),
-		"service.yaml":       serviceTemplate(cfg),
-		"kustomization.yaml": kustomizationTemplate(),
+		"namespace.yaml":      namespaceTemplate(cfg),
+		"limitrange.yaml":     limitRangeTemplate(cfg),
+		"resourcequota.yaml":  resourceQuotaTemplate(cfg),
+		"serviceaccount.yaml": serviceAccountTemplate(cfg),
+		"deployment.yaml":     deploymentTemplate(cfg),
+		"service.yaml":        serviceTemplate(cfg),
+		"kustomization.yaml":  kustomizationTemplate(cfg),
 	}
 	for name, body := range generated {
 		if err := os.WriteFile(filepath.Join("deploy", "k8s", name), []byte(body), 0o644); err != nil {
@@ -859,9 +860,10 @@ deploy:
 		t.Fatal(err)
 	}
 	generated := map[string]string{
-		"namespace.yaml":     namespaceTemplate(cfg),
-		"limitrange.yaml":    limitRangeTemplate(cfg),
-		"resourcequota.yaml": resourceQuotaTemplate(cfg),
+		"namespace.yaml":      namespaceTemplate(cfg),
+		"limitrange.yaml":     limitRangeTemplate(cfg),
+		"resourcequota.yaml":  resourceQuotaTemplate(cfg),
+		"serviceaccount.yaml": serviceAccountTemplate(cfg),
 		"deployment.yaml": deploymentTemplate(cfg) + `      volumes:
         - name: raw-logs
           hostPath:
@@ -869,7 +871,7 @@ deploy:
             type: DirectoryOrCreate
 `,
 		"service.yaml":       serviceTemplate(cfg),
-		"kustomization.yaml": kustomizationTemplate(),
+		"kustomization.yaml": kustomizationTemplate(cfg),
 	}
 	for name, body := range generated {
 		if err := os.WriteFile(filepath.Join("deploy", "k8s", name), []byte(body), 0o644); err != nil {
@@ -1224,6 +1226,7 @@ func TestOnboardGenerateWritesDetectedFiles(t *testing.T) {
 		filepath.Join("deploy", "k8s", "namespace.yaml"),
 		filepath.Join("deploy", "k8s", "limitrange.yaml"),
 		filepath.Join("deploy", "k8s", "resourcequota.yaml"),
+		filepath.Join("deploy", "k8s", "serviceaccount.yaml"),
 		filepath.Join("deploy", "k8s", "deployment.yaml"),
 		filepath.Join("deploy", "k8s", "service.yaml"),
 		filepath.Join("deploy", "k8s", "kustomization.yaml"),
@@ -1237,8 +1240,8 @@ func TestOnboardGenerateWritesDetectedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(deployment, []byte("imagePullSecrets")) {
-		t.Fatalf("generated deployment should rely on node/containerd registry auth, not imagePullSecrets: %s", string(deployment))
+	if !bytes.Contains(deployment, []byte("imagePullSecrets")) || !bytes.Contains(deployment, []byte("gitlab-registry-pull")) {
+		t.Fatalf("generated deployment should include GitLab Registry pull configuration: %s", string(deployment))
 	}
 	if !bytes.Contains(deployment, []byte("resources:")) || !bytes.Contains(deployment, []byte("cpu: 50m")) || !bytes.Contains(deployment, []byte("memory: 256Mi")) {
 		t.Fatalf("generated deployment missing default resource guardrails: %s", string(deployment))

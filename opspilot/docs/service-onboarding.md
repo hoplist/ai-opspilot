@@ -109,6 +109,7 @@ The check verifies:
 - `.gitlab-ci.yml` contains the BuildKit platform template or direct BuildKit
   usage.
 - `deploy/k8s/namespace.yaml`.
+- `deploy/k8s/serviceaccount.yaml`.
 - `deploy/k8s/deployment.yaml`.
 - `deploy/k8s/service.yaml`.
 - `deploy/k8s/kustomization.yaml`.
@@ -146,7 +147,8 @@ opspilot repo autofix --repo . --project tpo/devex/skillshub/skillshub-api --wri
   hostPath is allowed only under `/data/opspilot/hostpath/`, and `emptyDir`
   must include `sizeLimit`.
 - health path defaults.
-- middleware intent, using shared test-environment instances by default.
+- middleware detection and generated lightweight middleware manifests where
+  policy allows automatic provisioning.
 
 `repo precheck` scans repository source code for high-confidence dangerous
 patterns before image packaging:
@@ -214,6 +216,7 @@ middleware:
     display: MySQL database
     mode: shared-database
     allocation: database-user
+    provision: auto
     resource: devex_skillshub_skillshub_api_mysql
     secret: skillshub-api-mysql-conn
     env: DATABASE_URL
@@ -239,27 +242,35 @@ release:
 
 ## Middleware
 
-OpsPilot does not default to one middleware Pod per service in the test
-environment. It detects dependencies and records a platform-owned allocation
-intent:
+OpsPilot detects dependencies and, for common lightweight development
+dependencies, generates middleware manifests together with the application:
 
 ```text
-MySQL/PostgreSQL  -> shared instance, database + user
-Redis             -> shared instance, key prefix or DB index
-RabbitMQ          -> shared instance, vhost + user
-MinIO/S3          -> shared instance, bucket + access key
-OpenSearch        -> shared instance, index prefix
-Kafka             -> shared instance, topic prefix + ACL user
+MySQL/PostgreSQL  -> provision: auto, dedicated lightweight Deployment/Service/Secret
+Redis             -> provision: auto, dedicated lightweight Deployment/Service/Secret
+MinIO/S3          -> provision: auto, dedicated lightweight Deployment/Service/Secret
+RabbitMQ          -> provision: external, platform/shared service by default
+OpenSearch        -> provision: external, platform/shared service by default
+Kafka             -> provision: external, platform/shared service by default
 ```
 
 `repo preflight` reports detected middleware evidence, and `repo autofix` or
-`onboard generate` persists the intent in `opspilot.service.yaml`. This first
-step does not inject Secret references into the Deployment, because runtime
-provisioning of databases/users/vhosts/buckets must happen before the
-application can safely consume those Secrets.
+`onboard generate` persists the plan in `opspilot.service.yaml`.
 
-When provisioning is added, failures should be written as structured error
-events so OpsPilot and AI assistants can read them directly:
+For auto-provisioned middleware, generated files include:
+
+- `deploy/k8s/middleware-<kind>.yaml`.
+- A Kubernetes Secret containing service-scoped connection variables.
+- A middleware Deployment and Service with CPU/memory limits and probes.
+- Application `envFrom` references so the service can consume the Secret.
+
+Heavy middleware remains external by default because auto-starting Kafka,
+OpenSearch, or RabbitMQ for every service can exhaust small test clusters. Those
+dependencies should be backed by platform/shared instances until an explicit
+policy enables dedicated instances.
+
+Provisioning failures should be written as structured error events so OpsPilot
+and AI assistants can read them directly:
 
 ```json
 {
@@ -389,18 +400,20 @@ opspilot repo autofix --project tpo/devex/skillshub/skillshub-api --write
 
 ## Registry Auth
 
-Generated Deployments do not create or reference a per-namespace
-`imagePullSecret`.
+Generated Deployments and ServiceAccounts reference the standard
+`gitlab-registry-pull` image pull Secret. This fixes the observed node200
+failure mode where Pods reached `ErrImagePull` / `ImagePullBackOff` because the
+node206 GitLab Registry returned `403 Forbidden` for anonymous pulls.
 
-In the test environment, application images should be pushed to the node206
-GitLab Container Registry through `$CI_REGISTRY_IMAGE`, and image pull
-authentication is owned by the node runtime. Configure registry trust and
-credentials in `containerd`, then service manifests stay clean and new
-namespaces do not need registry Secret bootstrap.
+The Secret value is still platform-owned. Do not commit registry credentials
+into a service repository or GitOps app directory. The platform bootstrap layer
+must make the read-only `gitlab-registry-pull` Secret available in managed
+namespaces before or during release.
+
+If a future cluster uses containerd-level registry credentials and does not need
+per-namespace pull Secrets, keep the Secret name as a harmless compatibility
+contract or disable it through a platform template option after review.
 
 `docker-hub.tpo.xzoa.com` is an explicit exception path, not the default release
 registry. Do not push generated service images there unless the platform owner
 confirms that exception.
-
-Do not commit registry credentials into a service repository or GitOps app
-directory.

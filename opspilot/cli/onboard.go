@@ -64,6 +64,7 @@ type onboardMiddlewareConfig struct {
 	Display    string   `json:"display"`
 	Mode       string   `json:"mode"`
 	Allocation string   `json:"allocation"`
+	Provision  string   `json:"provision,omitempty"`
 	Resource   string   `json:"resource"`
 	Secret     string   `json:"secret"`
 	Env        []string `json:"env"`
@@ -571,6 +572,7 @@ func checkOnboardRepository(cfg onboardServiceConfig) onboardCheckResult {
 		checkFile("namespace", filepath.Join("deploy", "k8s", "namespace.yaml"), true, "Kubernetes Namespace manifest"),
 		checkFile("limitrange", filepath.Join("deploy", "k8s", "limitrange.yaml"), true, "Kubernetes LimitRange guardrail"),
 		checkFile("resourcequota", filepath.Join("deploy", "k8s", "resourcequota.yaml"), true, "Kubernetes ResourceQuota guardrail"),
+		checkFile("serviceaccount", filepath.Join("deploy", "k8s", "serviceaccount.yaml"), true, "Kubernetes ServiceAccount with image pull secret"),
 		checkFile("deployment", filepath.Join("deploy", "k8s", "deployment.yaml"), true, "Kubernetes Deployment manifest"),
 		checkFile("service", filepath.Join("deploy", "k8s", "service.yaml"), true, "Kubernetes Service manifest"),
 		checkFile("kustomization", filepath.Join("deploy", "k8s", "kustomization.yaml"), true, "Kustomize entrypoint"),
@@ -609,7 +611,7 @@ func checkOnboardMiddleware(cfg onboardServiceConfig) []onboardCheckItem {
 			Name:     "middleware_" + item.Name,
 			OK:       true,
 			Required: false,
-			Message:  fmt.Sprintf("%s uses %s allocation=%s secret=%s", item.Display, item.Mode, item.Allocation, item.Secret),
+			Message:  fmt.Sprintf("%s uses %s allocation=%s provision=%s secret=%s", item.Display, item.Mode, item.Allocation, firstNonEmpty(item.Provision, "external"), item.Secret),
 		})
 	}
 	return items
@@ -745,12 +747,21 @@ func onboardFiles(cfg onboardServiceConfig) []generatedFile {
 		generatedFile{path: filepath.Join("deploy", "k8s", "namespace.yaml"), body: namespaceTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "limitrange.yaml"), body: limitRangeTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "resourcequota.yaml"), body: resourceQuotaTemplate(cfg)},
+		generatedFile{path: filepath.Join("deploy", "k8s", "serviceaccount.yaml"), body: serviceAccountTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "deployment.yaml"), body: deploymentTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "service.yaml"), body: serviceTemplate(cfg)},
-		generatedFile{path: filepath.Join("deploy", "k8s", "kustomization.yaml"), body: kustomizationTemplate()},
+		generatedFile{path: filepath.Join("deploy", "k8s", "kustomization.yaml"), body: kustomizationTemplate(cfg)},
 		generatedFile{path: filepath.Join(".opspilot", "quality.yaml"), body: qualityTemplate(cfg)},
 		generatedFile{path: "opspilot.release-service.txt", body: releaseMapping(cfg) + "\n"},
 	)
+	for _, item := range cfg.Middleware {
+		if middlewareAutoProvisioned(item) {
+			files = append(files, generatedFile{
+				path: filepath.Join("deploy", "k8s", "middleware-"+item.Name+".yaml"),
+				body: middlewareTemplate(cfg, item),
+			})
+		}
+	}
 	return files
 }
 
@@ -1235,6 +1246,7 @@ func middlewareConfigTemplate(items []onboardMiddlewareConfig) string {
 		b.WriteString(fmt.Sprintf("    display: %s\n", item.Display))
 		b.WriteString(fmt.Sprintf("    mode: %s\n", item.Mode))
 		b.WriteString(fmt.Sprintf("    allocation: %s\n", item.Allocation))
+		b.WriteString(fmt.Sprintf("    provision: %s\n", firstNonEmpty(item.Provision, "external")))
 		b.WriteString(fmt.Sprintf("    resource: %s\n", item.Resource))
 		b.WriteString(fmt.Sprintf("    secret: %s\n", item.Secret))
 		b.WriteString(fmt.Sprintf("    env: %s\n", strings.Join(item.Env, ",")))
@@ -1453,6 +1465,7 @@ func middlewareFromValues(values map[string]string) []onboardMiddlewareConfig {
 			Display:    values[prefix+"display"],
 			Mode:       values[prefix+"mode"],
 			Allocation: values[prefix+"allocation"],
+			Provision:  values[prefix+"provision"],
 			Resource:   values[prefix+"resource"],
 			Secret:     values[prefix+"secret"],
 			Env:        splitCSV(values[prefix+"env"]),
@@ -1752,6 +1765,7 @@ func normalizeMiddlewareRequirements(c onboardServiceConfig, items []onboardMidd
 		defaults.Display = firstNonEmpty(item.Display, defaults.Display)
 		defaults.Mode = firstNonEmpty(item.Mode, defaults.Mode)
 		defaults.Allocation = firstNonEmpty(item.Allocation, defaults.Allocation)
+		defaults.Provision = firstNonEmpty(item.Provision, defaults.Provision)
 		defaults.Resource = firstNonEmpty(item.Resource, defaults.Resource)
 		defaults.Secret = firstNonEmpty(item.Secret, defaults.Secret)
 		if len(item.Env) > 0 {
@@ -1981,7 +1995,7 @@ func extractPathAfterKey(text, key string) string {
 
 func defaultMiddlewareRequirement(c onboardServiceConfig, entry middlewareCatalogEntry) onboardMiddlewareConfig {
 	name := sanitizeDNSLabel(entry.Kind)
-	return onboardMiddlewareConfig{
+	item := onboardMiddlewareConfig{
 		Name:       name,
 		Kind:       entry.Kind,
 		Display:    entry.Display,
@@ -1991,6 +2005,12 @@ func defaultMiddlewareRequirement(c onboardServiceConfig, entry middlewareCatalo
 		Secret:     sanitizeDNSLabel(c.Name + "-" + entry.Kind + "-conn"),
 		Env:        append([]string{}, entry.Env...),
 	}
+	if middlewareKindAutoProvisioned(entry.Kind) {
+		item.Provision = "auto"
+	} else {
+		item.Provision = "external"
+	}
+	return item
 }
 
 func middlewareCatalogByKind(kind string) (middlewareCatalogEntry, bool) {
@@ -2186,6 +2206,17 @@ spec:
 `, c.Namespace, c.Namespace, c.NamespaceGuard.RequestsCPU, c.NamespaceGuard.RequestsMemory, c.NamespaceGuard.LimitsCPU, c.NamespaceGuard.LimitsMemory, c.NamespaceGuard.Pods)
 }
 
+func serviceAccountTemplate(c onboardServiceConfig) string {
+	return fmt.Sprintf(`apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: %s
+  namespace: %s
+imagePullSecrets:
+  - name: gitlab-registry-pull
+`, serviceAccountName(c), c.Namespace)
+}
+
 func deploymentTemplate(c onboardServiceConfig) string {
 	return fmt.Sprintf(`apiVersion: apps/v1
 kind: Deployment
@@ -2205,6 +2236,9 @@ spec:
         app.kubernetes.io/name: %s
 %s
     spec:
+      serviceAccountName: %s
+      imagePullSecrets:
+        - name: gitlab-registry-pull
       containers:
         - name: %s
           image: placeholder
@@ -2231,7 +2265,11 @@ spec:
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20
-%s%s`, c.Name, c.Namespace, c.Name, c.Replicas, c.Name, c.Name, storagePodAnnotationsTemplate(c), c.Container, c.Port, c.Resources.RequestCPU, c.Resources.RequestMemory, c.Resources.LimitCPU, c.Resources.LimitMemory, c.HealthPath, c.HealthPath, storageVolumeMountsTemplate(c.Storage), storageVolumesTemplate(c.Storage))
+%s%s%s`, c.Name, c.Namespace, c.Name, c.Replicas, c.Name, c.Name, storagePodAnnotationsTemplate(c), serviceAccountName(c), c.Container, c.Port, c.Resources.RequestCPU, c.Resources.RequestMemory, c.Resources.LimitCPU, c.Resources.LimitMemory, c.HealthPath, c.HealthPath, middlewareEnvFromTemplate(c.Middleware), storageVolumeMountsTemplate(c.Storage), storageVolumesTemplate(c.Storage))
+}
+
+func serviceAccountName(c onboardServiceConfig) string {
+	return sanitizeDNSLabel(firstNonEmpty(c.Container, c.Name, "app"))
 }
 
 func storagePodAnnotationsTemplate(c onboardServiceConfig) string {
@@ -2259,6 +2297,24 @@ func storageSoftLimitSummary(items []onboardStorageConfig) string {
 		parts = append(parts, item.Name+"="+limit)
 	}
 	return strings.Join(parts, ",")
+}
+
+func middlewareEnvFromTemplate(items []onboardMiddlewareConfig) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("          envFrom:\n")
+	seen := map[string]bool{}
+	for _, item := range items {
+		if item.Secret == "" || seen[item.Secret] {
+			continue
+		}
+		seen[item.Secret] = true
+		b.WriteString("            - secretRef:\n")
+		b.WriteString(fmt.Sprintf("                name: %s\n", item.Secret))
+	}
+	return b.String()
 }
 
 func storageVolumeMountsTemplate(items []onboardStorageConfig) string {
@@ -2298,6 +2354,351 @@ func storageVolumesTemplate(items []onboardStorageConfig) string {
 	return b.String()
 }
 
+func middlewareTemplate(c onboardServiceConfig, item onboardMiddlewareConfig) string {
+	switch sanitizeDNSLabel(item.Kind) {
+	case "mysql":
+		return mysqlMiddlewareTemplate(c, item)
+	case "postgres":
+		return postgresMiddlewareTemplate(c, item)
+	case "redis":
+		return redisMiddlewareTemplate(c, item)
+	case "s3":
+		return minioMiddlewareTemplate(c, item)
+	default:
+		return ""
+	}
+}
+
+func mysqlMiddlewareTemplate(c onboardServiceConfig, item onboardMiddlewareConfig) string {
+	name := middlewareWorkloadName(c, item)
+	password := middlewareDefaultPassword(c)
+	return fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: %s
+  namespace: %s
+type: Opaque
+stringData:
+  MYSQL_DATABASE: %s
+  MYSQL_USER: %s
+  MYSQL_PASSWORD: %s
+  MYSQL_ROOT_PASSWORD: %s
+  DATABASE_URL: mysql://%s:%s@%s.%s.svc.cluster.local:3306/%s
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    opspilot.io/middleware: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: %s
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: %s
+        opspilot.io/middleware: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: m.daocloud.io/docker.io/library/mysql:8.4
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: %s
+          ports:
+            - name: mysql
+              containerPort: 3306
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          readinessProbe:
+            tcpSocket:
+              port: mysql
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: mysql
+            initialDelaySeconds: 60
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  selector:
+    app.kubernetes.io/name: %s
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+`, item.Secret, c.Namespace, item.Resource, sanitizeDNSLabel(c.Name), password, password, sanitizeDNSLabel(c.Name), password, name, c.Namespace, item.Resource, name, c.Namespace, name, name, name, item.Secret, name, c.Namespace, name)
+}
+
+func postgresMiddlewareTemplate(c onboardServiceConfig, item onboardMiddlewareConfig) string {
+	name := middlewareWorkloadName(c, item)
+	password := middlewareDefaultPassword(c)
+	return fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: %s
+  namespace: %s
+type: Opaque
+stringData:
+  POSTGRES_DB: %s
+  POSTGRES_USER: %s
+  POSTGRES_PASSWORD: %s
+  DATABASE_URL: postgres://%s:%s@%s.%s.svc.cluster.local:5432/%s
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    opspilot.io/middleware: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: %s
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: %s
+        opspilot.io/middleware: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: m.daocloud.io/docker.io/library/postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: %s
+          ports:
+            - name: postgres
+              containerPort: 5432
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            tcpSocket:
+              port: postgres
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: postgres
+            initialDelaySeconds: 30
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  selector:
+    app.kubernetes.io/name: %s
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+`, item.Secret, c.Namespace, item.Resource, sanitizeDNSLabel(c.Name), password, sanitizeDNSLabel(c.Name), password, name, c.Namespace, item.Resource, name, c.Namespace, name, name, name, item.Secret, name, c.Namespace, name)
+}
+
+func redisMiddlewareTemplate(c onboardServiceConfig, item onboardMiddlewareConfig) string {
+	name := middlewareWorkloadName(c, item)
+	return fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: %s
+  namespace: %s
+type: Opaque
+stringData:
+  REDIS_URL: redis://%s.%s.svc.cluster.local:6379/0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    opspilot.io/middleware: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: %s
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: %s
+        opspilot.io/middleware: redis
+    spec:
+      containers:
+        - name: redis
+          image: m.daocloud.io/docker.io/library/redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  selector:
+    app.kubernetes.io/name: %s
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+`, item.Secret, c.Namespace, name, c.Namespace, name, c.Namespace, name, name, name, name, c.Namespace, name)
+}
+
+func minioMiddlewareTemplate(c onboardServiceConfig, item onboardMiddlewareConfig) string {
+	name := middlewareWorkloadName(c, item)
+	password := middlewareDefaultPassword(c)
+	bucket := sanitizeDNSLabel(c.Name)
+	return fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: %s
+  namespace: %s
+type: Opaque
+stringData:
+  MINIO_ROOT_USER: %s
+  MINIO_ROOT_PASSWORD: %s
+  S3_ENDPOINT: http://%s.%s.svc.cluster.local:9000
+  S3_BUCKET: %s
+  S3_ACCESS_KEY: %s
+  S3_SECRET_KEY: %s
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    opspilot.io/middleware: s3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: %s
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: %s
+        opspilot.io/middleware: s3
+    spec:
+      containers:
+        - name: minio
+          image: m.daocloud.io/docker.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+          imagePullPolicy: IfNotPresent
+          args: ["server", "/data"]
+          envFrom:
+            - secretRef:
+                name: %s
+          ports:
+            - name: s3
+              containerPort: 9000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: s3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3
+            initialDelaySeconds: 20
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  selector:
+    app.kubernetes.io/name: %s
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: s3
+`, item.Secret, c.Namespace, sanitizeDNSLabel(c.Name), password, name, c.Namespace, bucket, sanitizeDNSLabel(c.Name), password, name, c.Namespace, name, name, name, item.Secret, name, c.Namespace, name)
+}
+
+func middlewareAutoProvisioned(item onboardMiddlewareConfig) bool {
+	return strings.EqualFold(firstNonEmpty(item.Provision, "external"), "auto") && middlewareKindAutoProvisioned(item.Kind)
+}
+
+func middlewareKindAutoProvisioned(kind string) bool {
+	switch sanitizeDNSLabel(kind) {
+	case "mysql", "postgres", "redis", "s3":
+		return true
+	default:
+		return false
+	}
+}
+
+func middlewareWorkloadName(c onboardServiceConfig, item onboardMiddlewareConfig) string {
+	return sanitizeDNSLabel(c.Name + "-" + item.Name)
+}
+
+func middlewareDefaultPassword(c onboardServiceConfig) string {
+	sum := sha1.Sum([]byte(c.GitLabProject + "/" + c.Name))
+	return "opspilot-" + hex.EncodeToString(sum[:])[:12]
+}
+
 func serviceTemplate(c onboardServiceConfig) string {
 	return fmt.Sprintf(`apiVersion: v1
 kind: Service
@@ -2330,14 +2731,22 @@ func qualityTemplate(c onboardServiceConfig) string {
 `, c.Name, c.Namespace, c.Port, firstNonEmpty(c.HealthPath, "/health"))
 }
 
-func kustomizationTemplate() string {
-	return `resources:
+func kustomizationTemplate(c onboardServiceConfig) string {
+	var b strings.Builder
+	b.WriteString(`resources:
   - namespace.yaml
   - limitrange.yaml
   - resourcequota.yaml
+  - serviceaccount.yaml
   - deployment.yaml
   - service.yaml
-`
+`)
+	for _, item := range c.Middleware {
+		if middlewareAutoProvisioned(item) {
+			b.WriteString(fmt.Sprintf("  - middleware-%s.yaml\n", item.Name))
+		}
+	}
+	return b.String()
 }
 
 func releaseMapping(c onboardServiceConfig) string {

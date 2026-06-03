@@ -111,3 +111,49 @@ go test ./...
 Also ran a local demo repository containing MySQL and Redis client dependencies.
 `repo autofix --write` generated `opspilot.service.yaml` with shared MySQL and
 Redis intent, and `repo preflight` passed after generated files existed.
+
+## 2026-06-03 automatic lightweight middleware
+
+After the `demo-test` full-flow retest, middleware intent alone was not enough
+for the desired small-team workflow. OpsPilot now generates lightweight
+middleware manifests for common development dependencies:
+
+- Redis: Secret, Deployment, Service, resource limits, TCP probes.
+- MySQL: Secret, Deployment, Service, resource limits, TCP probes.
+- PostgreSQL: Secret, Deployment, Service, resource limits, TCP probes.
+- S3-compatible storage: MinIO Secret, Deployment, Service, resource limits,
+  HTTP health probes.
+
+The generated application Deployment now:
+
+- uses a service-specific ServiceAccount;
+- references `gitlab-registry-pull` for node206 GitLab Registry image pulls;
+- injects middleware connection Secrets through `envFrom`;
+- keeps CPU/memory requests and limits on both application and middleware
+  containers.
+
+Heavy middleware such as Kafka, RabbitMQ, and OpenSearch remains detected as
+`provision: external` by default. They should be backed by platform/shared
+services unless a future policy explicitly enables dedicated instances, because
+auto-starting them for every small service can exhaust a single-node or small
+test cluster.
+
+Validation:
+
+- `go test ./cli ./core/...`
+- Generated a temporary FastAPI demo with Redis signals through
+  `opspilot onboard generate --write --force`.
+- Verified generated files include `serviceaccount.yaml`,
+  `middleware-redis.yaml`, application `envFrom`, and `gitlab-registry-pull`.
+- Verified `kubectl kustomize deploy/k8s` renders Namespace, ServiceAccount,
+  application Deployment, Redis Secret, Redis Deployment, and Redis Service.
+
+Release inspection defect fix:
+
+- `inspect service` / release status no longer fails immediately when a new
+  service is missing from `OPSPILOT_RELEASE_SERVICES`.
+- The release registry falls back to a read-only Kubernetes Deployment lookup
+  by service name and returns current Pod/log/metric evidence.
+- The result records `release_mapping_missing`, so AI can explain that
+  GitLab/GitOps evidence may be incomplete while Kubernetes evidence is still
+  usable.
