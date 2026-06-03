@@ -1648,6 +1648,32 @@ const apiToken = "0123456789abcdef"
 	}
 }
 
+func TestRepoPrecheckSkipsGeneratedOpsPilotServiceConfig(t *testing.T) {
+	dir := t.TempDir()
+	config := `name: demo-api
+middleware:
+  mysql:
+    secret: demo-api-mysql-conn
+`
+	if err := os.WriteFile(filepath.Join(dir, "opspilot.service.yaml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"repo", "precheck", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out); err != nil {
+		t.Fatalf("expected generated config to be skipped: %v\n%s", err, out.String())
+	}
+	var payload codePrecheckResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Status == "blocker" {
+		t.Fatalf("generated config should not trigger blocker: %#v", payload.Items)
+	}
+}
+
 func TestCITemplatesIncludeCodePrecheck(t *testing.T) {
 	root := filepath.Join("..", "..", "ci", "templates")
 	for _, name := range []string{

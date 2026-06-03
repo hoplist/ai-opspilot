@@ -739,6 +739,9 @@ func shouldScanCodePrecheckFile(path string) bool {
 	}
 	base := strings.ToLower(filepath.Base(path))
 	if base == ".gitlab-ci.yml" ||
+		base == "opspilot.service.yaml" ||
+		base == "opspilot.namespaces.yaml" ||
+		base == "opspilot.release-service.txt" ||
 		strings.HasSuffix(base, "_test.go") ||
 		strings.HasSuffix(base, ".test.js") ||
 		strings.HasSuffix(base, ".test.ts") ||
