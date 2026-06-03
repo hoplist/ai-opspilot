@@ -379,6 +379,11 @@ The shared `ci/templates/buildkit-gitops.go.yml` also includes:
 - `code-precheck`: scans source code, writes
   `.opspilot/evidence/code-precheck.json`, and blocks only high-confidence
   dangerous findings.
+- Frontend templates also run `prebuild:image-smoke` before image push and
+  GitOps update. It uses BuildKit to build the final image filesystem and
+  writes `.opspilot/evidence/frontend-image-smoke.json`, catching missing
+  `index.html`, missing JavaScript assets, and common blank-page risks such as
+  Vue runtime-only inline templates without compiler support.
 - BuildKit packaging, GitOps update, and Argo Application registration in the
   app-of-apps `apps/kustomization.yaml`.
 

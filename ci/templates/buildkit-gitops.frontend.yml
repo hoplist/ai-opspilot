@@ -2,6 +2,7 @@ stages:
   - preflight
   - code-precheck
   - test
+  - prebuild-smoke
   - build
   - update-gitops
 
@@ -132,6 +133,28 @@ code-precheck:
                   elif any(x in lower for x in ['http.get(', 'http.post(', 'requests.get(', 'requests.post(', 'new resttemplate', 'webclient.create(']) and 'timeout' not in lower:
                       add('missing_timeout_hint', 'warning', 'reliability', path, idx, 'outbound client call may need an explicit timeout', raw, 'code-reviewer', 'Configure request/database/client timeout to avoid stuck workers.')
 
+      try:
+          package_json = open('package.json', encoding='utf-8', errors='ignore').read()
+      except OSError:
+          package_json = ''
+      has_vue = '"vue"' in package_json
+      has_vite_plugin_vue = '@vitejs/plugin-vue' in package_json
+      if has_vue and not has_vite_plugin_vue:
+          for root, dirs, files in os.walk('./src'):
+              dirs[:] = [d for d in dirs if d not in skip_dirs]
+              for name in files:
+                  if not name.endswith(('.js', '.jsx', '.mjs', '.ts', '.tsx')):
+                      continue
+                  path = os.path.join(root, name)
+                  try:
+                      text = open(path, encoding='utf-8', errors='ignore').read()
+                  except OSError:
+                      continue
+                  for match in re.finditer(r'(^|[,{]\s*)template\s*:', text):
+                      line_no = text.count('\n', 0, match.start()) + 1
+                      line = text.splitlines()[line_no - 1] if line_no <= len(text.splitlines()) else 'template:'
+                      add('vue_runtime_template_without_compiler', 'blocker', 'frontend', path, line_no, 'Vue runtime-only build uses an inline template without @vitejs/plugin-vue/compiler support', line, 'vue-expert-js', 'Use a .vue SFC with @vitejs/plugin-vue, configure the full Vue compiler build explicitly, or render with h()/render functions.')
+
       blockers = sum(1 for item in items if item['severity'] == 'blocker')
       warnings = sum(1 for item in items if item['severity'] == 'warning')
       payload = {
@@ -167,6 +190,66 @@ test:frontend:
     - if [ -f package-lock.json ]; then npm ci; else npm install; fi
     - npm test --if-present
     - npm run build
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+prebuild:image-smoke:
+  stage: prebuild-smoke
+  image:
+    name: "$BUILDKIT_IMAGE"
+    entrypoint: [""]
+  needs:
+    - job: test:frontend
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+    IMAGE_ROOT: ".opspilot/image-root"
+  script:
+    - rm -rf "$IMAGE_ROOT"
+    - mkdir -p "$IMAGE_ROOT" .opspilot/evidence
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=. \
+        --opt filename="$DOCKERFILE_PATH" \
+        --opt build-arg:HTTP_PROXY="${HTTP_PROXY:-}" \
+        --opt build-arg:HTTPS_PROXY="${HTTPS_PROXY:-}" \
+        --opt build-arg:NO_PROXY="${NO_PROXY:-}" \
+        --output type=local,dest="$IMAGE_ROOT"
+    - |
+      set -eu
+      html_dir=""
+      for candidate in \
+        "$IMAGE_ROOT/usr/share/nginx/html" \
+        "$IMAGE_ROOT/app/dist" \
+        "$IMAGE_ROOT/dist" \
+        "$IMAGE_ROOT"; do
+        if [ -f "$candidate/index.html" ]; then
+          html_dir="$candidate"
+          break
+        fi
+      done
+      if [ -z "$html_dir" ]; then
+        printf '{"status":"blocker","ready":false,"items":[{"id":"frontend_image_missing_index","severity":"blocker","message":"frontend image does not contain index.html"}]}\n' > .opspilot/evidence/frontend-image-smoke.json
+        cat .opspilot/evidence/frontend-image-smoke.json
+        exit 1
+      fi
+      scripts="$(grep -Eo 'src="/[^"]+\.js"' "$html_dir/index.html" | sed -E 's/src="\/(.*)"/\1/' || true)"
+      if [ -z "$scripts" ]; then
+        printf '{"status":"blocker","ready":false,"items":[{"id":"frontend_image_missing_js","severity":"blocker","message":"index.html does not reference a built JavaScript asset"}]}\n' > .opspilot/evidence/frontend-image-smoke.json
+        cat .opspilot/evidence/frontend-image-smoke.json
+        exit 1
+      fi
+      for script in $scripts; do
+        test -s "$html_dir/$script"
+      done
+      printf '{"status":"pass","ready":true,"html_dir":"%s","checked":"index.html and referenced JavaScript assets exist in the final image filesystem"}\n' "$html_dir" > .opspilot/evidence/frontend-image-smoke.json
+      cat .opspilot/evidence/frontend-image-smoke.json
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - .opspilot/evidence/frontend-image-smoke.json
   rules:
     - if: $CI_COMMIT_BRANCH
 
