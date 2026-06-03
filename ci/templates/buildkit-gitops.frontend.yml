@@ -63,17 +63,53 @@ code-precheck:
       basenames = {'dockerfile', '.env', '.env.example', 'application.yml', 'application.yaml', 'application.properties'}
       items = []
 
+      def decision_for(severity):
+          if severity == 'blocker':
+              return 'block_release'
+          if severity == 'warning':
+              return 'warn_only'
+          return 'suggest_only'
+
+      def fix_options_for(rule):
+          if rule == 'vue_runtime_template_without_compiler':
+              return [
+                  'Recommended: convert the component to a .vue single-file component and add @vitejs/plugin-vue to Vite.',
+                  'Alternative: keep JavaScript-only code and replace template: with an h()/render function.',
+                  'Alternative: explicitly configure a Vue build that includes the runtime compiler.',
+              ]
+          if rule == 'secret_leak':
+              return [
+                  'Move the value to a GitLab CI variable or Kubernetes Secret.',
+                  'Rotate the token/password if it is real.',
+                  'Replace committed examples with placeholders such as YOUR_TOKEN_HERE.',
+              ]
+          if rule == 'db_unguarded_write':
+              return [
+                  'Add a WHERE condition and verify affected rows.',
+                  'Move bulk writes to an explicit migration/admin task.',
+              ]
+          if rule == 'db_full_table_read':
+              return [
+                  'Add pagination or LIMIT.',
+                  'Add filtering and confirm an index exists for the filter.',
+              ]
+          return []
+
       def add(rule, severity, category, path, line_no, message, line, skill, recommendation):
           items.append({
               'id': rule,
               'severity': severity,
               'category': category,
+              'gate': 'auto_quality',
+              'decision': decision_for(severity),
+              'audience': 'vibecoding',
               'path': path,
               'line': line_no,
               'message': message,
               'snippet': ' '.join(line.strip().split())[:160],
               'skill': skill,
               'recommendation': recommendation,
+              'fix_options': fix_options_for(rule),
           })
 
       def should_scan(path):
@@ -153,7 +189,7 @@ code-precheck:
                   for match in re.finditer(r'(^|[,{]\s*)template\s*:', text):
                       line_no = text.count('\n', 0, match.start()) + 1
                       line = text.splitlines()[line_no - 1] if line_no <= len(text.splitlines()) else 'template:'
-                      add('vue_runtime_template_without_compiler', 'blocker', 'frontend', path, line_no, 'Vue runtime-only build uses an inline template without @vitejs/plugin-vue/compiler support', line, 'vue-expert-js', 'Use a .vue SFC with @vitejs/plugin-vue, configure the full Vue compiler build explicitly, or render with h()/render functions.')
+                      add('vue_runtime_template_without_compiler', 'blocker', 'frontend', path, line_no, 'Vue runtime-only build uses an inline template without compiler support', line, 'vue-expert-js', 'Use a .vue SFC with @vitejs/plugin-vue, configure the full Vue compiler build explicitly, or render with h()/render functions.')
 
       blockers = sum(1 for item in items if item['severity'] == 'blocker')
       warnings = sum(1 for item in items if item['severity'] == 'warning')
@@ -164,6 +200,14 @@ code-precheck:
           'ready': blockers == 0,
           'summary': {'blockers': blockers, 'warnings': warnings, 'passed': 0},
           'items': items,
+          'policy': {
+              'owner': 'opspilot',
+              'audience': 'vibecoding',
+              'mode': 'automatic_quality_gate',
+              'human_approval_required': False,
+              'blocker_rule': 'block only high-confidence failures that are likely to break runtime, expose secrets, corrupt data, or endanger nodes',
+              'warning_rule': 'do not block uncertain findings; provide AI-readable repair guidance',
+          },
           'skills': ['code-reviewer', 'security-reviewer', 'secure-code-guardian', 'database-optimizer', 'debugging-wizard'],
           'next': ['fix blocker findings before BuildKit packaging'] if blockers else ['continue to language tests and BuildKit packaging'],
       }

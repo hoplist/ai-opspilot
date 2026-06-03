@@ -52,15 +52,28 @@ type codePrecheckSummary struct {
 }
 
 type codePrecheckItem struct {
-	ID             string `json:"id"`
-	Severity       string `json:"severity"`
-	Category       string `json:"category"`
-	Path           string `json:"path"`
-	Line           int    `json:"line"`
-	Message        string `json:"message"`
-	Snippet        string `json:"snippet,omitempty"`
-	Skill          string `json:"skill"`
-	Recommendation string `json:"recommendation"`
+	ID             string   `json:"id"`
+	Severity       string   `json:"severity"`
+	Category       string   `json:"category"`
+	Gate           string   `json:"gate,omitempty"`
+	Decision       string   `json:"decision,omitempty"`
+	Audience       string   `json:"audience,omitempty"`
+	Path           string   `json:"path"`
+	Line           int      `json:"line"`
+	Message        string   `json:"message"`
+	Snippet        string   `json:"snippet,omitempty"`
+	Skill          string   `json:"skill"`
+	Recommendation string   `json:"recommendation"`
+	FixOptions     []string `json:"fix_options,omitempty"`
+}
+
+type codePrecheckPolicy struct {
+	Owner                 string `json:"owner"`
+	Audience              string `json:"audience"`
+	Mode                  string `json:"mode"`
+	HumanApprovalRequired bool   `json:"human_approval_required"`
+	BlockerRule           string `json:"blocker_rule"`
+	WarningRule           string `json:"warning_rule"`
 }
 
 type codePrecheckResult struct {
@@ -70,6 +83,7 @@ type codePrecheckResult struct {
 	Ready        bool                `json:"ready"`
 	Summary      codePrecheckSummary `json:"summary"`
 	Items        []codePrecheckItem  `json:"items"`
+	Policy       codePrecheckPolicy  `json:"policy"`
 	EvidencePath string              `json:"evidence_path,omitempty"`
 	Skills       []string            `json:"skills"`
 	Next         []string            `json:"next,omitempty"`
@@ -616,6 +630,14 @@ func codePrecheck(project string) (codePrecheckResult, error) {
 		Status:  "pass",
 		Ready:   true,
 		Items:   items,
+		Policy: codePrecheckPolicy{
+			Owner:                 "opspilot",
+			Audience:              "vibecoding",
+			Mode:                  "automatic_quality_gate",
+			HumanApprovalRequired: false,
+			BlockerRule:           "block only high-confidence failures that are likely to break runtime, expose secrets, corrupt data, or endanger nodes",
+			WarningRule:           "do not block uncertain findings; provide AI-readable repair guidance",
+		},
 		Skills: []string{
 			"code-reviewer",
 			"security-reviewer",
@@ -655,6 +677,10 @@ func writeCodePrecheck(out io.Writer, output string, result codePrecheckResult) 
 	return writeOutput(out, output, result, func(w io.Writer) error {
 		fmt.Fprintf(w, "Code precheck: %s status=%s ready=%t blockers=%d warnings=%d\n",
 			result.Service, result.Status, result.Ready, result.Summary.Blockers, result.Summary.Warnings)
+		if result.Policy.Mode != "" {
+			fmt.Fprintf(w, "Policy: %s audience=%s human_approval_required=%t\n",
+				result.Policy.Mode, result.Policy.Audience, result.Policy.HumanApprovalRequired)
+		}
 		if result.EvidencePath != "" {
 			fmt.Fprintf(w, "Evidence: %s\n", result.EvidencePath)
 		}
@@ -715,6 +741,7 @@ func scanCodePrecheckItems() ([]codePrecheckItem, error) {
 		items = append(items, scanCodePrecheckText(filepath.ToSlash(path), string(body))...)
 		return nil
 	})
+	items = append(items, scanVueRuntimeTemplateFindings()...)
 	return dedupeCodePrecheckItems(items), err
 }
 
@@ -821,16 +848,109 @@ func isCodePrecheckRuleDefinitionLine(lower string) bool {
 }
 
 func codePrecheckFinding(id, severity, category, path string, line int, message, snippet, skill, recommendation string) codePrecheckItem {
+	decision := "suggest_only"
+	if severity == "blocker" {
+		decision = "block_release"
+	} else if severity == "warning" {
+		decision = "warn_only"
+	}
 	return codePrecheckItem{
 		ID:             id,
 		Severity:       severity,
 		Category:       category,
+		Gate:           "auto_quality",
+		Decision:       decision,
+		Audience:       "vibecoding",
 		Path:           path,
 		Line:           line,
 		Message:        message,
 		Snippet:        truncateSnippet(snippet),
 		Skill:          skill,
 		Recommendation: recommendation,
+		FixOptions:     codePrecheckFixOptions(id),
+	}
+}
+
+func scanVueRuntimeTemplateFindings() []codePrecheckItem {
+	body, ok := readSmallTextFile("package.json")
+	if !ok {
+		return nil
+	}
+	packageJSON := string(body)
+	if !strings.Contains(packageJSON, `"vue"`) || strings.Contains(packageJSON, "@vitejs/plugin-vue") {
+		return nil
+	}
+	items := []codePrecheckItem{}
+	templatePattern := regexp.MustCompile(`(^|[,{]\s*)template\s*:`)
+	_ = filepath.WalkDir("src", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if shouldSkipCodePrecheckDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".js" && ext != ".jsx" && ext != ".mjs" && ext != ".ts" && ext != ".tsx" {
+			return nil
+		}
+		body, ok := readSmallTextFile(path)
+		if !ok {
+			return nil
+		}
+		text := string(body)
+		lines := strings.Split(text, "\n")
+		for _, match := range templatePattern.FindAllStringIndex(text, -1) {
+			lineNo := strings.Count(text[:match[0]], "\n") + 1
+			line := "template:"
+			if lineNo > 0 && lineNo <= len(lines) {
+				line = strings.TrimSpace(lines[lineNo-1])
+			}
+			items = append(items, codePrecheckFinding(
+				"vue_runtime_template_without_compiler",
+				"blocker",
+				"frontend",
+				filepath.ToSlash(path),
+				lineNo,
+				"Vue runtime-only build uses an inline template without compiler support",
+				line,
+				"vue-expert-js",
+				"Use a .vue SFC with @vitejs/plugin-vue, configure the full Vue compiler build explicitly, or render with h()/render functions.",
+			))
+		}
+		return nil
+	})
+	return items
+}
+
+func codePrecheckFixOptions(id string) []string {
+	switch id {
+	case "vue_runtime_template_without_compiler":
+		return []string{
+			"Recommended: convert the component to a .vue single-file component and add @vitejs/plugin-vue to Vite.",
+			"Alternative: keep JavaScript-only code and replace template: with an h()/render function.",
+			"Alternative: explicitly configure a Vue build that includes the runtime compiler.",
+		}
+	case "secret_leak":
+		return []string{
+			"Move the value to a GitLab CI variable or Kubernetes Secret.",
+			"Rotate the token/password if it is real.",
+			"Replace committed examples with placeholders such as YOUR_TOKEN_HERE.",
+		}
+	case "db_unguarded_write":
+		return []string{
+			"Add a WHERE condition and verify affected rows.",
+			"Move bulk writes to an explicit migration/admin task.",
+		}
+	case "db_full_table_read":
+		return []string{
+			"Add pagination or LIMIT.",
+			"Add filtering and confirm an index exists for the filter.",
+		}
+	default:
+		return nil
 	}
 }
 

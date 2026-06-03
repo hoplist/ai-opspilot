@@ -173,6 +173,12 @@ This writes:
 .opspilot/evidence/code-precheck.json
 ```
 
+This is an automatic OpsPilot quality gate for vibecoding-style repositories,
+not a manual operations approval step. Evidence includes a `policy` block with
+`human_approval_required=false`. High-confidence `blocker` findings stop the
+release and include concrete `fix_options`; uncertain findings remain
+`warning` and should be explained by AI without blocking the release.
+
 `repo autofix --write` writes missing platform-managed files. Add `--force`
 when the repository already contains a local Dockerfile, local CI, or manifests
 that must be replaced by the platform standard.

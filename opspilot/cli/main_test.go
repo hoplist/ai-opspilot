@@ -1614,6 +1614,49 @@ func wipe() string {
 	}
 }
 
+func TestRepoPrecheckBlocksVueRuntimeTemplateWithoutCompiler(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"vue":"^3.5.0"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `import { createApp } from "vue";
+
+const App = {
+  template: "<main>blank risk</main>",
+};
+
+createApp(App).mount("#app");
+`
+	if err := os.WriteFile(filepath.Join(src, "main.js"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := run([]string{"repo", "precheck", "--repo", dir, "--project", "tpo/devex/demo/demo-web"}, &out)
+	if err == nil {
+		t.Fatal("expected Vue runtime template precheck to fail")
+	}
+	var payload codePrecheckResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Policy.Mode != "automatic_quality_gate" || payload.Policy.HumanApprovalRequired {
+		t.Fatalf("policy = %#v", payload.Policy)
+	}
+	if payload.Status != "blocker" || payload.Ready || payload.Summary.Blockers == 0 {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if payload.Items[0].ID != "vue_runtime_template_without_compiler" {
+		t.Fatalf("item = %#v", payload.Items[0])
+	}
+	if payload.Items[0].Decision != "block_release" || len(payload.Items[0].FixOptions) == 0 {
+		t.Fatalf("expected AI-readable fix options: %#v", payload.Items[0])
+	}
+}
+
 func TestRepoPrecheckWritesEvidence(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
@@ -1697,6 +1740,22 @@ func TestCITemplatesIncludeCodePrecheck(t *testing.T) {
 			if !bytes.Contains(body, expected) {
 				t.Fatalf("%s missing %s", name, expected)
 			}
+		}
+	}
+	frontend, err := os.ReadFile(filepath.Join(root, "buildkit-gitops.frontend.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range [][]byte{
+		[]byte("prebuild:image-smoke"),
+		[]byte(".opspilot/evidence/frontend-image-smoke.json"),
+		[]byte("vue_runtime_template_without_compiler"),
+		[]byte("fix_options"),
+		[]byte("automatic_quality_gate"),
+		[]byte("human_approval_required"),
+	} {
+		if !bytes.Contains(frontend, expected) {
+			t.Fatalf("frontend template missing %s", expected)
 		}
 	}
 }
