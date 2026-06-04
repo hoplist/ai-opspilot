@@ -10,7 +10,7 @@ func TestCredentialRegistrationPlan(t *testing.T) {
 	if plan.Type != "credential" || plan.Kind != "mysql" || plan.Automation != "plan_first" {
 		t.Fatalf("plan = %#v", plan)
 	}
-	if plan.Credential.Name != "demo-api-mysql-credentials" || plan.Credential.Storage != "kubernetes-secret" {
+	if plan.Credential.Name != "demo-api-mysql-credentials" || plan.Credential.Storage != "kubernetes-credential-ref" {
 		t.Fatalf("credential = %#v", plan.Credential)
 	}
 	if len(plan.RequiredKeys) != 1 || plan.RequiredKeys[0] != "DATABASE_URL" {
