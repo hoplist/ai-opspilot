@@ -47,6 +47,21 @@ The plan separates:
 Data is kept by default. Data deletion and GitLab project deletion remain
 blocked/high-risk actions.
 
+## Demo Safety Test
+
+Demo verification found and fixed one safety edge case: an unmapped service
+could show GitOps removal actions even when the GitOps path or Argo CD
+Application mapping was missing. Execution was still disabled in v1, so no
+cluster mutation could happen, but the plan was too optimistic for a future
+`--confirm` flow.
+
+The decommission planner now requires complete namespace, deployment, GitOps
+path, Argo CD Application, and `keep-data=true` evidence before any
+`controlled_mutate` action is shown. If those mappings are missing, OpsPilot
+keeps only read-only verification in allowed actions and moves GitOps,
+namespace, data, and GitLab project removal to `high_risk`/`plan_only` blocked
+actions.
+
 ## Implemented Commands
 
 ```text

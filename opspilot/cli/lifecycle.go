@@ -425,30 +425,7 @@ func runAppDecommissionPlan(opts globalOptions, args []string, out io.Writer) er
 }
 
 func decommissionActions(release releaseServiceResult, inspection inspectServiceResult, inspectErr error, keepData bool) ([]lifecycleAction, []lifecycleAction) {
-	actions := []lifecycleAction{
-		{
-			ID:           "remove_gitops_application",
-			Category:     "gitops",
-			Risk:         "controlled_mutate",
-			Action:       "remove Argo Application manifest from GitOps",
-			Target:       firstNonEmptyString(stringValue(release.ArgoCD["name"]), release.Service),
-			Reason:       "Argo CD prune should delete desired workload resources after GitOps commit.",
-			Automation:   "confirm_allowed",
-			Requires:     []string{"service mapping exists", "GitOps diff reviewed", "keep-data=true"},
-			RollbackHint: "revert the GitOps decommission commit",
-		},
-		{
-			ID:           "remove_gitops_workload_manifests",
-			Category:     "gitops",
-			Risk:         "controlled_mutate",
-			Action:       "remove service workload manifests from GitOps",
-			Target:       stringValue(release.GitOps["path"]),
-			Reason:       "GitOps is the source of truth for workload desired state.",
-			Automation:   "confirm_allowed",
-			Requires:     []string{"GitOps path mapping exists", "no shared namespace guardrail removal"},
-			RollbackHint: "revert the GitOps decommission commit",
-		},
-	}
+	actions := []lifecycleAction{}
 	blocked := []lifecycleAction{
 		{
 			ID:         "delete_persistent_data",
@@ -471,7 +448,59 @@ func decommissionActions(release releaseServiceResult, inspection inspectService
 			BlockedBy:  []string{"GitLab project deletion is forbidden for automatic execution"},
 		},
 	}
-	if release.Namespace != "" && strings.HasPrefix(release.Namespace, "cicd-demo") {
+
+	mappingGaps := decommissionMappingGaps(release, keepData)
+	if len(mappingGaps) == 0 {
+		actions = append(actions,
+			lifecycleAction{
+				ID:           "remove_gitops_application",
+				Category:     "gitops",
+				Risk:         "controlled_mutate",
+				Action:       "remove Argo Application manifest from GitOps",
+				Target:       firstNonEmptyString(argocdAppName(release), release.Service),
+				Reason:       "Argo CD prune should delete desired workload resources after GitOps commit.",
+				Automation:   "confirm_allowed",
+				Requires:     []string{"service mapping exists", "GitOps diff reviewed", "keep-data=true"},
+				RollbackHint: "revert the GitOps decommission commit",
+			},
+			lifecycleAction{
+				ID:           "remove_gitops_workload_manifests",
+				Category:     "gitops",
+				Risk:         "controlled_mutate",
+				Action:       "remove service workload manifests from GitOps",
+				Target:       stringValue(release.GitOps["path"]),
+				Reason:       "GitOps is the source of truth for workload desired state.",
+				Automation:   "confirm_allowed",
+				Requires:     []string{"GitOps path mapping exists", "no shared namespace guardrail removal"},
+				RollbackHint: "revert the GitOps decommission commit",
+			},
+		)
+	} else {
+		blocked = append(blocked,
+			lifecycleAction{
+				ID:         "remove_gitops_application",
+				Category:   "gitops",
+				Risk:       "high_risk",
+				Action:     "remove Argo Application manifest from GitOps",
+				Target:     firstNonEmptyString(argocdAppName(release), release.Service),
+				Reason:     "Application removal is unsafe until service ownership and Argo CD mapping are complete.",
+				Automation: "plan_only",
+				BlockedBy:  mappingGaps,
+			},
+			lifecycleAction{
+				ID:         "remove_gitops_workload_manifests",
+				Category:   "gitops",
+				Risk:       "high_risk",
+				Action:     "remove service workload manifests from GitOps",
+				Target:     stringValue(release.GitOps["path"]),
+				Reason:     "Workload manifest removal is unsafe without an exact GitOps path.",
+				Automation: "plan_only",
+				BlockedBy:  mappingGaps,
+			},
+		)
+	}
+
+	if release.Namespace != "" && strings.HasPrefix(release.Namespace, "cicd-demo") && len(mappingGaps) == 0 {
 		actions = append(actions, lifecycleAction{
 			ID:         "delete_demo_namespace_when_empty",
 			Category:   "kubernetes",
@@ -483,6 +512,10 @@ func decommissionActions(release releaseServiceResult, inspection inspectService
 			Requires:   []string{"opspilot.io/temporary=true or sandbox namespace policy", "no PVC/PV/data resources"},
 		})
 	} else if release.Namespace != "" {
+		blockedBy := []string{"namespace deletion is high risk outside fully mapped sandbox/demo scope"}
+		if len(mappingGaps) > 0 {
+			blockedBy = append(blockedBy, mappingGaps...)
+		}
 		blocked = append(blocked, lifecycleAction{
 			ID:         "delete_namespace",
 			Category:   "kubernetes",
@@ -491,7 +524,7 @@ func decommissionActions(release releaseServiceResult, inspection inspectService
 			Target:     release.Namespace,
 			Reason:     "Namespaces may contain shared services, secrets, PVCs, or multiple applications.",
 			Automation: "plan_only",
-			BlockedBy:  []string{"namespace deletion is high risk outside sandbox/demo scope"},
+			BlockedBy:  uniqueStrings(blockedBy),
 		})
 	}
 	if inspectErr == nil && inspection.PodCount > 0 {
@@ -509,6 +542,30 @@ func decommissionActions(release releaseServiceResult, inspection inspectService
 	sortLifecycleActions(actions)
 	sortLifecycleActions(blocked)
 	return actions, blocked
+}
+
+func decommissionMappingGaps(release releaseServiceResult, keepData bool) []string {
+	gaps := []string{}
+	if !keepData {
+		gaps = append(gaps, "keep-data=false requires a separate data deletion review")
+	}
+	if release.Namespace == "" {
+		gaps = append(gaps, "namespace mapping missing")
+	}
+	if release.Deployment == "" {
+		gaps = append(gaps, "deployment mapping missing")
+	}
+	if stringValue(release.GitOps["path"]) == "" {
+		gaps = append(gaps, "gitops path mapping missing")
+	}
+	if argocdAppName(release) == "" {
+		gaps = append(gaps, "argocd application mapping missing")
+	}
+	return uniqueStrings(gaps)
+}
+
+func argocdAppName(release releaseServiceResult) string {
+	return firstNonEmptyString(stringValue(release.ArgoCD["name"]), stringValue(release.ArgoCD["app"]))
 }
 
 func writeJanitorPlanHuman(result janitorPlanResult) func(io.Writer) error {
