@@ -358,27 +358,22 @@ func runSkillsRegistry(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("skills registry", flag.ExitOnError)
 	category := fs.String("category", "", "skill category filter")
 	integratedOnly := fs.Bool("integrated-only", false, "show only integrated skills")
-	local := fs.Bool("local", false, "use embedded CLI registry instead of backend")
 	_ = fs.Parse(args)
 
-	result, err := fetchSkillsRegistry(opts.backendURL, *category, *integratedOnly, *local)
+	result, err := fetchSkillsRegistry(opts.backendURL, *category, *integratedOnly)
 	if err != nil {
 		return err
 	}
 	return writeOutput(out, opts.output, result, writeSkillsRegistryHuman(result))
 }
 
-func fetchSkillsRegistry(backendURL, category string, integratedOnly, local bool) (skillsRegistryResult, error) {
-	if local {
-		return skillsResultFromCatalog(skillregistry.Registry(category, integratedOnly), nil), nil
-	}
+func fetchSkillsRegistry(backendURL, category string, integratedOnly bool) (skillsRegistryResult, error) {
 	body, err := get(backendURL, "/api/skills/registry", url.Values{
 		"category":        {category},
 		"integrated_only": {strconv.FormatBool(integratedOnly)},
 	})
 	if err != nil {
-		warning := "backend skills registry unavailable; using CLI embedded registry: " + err.Error()
-		return skillsResultFromCatalog(skillregistry.Registry(category, integratedOnly), []string{warning}), nil
+		return skillsRegistryResult{}, fmt.Errorf("backend skills registry unavailable: %w", err)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {

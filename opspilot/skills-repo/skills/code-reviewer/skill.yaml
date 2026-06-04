@@ -1,0 +1,27 @@
+name: code-reviewer
+label: Code Reviewer
+category: code-quality
+integration_tier: ci-evidence
+integrated: true
+priority: 58
+summary: Explains OpsPilot code-precheck evidence for correctness, dangerous logic, N+1 patterns, and maintainability risks.
+use_when:
+  - GitLab code-precheck has warnings or blockers
+  - repository code needs safe review before release
+  - AI needs to explain source-level findings
+evidence:
+  - code-precheck.json
+  - repo precheck
+  - file path
+  - line number
+  - rule id
+  - recommendation
+commands:
+  - repo precheck
+  - repo precheck --write
+  - release jobs
+  - release logs
+boundaries:
+  - do not block on style preferences
+  - only high-confidence blocker rules should stop CI
+source_description: GitLab-backed runtime skill for OpsPilot code precheck evidence.

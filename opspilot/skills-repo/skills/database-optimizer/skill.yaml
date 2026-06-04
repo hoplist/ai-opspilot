@@ -1,0 +1,26 @@
+name: database-optimizer
+label: Database Optimizer
+category: database
+integration_tier: ci-evidence
+integrated: true
+priority: 55
+summary: Explains database-related precheck evidence including destructive SQL, unguarded writes, full-table scans, and possible N+1 queries.
+use_when:
+  - code-precheck reports database blockers
+  - query may scan full table
+  - loop contains database access
+  - pagination or index guidance is needed
+evidence:
+  - code-precheck.json
+  - db_destructive_sql
+  - db_unguarded_write
+  - db_full_table_read
+  - possible_n_plus_one
+commands:
+  - repo precheck
+  - release logs
+  - fix service --dry-run
+boundaries:
+  - do not run production EXPLAIN from OpsPilot without explicit scope
+  - precheck rules are static hints unless runtime DB evidence is attached
+source_description: GitLab-backed runtime skill for database code-precheck evidence.

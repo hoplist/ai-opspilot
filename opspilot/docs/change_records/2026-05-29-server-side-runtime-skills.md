@@ -5,7 +5,7 @@
 Move OpsPilot skills from client-local files toward a server-side runtime
 registry. Users and thin clients should only talk to OpsPilot. OpsPilot loads
 approved skills from a GitLab-backed repository, maps them to safe OpsPilot
-commands, and keeps the embedded registry as fallback.
+commands, and does not require client-local Codex skill files.
 
 ## Decisions
 
@@ -27,8 +27,8 @@ commands, and keeps the embedded registry as fallback.
 ## Runtime behavior
 
 - `GET /api/skills/registry` now loads dynamic skills when available.
-- If dynamic skills are missing or invalid, OpsPilot returns the embedded
-  registry and includes warnings.
+- If dynamic skills are missing or invalid, OpsPilot reports the GitLab-backed
+  registry as unavailable and includes warnings.
 - The loader resolves a symlinked skills root before scanning, which matches
   the sidecar's `current -> releases/<commit>` switch model.
 - `GET /api/capabilities` reports the active skills source, source path,

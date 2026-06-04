@@ -55,7 +55,7 @@ func TestRegistryWithOptionsLoadsDynamicSkills(t *testing.T) {
 	if len(warnings) != 0 {
 		t.Fatalf("warnings = %#v", warnings)
 	}
-	if catalog.Source != "dynamic+embedded" || catalog.SourceVersion != "abc123" || catalog.DynamicCount != 1 {
+	if catalog.Source != "gitlab" || catalog.SourceVersion != "abc123" || catalog.DynamicCount != 1 || catalog.ItemCount != 1 {
 		t.Fatalf("catalog source = %#v", catalog)
 	}
 	found := false
@@ -87,7 +87,7 @@ func TestRegistryWithOptionsLoadsDynamicSkillsFromSymlinkRoot(t *testing.T) {
 	if len(warnings) != 0 {
 		t.Fatalf("warnings = %#v", warnings)
 	}
-	if catalog.Source != "dynamic+embedded" || catalog.DynamicCount != 1 || !hasSkill(catalog.Items, "opspilot-ops") {
+	if catalog.Source != "gitlab" || catalog.DynamicCount != 1 || !hasSkill(catalog.Items, "opspilot-ops") {
 		t.Fatalf("catalog = %#v", catalog)
 	}
 }

@@ -24,12 +24,11 @@ func RegistryFromEnv(category string, integratedOnly bool) (Catalog, []string) {
 }
 
 func RegistryWithOptions(category string, integratedOnly bool, opts Options) (Catalog, []string) {
-	base := allSkills()
 	if !opts.DynamicEnabled {
-		return registryFromItems(base, category, integratedOnly, Catalog{
+		return registryFromItems(nil, category, integratedOnly, Catalog{
 			Version: Version,
-			Source:  "embedded",
-		}), nil
+			Source:  "disabled",
+		}), []string{"skills: dynamic GitLab-backed registry is disabled"}
 	}
 	dir := strings.TrimSpace(opts.SkillsDir)
 	if dir == "" {
@@ -37,16 +36,15 @@ func RegistryWithOptions(category string, integratedOnly bool, opts Options) (Ca
 	}
 	dynamic, sourceVersion, warnings := loadDynamicSkills(dir)
 	if len(dynamic) == 0 {
-		return registryFromItems(base, category, integratedOnly, Catalog{
+		return registryFromItems(nil, category, integratedOnly, Catalog{
 			Version:    Version,
-			Source:     "embedded",
+			Source:     "gitlab-unavailable",
 			SourcePath: dir,
 		}), warnings
 	}
-	merged := mergeSkills(base, dynamic)
-	return registryFromItems(merged, category, integratedOnly, Catalog{
+	return registryFromItems(dynamic, category, integratedOnly, Catalog{
 		Version:       Version,
-		Source:        "dynamic+embedded",
+		Source:        "gitlab",
 		SourcePath:    dir,
 		SourceVersion: sourceVersion,
 		DynamicCount:  len(dynamic),
@@ -57,12 +55,12 @@ func loadDynamicSkills(root string) ([]Skill, string, []string) {
 	info, err := os.Stat(root)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, "", []string{"skills: dynamic directory not found; using embedded registry"}
+			return nil, "", []string{"skills: GitLab-backed dynamic directory not found"}
 		}
 		return nil, "", []string{"skills: cannot read dynamic directory: " + err.Error()}
 	}
 	if !info.IsDir() {
-		return nil, "", []string{"skills: dynamic path is not a directory; using embedded registry"}
+		return nil, "", []string{"skills: dynamic path is not a directory"}
 	}
 	walkRoot := root
 	if resolved, err := filepath.EvalSymlinks(root); err == nil {
@@ -106,7 +104,7 @@ func loadDynamicSkills(root string) ([]Skill, string, []string) {
 		skills = append(skills, skill)
 	}
 	if len(files) == 0 {
-		warnings = append(warnings, "skills: no skill.yaml files found; using embedded registry")
+		warnings = append(warnings, "skills: no skill.yaml files found in GitLab-backed registry")
 	}
 	return skills, version, warnings
 }

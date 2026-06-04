@@ -164,17 +164,53 @@ func TestDoctorCommandEvidenceOutput(t *testing.T) {
 	}
 }
 
-func TestSkillsRegistryLocalCommand(t *testing.T) {
+func TestSkillsRegistryUsesBackendOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/skills/registry" {
+			http.NotFound(w, r)
+			return
+		}
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"version":          "test",
+			"source":           "gitlab",
+			"source_path":      "/opt/opspilot/skills/current/skills",
+			"source_version":   "abc123",
+			"item_count":       1,
+			"integrated_count": 1,
+			"dynamic_count":    1,
+			"items": []map[string]any{{
+				"name":             "kubernetes-specialist",
+				"label":            "Kubernetes Specialist",
+				"category":         "kubernetes",
+				"integration_tier": "core",
+				"integrated":       true,
+				"commands":         []string{"inspect pod"},
+			}},
+		}})
+	}))
+	defer server.Close()
+
 	var out bytes.Buffer
-	if err := run([]string{"--output", "json", "skills", "registry", "--local", "--integrated-only"}, &out); err != nil {
+	if err := run([]string{"--backend-url", server.URL, "--output", "json", "skills", "registry", "--integrated-only"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var payload skillsRegistryResult
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.IntegratedCount < 6 || !hasSkillName(payload.Items, "kubernetes-specialist") || !hasSkillName(payload.Items, "debugging-wizard") {
+	if payload.Source != "gitlab" || payload.IntegratedCount != 1 || !hasSkillName(payload.Items, "kubernetes-specialist") {
 		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestSkillsRegistryDoesNotFallbackToClientEmbeddedRegistry(t *testing.T) {
+	var out bytes.Buffer
+	err := run([]string{"--backend-url", "http://127.0.0.1:1", "--output", "json", "skills", "registry"}, &out)
+	if err == nil {
+		t.Fatal("expected backend-only skills registry query to fail")
+	}
+	if bytes.Contains(out.Bytes(), []byte("kubernetes-specialist")) {
+		t.Fatalf("unexpected client embedded registry fallback: %s", out.String())
 	}
 }
 

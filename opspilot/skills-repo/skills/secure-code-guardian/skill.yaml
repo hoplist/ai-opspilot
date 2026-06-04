@@ -1,0 +1,23 @@
+name: secure-code-guardian
+label: Secure Code Guardian
+category: security
+integration_tier: ci-evidence
+integrated: true
+priority: 56
+summary: Provides secure remediation guidance for precheck findings such as SQL injection, unsafe input handling, authentication gaps, and secret handling.
+use_when:
+  - security finding needs a concrete code fix
+  - raw SQL construction needs parameterization
+  - input validation or auth hardening is needed
+evidence:
+  - code-precheck.json
+  - raw_sql_construction
+  - secret_leak
+  - api_query_writes_data
+commands:
+  - repo precheck
+  - fix service --dry-run
+boundaries:
+  - prefer minimal safe patches
+  - never store secrets in source code
+source_description: GitLab-backed runtime skill for secure remediation planning.

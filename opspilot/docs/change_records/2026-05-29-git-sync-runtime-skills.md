@@ -35,8 +35,8 @@ keeps actual skill definitions under the `skills/` subdirectory.
 ## Behavior
 
 - git-sync retries forever with `--max-failures=-1`.
-- OpsPilot keeps the embedded skills registry as fallback if the dynamic skills
-  directory is empty or unavailable.
+- OpsPilot reports the GitLab-backed skills registry as unavailable if the
+  dynamic skills directory is empty or unavailable.
 - The OpsPilot image no longer installs `git` or `openssh-client` just to sync
   skills.
 - The GitOps update step only rewrites the `core` container image. The

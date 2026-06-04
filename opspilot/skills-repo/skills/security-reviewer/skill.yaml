@@ -1,0 +1,24 @@
+name: security-reviewer
+label: Security Reviewer
+category: security
+integration_tier: ci-evidence
+integrated: true
+priority: 57
+summary: Explains code-precheck security evidence such as hardcoded secrets, unsafe shell execution, injection risk, and dependency scan gaps.
+use_when:
+  - code-precheck reports secret_leak or dangerous_shell
+  - release is blocked by a security finding
+  - security remediation needs prioritization
+evidence:
+  - code-precheck.json
+  - GitLab artifact
+  - rule severity
+  - security category
+commands:
+  - repo precheck
+  - release jobs
+  - release logs
+boundaries:
+  - report critical findings immediately
+  - do not expose sensitive secret values in summaries
+source_description: GitLab-backed runtime skill for OpsPilot security evidence.
