@@ -196,6 +196,21 @@
       "description": "Generate a dry-run AI fix plan for a Pod from OpsPilot evidence. Requires --dry-run and does not mutate repositories or clusters."
     },
     {
+      "name": "janitor plan",
+      "readonly": true,
+      "description": "Generate a dry-run cleanup and governance plan from cluster evidence. Classifies read-only, safe, controlled, and high-risk actions; high-risk actions are plan-only."
+    },
+    {
+      "name": "healer diagnose",
+      "readonly": true,
+      "description": "Diagnose a configured service release using GitLab, BuildKit, GitOps, Argo CD, Kubernetes, logs, and metrics evidence, then return safe self-healing actions and risk boundaries."
+    },
+    {
+      "name": "app decommission plan",
+      "readonly": true,
+      "description": "Generate an application decommission plan for a configured service. Keeps data by default, separates GitOps workload removal from PVC/PV/hostPath/database risk, and blocks high-risk deletion from automation."
+    },
+    {
       "name": "release service",
       "readonly": true,
       "description": "Return a beginner-friendly release summary for one configured service, including GitLab pipeline, BuildKit, GitOps, Argo CD, latest jobs, history, gaps, and the current trigger boundary."

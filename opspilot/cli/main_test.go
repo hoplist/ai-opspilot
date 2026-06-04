@@ -1777,6 +1777,33 @@ func TestPlatformGitLabCIIncludesCodePrecheck(t *testing.T) {
 	}
 }
 
+func TestCLISchemaIncludesLifecyclePlanningCommands(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "contracts", "cli-schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range [][]byte{
+		[]byte(`"name": "janitor plan"`),
+		[]byte(`"name": "healer diagnose"`),
+		[]byte(`"name": "app decommission plan"`),
+		[]byte("high-risk actions are plan-only"),
+	} {
+		if !bytes.Contains(body, expected) {
+			t.Fatalf("cli schema missing %s", expected)
+		}
+	}
+	for _, args := range [][]string{
+		{"janitor", "run"},
+		{"healer", "fix"},
+		{"app", "decommission", "run"},
+	} {
+		var out bytes.Buffer
+		if err := run(args, &out); err == nil {
+			t.Fatalf("expected %v to be disabled in v1", args)
+		}
+	}
+}
+
 func TestRepoPreflightReportsMiddlewareIntent(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/orders-api\nrequire github.com/go-sql-driver/mysql v1.8.1\n"), 0o644); err != nil {

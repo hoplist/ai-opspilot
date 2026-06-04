@@ -120,6 +120,12 @@ func run(args []string, out io.Writer) error {
 		return inspectCommand(opts, args[1:], out)
 	case "fix":
 		return fixCommand(opts, args[1:], out)
+	case "janitor":
+		return janitorCommand(opts, args[1:], out)
+	case "healer":
+		return healerCommand(opts, args[1:], out)
+	case "app":
+		return appCommand(opts, args[1:], out)
 	case "onboard":
 		return onboardCommand(opts, args[1:], out)
 	case "repo":
