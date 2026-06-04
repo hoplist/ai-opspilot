@@ -1855,6 +1855,9 @@ func fetchInspectPod(backendURL, namespace, pod, source, cluster string, tail, s
 		result.CapabilityWarnings = capabilities.Warnings
 		result.Raw["capabilities"] = capabilities.Raw
 	} else {
+		if strings.Contains(err.Error(), "does not have a Kubernetes datasource") {
+			return result, err
+		}
 		result.CapabilityWarnings = append(result.CapabilityWarnings, "capabilities: "+err.Error())
 	}
 	contextBody, err := get(backendURL, "/api/context/pod", addCluster(url.Values{"namespace": {namespace}, "pod": {pod}, "source": {source}}, cluster))
