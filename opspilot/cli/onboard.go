@@ -105,24 +105,37 @@ type onboardResult struct {
 	Mode           string               `json:"mode"`
 	Files          []onboardWriteResult `json:"files"`
 	ReleaseMapping string               `json:"release_mapping"`
+	GitOpsPlan     onboardGitOpsPlan    `json:"gitops_plan"`
 }
 
 type onboardRepoResult struct {
-	Service        string               `json:"service"`
-	Environment    string               `json:"environment"`
-	Repo           string               `json:"repo"`
-	Project        string               `json:"project"`
-	Mode           string               `json:"mode"`
-	Ready          bool                 `json:"ready"`
-	Language       string               `json:"language"`
-	Namespace      string               `json:"namespace"`
-	Port           int                  `json:"port"`
-	Config         onboardServiceConfig `json:"config"`
-	Files          []onboardWriteResult `json:"files"`
-	Preflight      *onboardCheckResult  `json:"preflight,omitempty"`
-	Gaps           []string             `json:"gaps,omitempty"`
-	Next           []string             `json:"next,omitempty"`
-	ReleaseMapping string               `json:"release_mapping"`
+	Service         string               `json:"service"`
+	Environment     string               `json:"environment"`
+	Repo            string               `json:"repo"`
+	Project         string               `json:"project"`
+	Mode            string               `json:"mode"`
+	Ready           bool                 `json:"ready"`
+	Language        string               `json:"language"`
+	Namespace       string               `json:"namespace"`
+	Port            int                  `json:"port"`
+	Config          onboardServiceConfig `json:"config"`
+	Files           []onboardWriteResult `json:"files"`
+	Preflight       *onboardCheckResult  `json:"preflight,omitempty"`
+	Gaps            []string             `json:"gaps,omitempty"`
+	Next            []string             `json:"next,omitempty"`
+	ReleaseMapping  string               `json:"release_mapping"`
+	GitOpsPlan      onboardGitOpsPlan    `json:"gitops_plan"`
+	CredentialPlans []string             `json:"credential_plans,omitempty"`
+}
+
+type onboardGitOpsPlan struct {
+	Cluster         string   `json:"cluster"`
+	Path            string   `json:"path"`
+	DeploymentPath  string   `json:"deployment_path"`
+	ApplicationName string   `json:"application_name"`
+	Namespace       string   `json:"namespace"`
+	Image           string   `json:"image"`
+	StandardFlow    []string `json:"standard_flow"`
 }
 
 func onboardCommand(opts globalOptions, args []string, out io.Writer) error {
@@ -210,21 +223,23 @@ func onboardRepoCommand(opts globalOptions, args []string, out io.Writer) error 
 			)
 		}
 		return onboardRepoResult{
-			Service:        cfg.Name,
-			Environment:    *envName,
-			Repo:           *repo,
-			Project:        cfg.GitLabProject,
-			Mode:           writeMode(*write),
-			Ready:          ready,
-			Language:       cfg.Language,
-			Namespace:      cfg.Namespace,
-			Port:           cfg.Port,
-			Config:         cfg,
-			Files:          results,
-			Preflight:      preflight,
-			Gaps:           uniqueStrings(gaps),
-			Next:           uniqueStrings(next),
-			ReleaseMapping: releaseMapping(cfg),
+			Service:         cfg.Name,
+			Environment:     *envName,
+			Repo:            *repo,
+			Project:         cfg.GitLabProject,
+			Mode:            writeMode(*write),
+			Ready:           ready,
+			Language:        cfg.Language,
+			Namespace:       cfg.Namespace,
+			Port:            cfg.Port,
+			Config:          cfg,
+			Files:           results,
+			Preflight:       preflight,
+			Gaps:            uniqueStrings(gaps),
+			Next:            uniqueStrings(next),
+			ReleaseMapping:  releaseMapping(cfg),
+			GitOpsPlan:      gitOpsPlan(cfg),
+			CredentialPlans: middlewareCredentialPlans(cfg),
 		}, nil
 	})
 	if err != nil {
@@ -246,6 +261,10 @@ func onboardRepoCommand(opts globalOptions, args []string, out io.Writer) error 
 		}
 		if result.ReleaseMapping != "" {
 			fmt.Fprintf(w, "Release mapping: %s\n", result.ReleaseMapping)
+		}
+		fmt.Fprintf(w, "GitOps: path=%s app=%s image=%s\n", result.GitOpsPlan.Path, result.GitOpsPlan.ApplicationName, result.GitOpsPlan.Image)
+		if len(result.CredentialPlans) > 0 {
+			fmt.Fprintf(w, "Credential plans: %s\n", strings.Join(result.CredentialPlans, "; "))
 		}
 		if len(result.Next) > 0 {
 			fmt.Fprintf(w, "Next: %s\n", strings.Join(result.Next, "; "))
@@ -465,6 +484,7 @@ func onboardGenerateCommand(args []string, out io.Writer) error {
 			Mode:           writeMode(*write),
 			Files:          results,
 			ReleaseMapping: releaseMapping(cfg),
+			GitOpsPlan:     gitOpsPlan(cfg),
 		}, nil
 	})
 	if err != nil {
@@ -2750,8 +2770,46 @@ func kustomizationTemplate(c onboardServiceConfig) string {
 }
 
 func releaseMapping(c onboardServiceConfig) string {
-	image := "192.168.48.206:5050/" + c.GitLabProject + "/" + c.Name
+	image := imageName(c)
 	gitops := gitOpsAppPath(c) + "/deployment.yaml"
 	return fmt.Sprintf("%s=namespace:%s,deployment:%s,container:%s,source:%s,image:%s,gitlab:%s,gitops:%s,argocd:%s",
 		c.Name, c.Namespace, c.Name, c.Container, c.PromSource, image, c.GitLabProject, gitops, argoAppName(c))
+}
+
+func gitOpsPlan(c onboardServiceConfig) onboardGitOpsPlan {
+	path := gitOpsAppPath(c)
+	return onboardGitOpsPlan{
+		Cluster:         "node200-test",
+		Path:            path,
+		DeploymentPath:  path + "/deployment.yaml",
+		ApplicationName: argoAppName(c),
+		Namespace:       c.Namespace,
+		Image:           imageName(c),
+		StandardFlow: []string{
+			"git push application repository",
+			"GitLab Runner preflight and code-precheck",
+			"BuildKit rootless image build",
+			"push image to GitLab Registry",
+			"update GitOps repository",
+			"Argo CD reconciles node200",
+			"OpsPilot inspects release and runtime evidence",
+		},
+	}
+}
+
+func imageName(c onboardServiceConfig) string {
+	return "192.168.48.206:5050/" + c.GitLabProject + "/" + c.Name
+}
+
+func middlewareCredentialPlans(c onboardServiceConfig) []string {
+	out := []string{}
+	for _, item := range c.Middleware {
+		if item.Kind == "" {
+			continue
+		}
+		secret := firstNonEmpty(item.Secret, sanitizeDNSLabel(c.Name+"-"+item.Kind+"-credentials"))
+		out = append(out, fmt.Sprintf("%s: secret=%s mode=%s allocation=%s keys=%s",
+			item.Kind, secret, firstNonEmpty(item.Mode, "shared"), firstNonEmpty(item.Allocation, "service-scoped"), strings.Join(item.Env, "|")))
+	}
+	return out
 }

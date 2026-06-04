@@ -37,12 +37,14 @@ type repoPreflightResult struct {
 }
 
 type repoAutofixResult struct {
-	Service        string               `json:"service"`
-	Project        string               `json:"project"`
-	Mode           string               `json:"mode"`
-	Files          []onboardWriteResult `json:"files"`
-	ReleaseMapping string               `json:"release_mapping"`
-	Preflight      repoPreflightResult  `json:"preflight"`
+	Service         string               `json:"service"`
+	Project         string               `json:"project"`
+	Mode            string               `json:"mode"`
+	Files           []onboardWriteResult `json:"files"`
+	ReleaseMapping  string               `json:"release_mapping"`
+	GitOpsPlan      onboardGitOpsPlan    `json:"gitops_plan"`
+	CredentialPlans []string             `json:"credential_plans,omitempty"`
+	Preflight       repoPreflightResult  `json:"preflight"`
 }
 
 type codePrecheckSummary struct {
@@ -190,12 +192,14 @@ func repoAutofixCommand(opts globalOptions, args []string, out io.Writer) error 
 			results = append(results, onboardWriteResult{Path: file.path, Action: action})
 		}
 		return repoAutofixResult{
-			Service:        cfg.Name,
-			Project:        cfg.GitLabProject,
-			Mode:           writeMode(*write),
-			Files:          results,
-			ReleaseMapping: releaseMapping(cfg),
-			Preflight:      preflight,
+			Service:         cfg.Name,
+			Project:         cfg.GitLabProject,
+			Mode:            writeMode(*write),
+			Files:           results,
+			ReleaseMapping:  releaseMapping(cfg),
+			GitOpsPlan:      gitOpsPlan(cfg),
+			CredentialPlans: middlewareCredentialPlans(cfg),
+			Preflight:       preflight,
 		}, nil
 	})
 	if err != nil {
@@ -208,7 +212,14 @@ func repoAutofixCommand(opts globalOptions, args []string, out io.Writer) error 
 		for _, file := range result.Files {
 			fmt.Fprintf(tw, "%s\t%s\n", file.Action, file.Path)
 		}
-		return tw.Flush()
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "GitOps: path=%s app=%s image=%s\n", result.GitOpsPlan.Path, result.GitOpsPlan.ApplicationName, result.GitOpsPlan.Image)
+		if len(result.CredentialPlans) > 0 {
+			fmt.Fprintf(w, "Credential plans: %s\n", strings.Join(result.CredentialPlans, "; "))
+		}
+		return nil
 	})
 }
 

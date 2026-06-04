@@ -91,6 +91,10 @@ func Summary(catalog Catalog) map[string]any {
 }
 
 func Recommend(targetType, status string, missingEvidence, findings []string) []Recommendation {
+	return RecommendFromCatalog(Registry("", true), targetType, status, missingEvidence, findings)
+}
+
+func RecommendFromCatalog(catalog Catalog, targetType, status string, missingEvidence, findings []string) []Recommendation {
 	want := map[string]string{
 		"opspilot-ops":     "default OpsPilot CLI entry for read-only checks",
 		"debugging-wizard": "turn evidence into a hypothesis-driven fix plan",
@@ -129,7 +133,7 @@ func Recommend(targetType, status string, missingEvidence, findings []string) []
 	}
 
 	recommendations := []Recommendation{}
-	for _, skill := range allSkills() {
+	for _, skill := range catalog.Items {
 		reason, ok := want[skill.Name]
 		if !ok || !skill.Integrated {
 			continue

@@ -308,4 +308,11 @@ opspilot release status --service skillshub-api --cluster node200-test
 - Done: governance docs, credential ledger format, developer standard flow.
 - Done: backend `/api/intent/parse` and shared deterministic
   `internal/intent` parser.
-- In progress next: read-only credential and cluster catalogs.
+- Done: read-only credential and cluster catalogs.
+- Done: backend `/api/skills/recommend` so CLI and AI clients do not own skill
+  routing decisions.
+- Done: plan-first credential and datasource registration APIs.
+- Done: service onboarding results include structured GitOps path, Argo CD
+  application name, image, standard flow, and middleware credential summaries.
+- In progress next: broader cluster-aware execution beyond datasource catalog
+  metadata, then portable Argo CD packaging.

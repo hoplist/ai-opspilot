@@ -723,6 +723,55 @@ func TestClustersCatalogUsesBackend(t *testing.T) {
 	}
 }
 
+func TestCredentialPlanUsesBackend(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/credentials/plan" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("kind") != "mysql" {
+			t.Fatalf("query = %s", r.URL.RawQuery)
+		}
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"type": "credential", "kind": "mysql", "name": "demo-api-mysql-credentials",
+			"risk": "controlled_mutate", "automation": "plan_first",
+			"required_keys": []any{"DATABASE_URL"}, "steps": []any{"create secret"},
+		}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "--output", "human", "credentials", "plan", "--kind", "mysql", "--service", "demo-api"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "demo-api-mysql-credentials") || !strings.Contains(out.String(), "DATABASE_URL") {
+		t.Fatalf("output = %s", out.String())
+	}
+}
+
+func TestDatasourcePlanUsesBackend(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/datasources/plan" {
+			http.NotFound(w, r)
+			return
+		}
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"type": "datasource", "kind": "prometheus", "name": "node200-k8s",
+			"cluster": "node200-test", "risk": "controlled_mutate", "automation": "plan_first",
+			"required_keys": []any{"PROMETHEUS_URL"}, "steps": []any{"configure endpoint"},
+		}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "--output", "human", "datasources", "plan", "--kind", "prometheus", "--name", "node200-k8s"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "node200-k8s") || !strings.Contains(out.String(), "PROMETHEUS_URL") {
+		t.Fatalf("output = %s", out.String())
+	}
+}
+
 func TestOnboardServicePlan(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "opspilot.service.yaml")
@@ -1163,6 +1212,12 @@ func TestOnboardRepoWritesAndChecks(t *testing.T) {
 	}
 	if payload.Namespace != "cicd-devex-demo" {
 		t.Fatalf("namespace = %s", payload.Namespace)
+	}
+	if payload.GitOpsPlan.Path != "clusters/test/apps/devex/demo/demo-api" || payload.GitOpsPlan.ApplicationName != "devex-demo-demo-api" {
+		t.Fatalf("gitops plan = %#v", payload.GitOpsPlan)
+	}
+	if !strings.Contains(payload.GitOpsPlan.Image, "192.168.48.206:5050/tpo/devex/demo/demo-api/demo-api") {
+		t.Fatalf("image = %s", payload.GitOpsPlan.Image)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "opspilot.service.yaml")); err != nil {
 		t.Fatal(err)

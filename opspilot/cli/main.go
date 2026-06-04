@@ -68,6 +68,8 @@ func run(args []string, out io.Writer) error {
 		return runSkillsRegistry(opts, args[1:], out)
 	case "credentials", "credential":
 		return runCredentialsCatalog(opts, args[1:], out)
+	case "datasources", "datasource":
+		return runDatasourcePlan(opts, args[1:], out)
 	case "clusters", "cluster":
 		return runClustersCatalog(opts, args[1:], out)
 	case "inventory":
@@ -432,8 +434,11 @@ func writeSkillsRegistryHuman(result skillsRegistryResult) func(io.Writer) error
 }
 
 func runCredentialsCatalog(opts globalOptions, args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == "plan" {
+		return runCredentialPlan(opts, args[1:], out)
+	}
 	if len(args) > 0 && args[0] != "catalog" && args[0] != "list" {
-		return fmt.Errorf("expected credentials subcommand: catalog")
+		return fmt.Errorf("expected credentials subcommand: catalog or plan")
 	}
 	body, err := get(opts.backendURL, "/api/credentials/catalog", url.Values{})
 	if err != nil {
@@ -468,6 +473,35 @@ func writeCredentialsCatalogHuman(data map[string]any, warnings []string) func(i
 		}
 		return nil
 	}
+}
+
+func runCredentialPlan(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("credentials plan", flag.ExitOnError)
+	kind := fs.String("kind", "", "credential kind, for example mysql, redis, s3")
+	service := fs.String("service", "", "service name")
+	name := fs.String("name", "", "planned secret/catalog name")
+	cluster := fs.String("cluster", "", "cluster name")
+	environment := fs.String("environment", "test", "environment name")
+	scope := fs.String("scope", "", "credential scope")
+	_ = fs.Parse(args)
+	if *kind == "" && fs.NArg() > 0 {
+		*kind = fs.Arg(0)
+	}
+	if *kind == "" {
+		return fmt.Errorf("credentials plan requires --kind")
+	}
+	body, err := get(opts.backendURL, "/api/credentials/plan", url.Values{
+		"kind":        {*kind},
+		"service":     {*service},
+		"name":        {*name},
+		"cluster":     {*cluster},
+		"environment": {*environment},
+		"scope":       {*scope},
+	})
+	if err != nil {
+		return err
+	}
+	return writeRegistrationPlanOutput(out, opts.output, body)
 }
 
 func runClustersCatalog(opts globalOptions, args []string, out io.Writer) error {
@@ -505,6 +539,78 @@ func writeClustersCatalogHuman(data map[string]any, warnings []string) func(io.W
 		}
 		if len(warnings) > 0 {
 			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(warnings, "; "))
+		}
+		return nil
+	}
+}
+
+func runDatasourcePlan(opts globalOptions, args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == "plan" {
+		args = args[1:]
+	}
+	fs := flag.NewFlagSet("datasources plan", flag.ExitOnError)
+	kind := fs.String("kind", "", "datasource kind, for example prometheus, elk, apisix")
+	name := fs.String("name", "", "datasource catalog name")
+	cluster := fs.String("cluster", "node200-test", "cluster name")
+	environment := fs.String("environment", "test", "environment name")
+	scope := fs.String("scope", "", "datasource scope")
+	_ = fs.Parse(args)
+	if *kind == "" && fs.NArg() > 0 {
+		*kind = fs.Arg(0)
+	}
+	if *kind == "" {
+		return fmt.Errorf("datasources plan requires --kind")
+	}
+	body, err := get(opts.backendURL, "/api/datasources/plan", url.Values{
+		"kind":        {*kind},
+		"name":        {*name},
+		"cluster":     {*cluster},
+		"environment": {*environment},
+		"scope":       {*scope},
+	})
+	if err != nil {
+		return err
+	}
+	return writeRegistrationPlanOutput(out, opts.output, body)
+}
+
+func writeRegistrationPlanOutput(out io.Writer, output string, body []byte) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return fmt.Errorf("registration plan response missing data")
+	}
+	return writeOutput(out, output, data, writeRegistrationPlanHuman(data))
+}
+
+func writeRegistrationPlanHuman(data map[string]any) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Plan: type=%s kind=%s name=%s risk=%s automation=%s\n",
+			stringValue(data["type"]), stringValue(data["kind"]), stringValue(data["name"]),
+			stringValue(data["risk"]), stringValue(data["automation"]))
+		if summary := stringValue(data["summary"]); summary != "" {
+			fmt.Fprintf(w, "Summary: %s\n", summary)
+		}
+		if service := stringValue(data["service"]); service != "" {
+			fmt.Fprintf(w, "Service: %s\n", service)
+		}
+		if cluster := stringValue(data["cluster"]); cluster != "" {
+			fmt.Fprintf(w, "Cluster: %s\n", cluster)
+		}
+		if keys := stringList(data["required_keys"]); len(keys) > 0 {
+			fmt.Fprintf(w, "Required keys: %s\n", strings.Join(keys, ", "))
+		}
+		if steps := stringList(data["steps"]); len(steps) > 0 {
+			fmt.Fprintln(w, "Steps:")
+			for _, step := range steps {
+				fmt.Fprintf(w, "- %s\n", step)
+			}
+		}
+		if validation := stringList(data["validation"]); len(validation) > 0 {
+			fmt.Fprintf(w, "Validation: %s\n", strings.Join(validation, "; "))
 		}
 		return nil
 	}
@@ -1235,10 +1341,13 @@ func runFixService(opts globalOptions, args []string, out io.Writer) error {
 		MissingEvidence:    pack.MissingEvidence,
 		LikelyCauses:       pack.LikelyCauses,
 		RecommendedActions: fixActionsFromEvidence("service", inspection.Service, pack),
-		SkillRecommendations: skillregistry.Recommend("service", pack.Status, pack.MissingEvidence,
-			append([]string{pack.Summary}, evidenceItemMessages(pack.Evidence)...)),
-		Warnings: inspection.Warnings,
-		Raw:      inspection,
+		Warnings:           inspection.Warnings,
+		Raw:                inspection,
+	}
+	recommendations, warning := fetchSkillRecommendations(opts.backendURL, "service", pack.Status, pack.MissingEvidence, append([]string{pack.Summary}, evidenceItemMessages(pack.Evidence)...))
+	result.SkillRecommendations = recommendations
+	if warning != "" {
+		result.Warnings = append(result.Warnings, warning)
 	}
 	return writeOutput(out, opts.output, result, writeFixPlanHuman(result))
 }
@@ -1278,9 +1387,12 @@ func runFixPod(opts globalOptions, args []string, out io.Writer) error {
 		MissingEvidence:    pack.MissingEvidence,
 		LikelyCauses:       pack.LikelyCauses,
 		RecommendedActions: fixActionsFromEvidence("pod", inspection.Pod, pack),
-		SkillRecommendations: skillregistry.Recommend("pod", pack.Status, pack.MissingEvidence,
-			append([]string{pack.Summary}, evidenceItemMessages(pack.Evidence)...)),
-		Raw: inspection,
+		Raw:                inspection,
+	}
+	recommendations, warning := fetchSkillRecommendations(opts.backendURL, "pod", pack.Status, pack.MissingEvidence, append([]string{pack.Summary}, evidenceItemMessages(pack.Evidence)...))
+	result.SkillRecommendations = recommendations
+	if warning != "" {
+		result.Warnings = append(result.Warnings, warning)
 	}
 	return writeOutput(out, opts.output, result, writeFixPlanHuman(result))
 }
@@ -1349,6 +1461,41 @@ func writeSkillRecommendationsHuman(w io.Writer, recommendations []skillregistry
 	for _, item := range recommendations {
 		fmt.Fprintf(w, "- %s: %s\n", item.Name, item.Reason)
 	}
+}
+
+func fetchSkillRecommendations(backendURL, targetType, status string, missingEvidence, findings []string) ([]skillregistry.Recommendation, string) {
+	values := url.Values{
+		"target_type": {targetType},
+		"status":      {status},
+	}
+	for _, item := range missingEvidence {
+		if strings.TrimSpace(item) != "" {
+			values.Add("missing_evidence", item)
+		}
+	}
+	for _, item := range findings {
+		if strings.TrimSpace(item) != "" {
+			values.Add("finding", item)
+		}
+	}
+	body, err := get(backendURL, "/api/skills/recommend", values)
+	if err != nil {
+		return nil, "skills recommend: " + err.Error()
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, "skills recommend: " + err.Error()
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return nil, "skills recommend: response missing data"
+	}
+	raw, _ := json.Marshal(data["items"])
+	var result []skillregistry.Recommendation
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, "skills recommend: " + err.Error()
+	}
+	return result, ""
 }
 
 func runMetricsFilesystems(opts globalOptions, args []string, out io.Writer) error {
@@ -1606,9 +1753,13 @@ func fetchInspectService(backendURL, service, envName, source string, tail, sinc
 	if len(result.ReleaseGaps) > 0 || len(result.EvidenceGaps) > 0 {
 		result.Findings = append(result.Findings, "Some evidence is missing; treat the healthy checks as partial.")
 	}
-	result.SkillRecommendations = skillregistry.Recommend("service", serviceEvidenceStatus(result),
+	recommendations, warning := fetchSkillRecommendations(backendURL, "service", serviceEvidenceStatus(result),
 		uniqueStrings(append(append(result.MissingEvidence, result.EvidenceGaps...), result.ReleaseGaps...)),
 		append(result.Findings, result.Next...))
+	result.SkillRecommendations = recommendations
+	if warning != "" {
+		result.CapabilityWarnings = append(result.CapabilityWarnings, warning)
+	}
 	return result, nil
 }
 
@@ -1745,8 +1896,12 @@ func fetchInspectPod(backendURL, namespace, pod, source string, tail, since int)
 	if result.RestartCount > 0 {
 		result.Findings = append(result.Findings, fmt.Sprintf("Pod has historical restarts: %d.", result.RestartCount))
 	}
-	result.SkillRecommendations = skillregistry.Recommend("pod", podEvidenceStatus(result),
+	recommendations, warning := fetchSkillRecommendations(backendURL, "pod", podEvidenceStatus(result),
 		uniqueStrings(append(result.MissingEvidence, result.EvidenceGaps...)), result.Findings)
+	result.SkillRecommendations = recommendations
+	if warning != "" {
+		result.CapabilityWarnings = append(result.CapabilityWarnings, warning)
+	}
 	return result, nil
 }
 
@@ -2539,7 +2694,11 @@ func fetchInspectCluster(backendURL, source string, limit int) (inspectClusterRe
 	if len(result.Restarts24h) > 0 {
 		result.Findings = append(result.Findings, fmt.Sprintf("%d containers have restarts in the last 24h.", len(result.Restarts24h)))
 	}
-	result.SkillRecommendations = skillregistry.Recommend("cluster", clusterEvidenceStatus(result), result.MissingEvidence, result.Findings)
+	recommendations, warning := fetchSkillRecommendations(backendURL, "cluster", clusterEvidenceStatus(result), result.MissingEvidence, result.Findings)
+	result.SkillRecommendations = recommendations
+	if warning != "" {
+		result.CapabilityWarnings = append(result.CapabilityWarnings, warning)
+	}
 	return result, nil
 }
 

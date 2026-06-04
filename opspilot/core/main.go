@@ -109,6 +109,22 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 		catalog, warnings := skillregistry.RegistryFromEnv(q.Get("category"), boolQuery(r, "integrated_only"))
 		return catalog, warnings, nil
 	}))
+	mux.HandleFunc("/api/skills/recommend", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		catalog, warnings := skillregistry.RegistryFromEnv("", true)
+		return map[string]any{
+			"target_type": q.Get("target_type"),
+			"status":      q.Get("status"),
+			"items": skillregistry.RecommendFromCatalog(
+				catalog,
+				q.Get("target_type"),
+				q.Get("status"),
+				queryList(r, "missing_evidence"),
+				queryList(r, "finding"),
+			),
+			"skills": skillregistry.Summary(catalog),
+		}, warnings, nil
+	}))
 	mux.HandleFunc("/api/intent/parse", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		return intent.Interpret(intent.Request{
@@ -118,12 +134,36 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 		}), nil, nil
 	}))
 	mux.HandleFunc("/api/credentials/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		catalog, warnings := catalog.CredentialsFromEnv(env("OPSPILOT_CREDENTIAL_CATALOG", ""))
-		return catalog, warnings, nil
+		credentialCatalog, warnings := catalog.CredentialsFromEnv(env("OPSPILOT_CREDENTIAL_CATALOG", ""))
+		return credentialCatalog, warnings, nil
+	}))
+	mux.HandleFunc("/api/credentials/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		return catalog.CredentialRegistrationPlan(catalog.RegistrationPlanRequest{
+			Type:        "credential",
+			Kind:        required(q.Get("kind"), "kind"),
+			Name:        q.Get("name"),
+			Service:     q.Get("service"),
+			Cluster:     q.Get("cluster"),
+			Environment: q.Get("environment"),
+			Scope:       q.Get("scope"),
+		}), nil, nil
 	}))
 	mux.HandleFunc("/api/clusters/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		catalog, warnings := catalog.ClustersFromEnv(env("OPSPILOT_CLUSTER_CATALOG", ""))
-		return catalog, warnings, nil
+		clusterCatalog, warnings := catalog.ClustersFromEnv(env("OPSPILOT_CLUSTER_CATALOG", ""))
+		return clusterCatalog, warnings, nil
+	}))
+	mux.HandleFunc("/api/datasources/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		return catalog.DatasourceRegistrationPlan(catalog.RegistrationPlanRequest{
+			Type:        "datasource",
+			Kind:        required(q.Get("kind"), "kind"),
+			Name:        q.Get("name"),
+			Service:     q.Get("service"),
+			Cluster:     q.Get("cluster"),
+			Environment: q.Get("environment"),
+			Scope:       q.Get("scope"),
+		}), nil, nil
 	}))
 	mux.HandleFunc("/api/errors/recent", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
@@ -471,6 +511,21 @@ func intQueryAliases(r *http.Request, names []string, fallback int) int {
 func boolQuery(r *http.Request, name string) bool {
 	raw := r.URL.Query().Get(name)
 	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
+}
+
+func queryList(r *http.Request, name string) []string {
+	values := []string{}
+	for _, raw := range r.URL.Query()[name] {
+		for _, part := range strings.FieldsFunc(raw, func(ch rune) bool {
+			return ch == ',' || ch == '|'
+		}) {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				values = append(values, part)
+			}
+		}
+	}
+	return values
 }
 
 func boolForm(r *http.Request, name string) bool {
