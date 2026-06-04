@@ -28,6 +28,7 @@ const realFilesystemFilter = `fstype!~"tmpfs|overlay|squashfs|ramfs|cgroup2?|pro
 type globalOptions struct {
 	backendURL string
 	output     string
+	cluster    string
 }
 
 const defaultPodLogSinceSeconds = 36000
@@ -43,6 +44,7 @@ func run(args []string, out io.Writer) error {
 	opts := globalOptions{
 		backendURL: env("OPSPILOT_BACKEND_URL", defaultBackend),
 		output:     env("OPSPILOT_OUTPUT", "json"),
+		cluster:    env("OPSPILOT_CLUSTER", ""),
 	}
 	args = consumeGlobalFlags(args, &opts)
 	if len(args) == 0 {
@@ -140,7 +142,7 @@ func run(args []string, out io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command: %s", args[0])
 	}
-	body, err := get(opts.backendURL, endpoint, values)
+	body, err := get(opts.backendURL, endpoint, addCluster(values, opts.cluster))
 	if err != nil {
 		return err
 	}
@@ -214,7 +216,11 @@ type doctorResult struct {
 
 func runDoctor(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
+	cluster := fs.String("cluster", "", "cluster name")
 	_ = fs.Parse(args)
+	if *cluster == "" {
+		*cluster = opts.cluster
+	}
 	result := doctorResult{BackendURL: opts.backendURL, Raw: map[string]any{}}
 	health, err := getJSONMap(opts.backendURL, "/api/health", url.Values{})
 	if err != nil {
@@ -228,7 +234,7 @@ func runDoctor(opts globalOptions, args []string, out io.Writer) error {
 	if data := mapValue(health, "data"); data != nil {
 		result.BackendVersion = stringValue(data["version"])
 	}
-	capabilities, err := fetchCapabilities(opts.backendURL)
+	capabilities, err := fetchCapabilities(opts.backendURL, *cluster)
 	if err != nil {
 		result.Findings = append(result.Findings, "Capabilities endpoint failed: "+err.Error())
 		result.Next = append(result.Next, "Check opspilot-core logs and Kubernetes API permissions.")
@@ -279,16 +285,20 @@ func writeDoctorHuman(result doctorResult) func(io.Writer) error {
 
 func runCapabilities(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("capabilities", flag.ExitOnError)
+	cluster := fs.String("cluster", "", "cluster name")
 	_ = fs.Parse(args)
-	result, err := fetchCapabilities(opts.backendURL)
+	if *cluster == "" {
+		*cluster = opts.cluster
+	}
+	result, err := fetchCapabilities(opts.backendURL, *cluster)
 	if err != nil {
 		return err
 	}
 	return writeOutput(out, opts.output, result, writeCapabilitiesHuman(result))
 }
 
-func fetchCapabilities(backendURL string) (capabilityResult, error) {
-	body, err := get(backendURL, "/api/capabilities", url.Values{})
+func fetchCapabilities(backendURL, cluster string) (capabilityResult, error) {
+	body, err := get(backendURL, "/api/capabilities", addCluster(url.Values{}, cluster))
 	if err != nil {
 		return capabilityResult{}, err
 	}
@@ -673,21 +683,21 @@ func runNaturalLanguage(opts globalOptions, args []string, out io.Writer) error 
 	}
 	switch intent.Action {
 	case "inspect_service":
-		payload, err := fetchInspectService(opts.backendURL, intent.Service, "test", "", 300, defaultPodLogSinceSeconds)
+		payload, err := fetchInspectService(opts.backendURL, intent.Service, "test", "", opts.cluster, 300, defaultPodLogSinceSeconds)
 		if err != nil {
 			return err
 		}
 		result.Executed = true
 		result.Result = payload
 	case "release_service":
-		payload, err := triggerReleaseService(opts.backendURL, intent.Service, ref, nil)
+		payload, err := triggerReleaseService(opts.backendURL, intent.Service, ref, opts.cluster, nil)
 		if err != nil {
 			return err
 		}
 		result.Executed = true
 		result.Result = payload
 	case "release_history":
-		payload, err := fetchReleaseHistoryData(opts.backendURL, intent.Service, 10)
+		payload, err := fetchReleaseHistoryData(opts.backendURL, intent.Service, opts.cluster, 10)
 		if err != nil {
 			return err
 		}
@@ -697,7 +707,7 @@ func runNaturalLanguage(opts globalOptions, args []string, out io.Writer) error 
 		if intent.Target == "" {
 			return fmt.Errorf("rollback target could not be identified from natural language")
 		}
-		payload, err := rollbackReleaseService(opts.backendURL, intent.Service, intent.Target)
+		payload, err := rollbackReleaseService(opts.backendURL, intent.Service, intent.Target, opts.cluster)
 		if err != nil {
 			return err
 		}
@@ -1075,9 +1085,28 @@ func consumeGlobalFlags(args []string, opts *globalOptions) []string {
 			opts.output = strings.TrimPrefix(arg, "--output=")
 			continue
 		}
+		if arg == "--cluster" && i+1 < len(args) {
+			opts.cluster = args[i+1]
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "--cluster=") {
+			opts.cluster = strings.TrimPrefix(arg, "--cluster=")
+			continue
+		}
 		out = append(out, arg)
 	}
 	return out
+}
+
+func addCluster(values url.Values, cluster string) url.Values {
+	if values == nil {
+		values = url.Values{}
+	}
+	if cluster != "" && values.Get("cluster") == "" {
+		values.Set("cluster", cluster)
+	}
+	return values
 }
 
 func inventoryCommand(args []string) (string, url.Values) {
@@ -1309,6 +1338,7 @@ func runFixService(opts globalOptions, args []string, out io.Writer) error {
 	service := fs.String("service", "", "service name")
 	envName := fs.String("env", "test", "target environment")
 	source := fs.String("source", "", "prometheus datasource")
+	cluster := fs.String("cluster", "", "cluster name")
 	tail := fs.Int("tail", 300, "tail lines")
 	since := fs.Int("since", defaultPodLogSinceSeconds, "since seconds")
 	dryRun := fs.Bool("dry-run", false, "plan only; do not mutate repositories or clusters")
@@ -1325,7 +1355,7 @@ func runFixService(opts globalOptions, args []string, out io.Writer) error {
 	if !*dryRun {
 		return fmt.Errorf("fix service currently requires --dry-run")
 	}
-	inspection, err := fetchInspectService(opts.backendURL, *service, *envName, *source, *tail, *since)
+	inspection, err := fetchInspectService(opts.backendURL, *service, *envName, *source, firstNonEmptyString(*cluster, opts.cluster), *tail, *since)
 	if err != nil {
 		return err
 	}
@@ -1358,6 +1388,7 @@ func runFixPod(opts globalOptions, args []string, out io.Writer) error {
 	fs.StringVar(namespace, "n", "", "namespace")
 	pod := fs.String("pod", "", "pod")
 	source := fs.String("source", "", "prometheus datasource")
+	cluster := fs.String("cluster", "", "cluster name")
 	tail := fs.Int("tail", 300, "tail lines")
 	since := fs.Int("since", defaultPodLogSinceSeconds, "since seconds")
 	dryRun := fs.Bool("dry-run", false, "plan only; do not mutate repositories or clusters")
@@ -1371,7 +1402,7 @@ func runFixPod(opts globalOptions, args []string, out io.Writer) error {
 	if !*dryRun {
 		return fmt.Errorf("fix pod currently requires --dry-run")
 	}
-	inspection, err := fetchInspectPod(opts.backendURL, *namespace, *pod, *source, *tail, *since)
+	inspection, err := fetchInspectPod(opts.backendURL, *namespace, *pod, *source, firstNonEmptyString(*cluster, opts.cluster), *tail, *since)
 	if err != nil {
 		return err
 	}
@@ -1558,6 +1589,7 @@ func fetchFilesystems(backendURL, source string) (filesystemsResult, error) {
 }
 
 type inspectPodResult struct {
+	Cluster              string                         `json:"cluster,omitempty"`
 	Namespace            string                         `json:"namespace"`
 	Pod                  string                         `json:"pod"`
 	Node                 string                         `json:"node,omitempty"`
@@ -1582,6 +1614,7 @@ type inspectPodResult struct {
 }
 
 type inspectServiceResult struct {
+	Cluster              string                         `json:"cluster,omitempty"`
 	Service              string                         `json:"service"`
 	Environment          string                         `json:"environment,omitempty"`
 	Namespace            string                         `json:"namespace,omitempty"`
@@ -1616,6 +1649,7 @@ func runInspectService(opts globalOptions, args []string, out io.Writer) error {
 	service := fs.String("service", "", "release service name")
 	envName := fs.String("env", "test", "target environment")
 	source := fs.String("source", "", "prometheus datasource")
+	cluster := fs.String("cluster", "", "cluster name")
 	tail := fs.Int("tail", 300, "tail lines")
 	since := fs.Int("since", defaultPodLogSinceSeconds, "since seconds")
 	_ = fs.Parse(args)
@@ -1628,7 +1662,7 @@ func runInspectService(opts globalOptions, args []string, out io.Writer) error {
 	if *service == "" {
 		return fmt.Errorf("inspect service requires --service")
 	}
-	result, err := fetchInspectService(opts.backendURL, *service, *envName, *source, *tail, *since)
+	result, err := fetchInspectService(opts.backendURL, *service, *envName, *source, firstNonEmptyString(*cluster, opts.cluster), *tail, *since)
 	if err != nil {
 		return err
 	}
@@ -1680,8 +1714,8 @@ func runInspectService(opts globalOptions, args []string, out io.Writer) error {
 	})
 }
 
-func fetchInspectService(backendURL, service, envName, source string, tail, since int) (inspectServiceResult, error) {
-	data, err := fetchReleaseStatusData(backendURL, service)
+func fetchInspectService(backendURL, service, envName, source, cluster string, tail, since int) (inspectServiceResult, error) {
+	data, err := fetchReleaseStatusData(backendURL, service, cluster)
 	if err != nil {
 		return inspectServiceResult{}, err
 	}
@@ -1695,9 +1729,10 @@ func fetchInspectService(backendURL, service, envName, source string, tail, sinc
 		Image:       stringValue(data["image"]),
 		ReleaseGaps: stringList(data["gaps"]),
 		Next:        stringList(data["next_checks"]),
+		Cluster:     cluster,
 		Raw:         map[string]any{"release_status": data},
 	}
-	if capabilities, err := fetchCapabilities(backendURL); err == nil {
+	if capabilities, err := fetchCapabilities(backendURL, cluster); err == nil {
 		result.AvailableEvidence = capabilities.AvailableEvidence
 		result.MissingEvidence = capabilities.MissingEvidence
 		result.CapabilityWarnings = capabilities.Warnings
@@ -1722,7 +1757,7 @@ func fetchInspectService(backendURL, service, envName, source string, tail, sinc
 			if podName == "" || namespace == "" {
 				continue
 			}
-			pod, err := fetchInspectPod(backendURL, namespace, podName, source, tail, since)
+			pod, err := fetchInspectPod(backendURL, namespace, podName, source, cluster, tail, since)
 			if err != nil {
 				result.Warnings = append(result.Warnings, podName+": "+err.Error())
 				result.EvidenceGaps = append(result.EvidenceGaps, "pod_inspection_failed")
@@ -1769,6 +1804,7 @@ func runInspectPod(opts globalOptions, args []string, out io.Writer) error {
 	fs.StringVar(namespace, "n", "", "namespace")
 	pod := fs.String("pod", "", "pod")
 	source := fs.String("source", "", "prometheus datasource")
+	cluster := fs.String("cluster", "", "cluster name")
 	tail := fs.Int("tail", 300, "tail lines")
 	since := fs.Int("since", defaultPodLogSinceSeconds, "since seconds")
 	_ = fs.Parse(args)
@@ -1778,7 +1814,7 @@ func runInspectPod(opts globalOptions, args []string, out io.Writer) error {
 	if *namespace == "" || *pod == "" {
 		return fmt.Errorf("inspect pod requires --namespace and --pod")
 	}
-	result, err := fetchInspectPod(opts.backendURL, *namespace, *pod, *source, *tail, *since)
+	result, err := fetchInspectPod(opts.backendURL, *namespace, *pod, *source, firstNonEmptyString(*cluster, opts.cluster), *tail, *since)
 	if err != nil {
 		return err
 	}
@@ -1808,9 +1844,9 @@ func runInspectPod(opts globalOptions, args []string, out io.Writer) error {
 	})
 }
 
-func fetchInspectPod(backendURL, namespace, pod, source string, tail, since int) (inspectPodResult, error) {
-	result := inspectPodResult{Namespace: namespace, Pod: pod, Raw: map[string]any{}}
-	if capabilities, err := fetchCapabilities(backendURL); err == nil {
+func fetchInspectPod(backendURL, namespace, pod, source, cluster string, tail, since int) (inspectPodResult, error) {
+	result := inspectPodResult{Cluster: cluster, Namespace: namespace, Pod: pod, Raw: map[string]any{}}
+	if capabilities, err := fetchCapabilities(backendURL, cluster); err == nil {
 		result.AvailableEvidence = capabilities.AvailableEvidence
 		result.MissingEvidence = capabilities.MissingEvidence
 		result.CapabilityWarnings = capabilities.Warnings
@@ -1818,7 +1854,7 @@ func fetchInspectPod(backendURL, namespace, pod, source string, tail, since int)
 	} else {
 		result.CapabilityWarnings = append(result.CapabilityWarnings, "capabilities: "+err.Error())
 	}
-	contextBody, err := get(backendURL, "/api/context/pod", url.Values{"namespace": {namespace}, "pod": {pod}, "source": {source}})
+	contextBody, err := get(backendURL, "/api/context/pod", addCluster(url.Values{"namespace": {namespace}, "pod": {pod}, "source": {source}}, cluster))
 	if err != nil {
 		return result, err
 	}
@@ -1849,12 +1885,12 @@ func fetchInspectPod(backendURL, namespace, pod, source string, tail, since int)
 	}
 	k8sLogAvailable := false
 	elkLogAvailable := false
-	logBody, err := get(backendURL, "/api/k8s/logs/pod", url.Values{
+	logBody, err := get(backendURL, "/api/k8s/logs/pod", addCluster(url.Values{
 		"namespace":     {namespace},
 		"pod":           {pod},
 		"tail_lines":    {strconv.Itoa(tail)},
 		"since_seconds": {strconv.Itoa(since)},
-	})
+	}, cluster))
 	if err == nil {
 		k8sLogAvailable = true
 		var logPayload map[string]any
@@ -1906,6 +1942,7 @@ func fetchInspectPod(backendURL, namespace, pod, source string, tail, since int)
 }
 
 type inspectClusterResult struct {
+	Cluster              string                         `json:"cluster,omitempty"`
 	AbnormalPods         map[string]any                 `json:"abnormal_pods"`
 	Nodes                []map[string]any               `json:"nodes"`
 	TopCPU               []map[string]any               `json:"top_cpu_pods"`
@@ -1923,9 +1960,10 @@ type inspectClusterResult struct {
 func runInspectCluster(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("inspect cluster", flag.ExitOnError)
 	source := fs.String("source", "all", "prometheus datasource, or all")
+	cluster := fs.String("cluster", "", "cluster name")
 	limit := fs.Int("limit", 10, "top result limit")
 	_ = fs.Parse(args)
-	result, err := fetchInspectCluster(opts.backendURL, *source, *limit)
+	result, err := fetchInspectCluster(opts.backendURL, *source, firstNonEmptyString(*cluster, opts.cluster), *limit)
 	if err != nil {
 		return err
 	}
@@ -1974,6 +2012,7 @@ func runInspectCluster(opts globalOptions, args []string, out io.Writer) error {
 }
 
 type releaseServiceResult struct {
+	Cluster          string           `json:"cluster,omitempty"`
 	Service          string           `json:"service"`
 	Environment      string           `json:"environment"`
 	Status           string           `json:"status,omitempty"`
@@ -2010,6 +2049,7 @@ func runReleaseService(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("release service", flag.ExitOnError)
 	service := fs.String("service", "", "release service name")
 	envName := fs.String("env", "test", "target environment")
+	cluster := fs.String("cluster", "", "cluster name")
 	historyLimit := fs.Int("history", 5, "release history item limit")
 	trigger := fs.Bool("trigger", false, "trigger a new release pipeline")
 	ref := fs.String("ref", "main", "GitLab ref to trigger")
@@ -2023,12 +2063,13 @@ func runReleaseService(opts globalOptions, args []string, out io.Writer) error {
 	if *service == "" {
 		return fmt.Errorf("release service requires --service")
 	}
-	result, err := fetchReleaseService(opts.backendURL, *service, *envName, *historyLimit)
+	activeCluster := firstNonEmptyString(*cluster, opts.cluster)
+	result, err := fetchReleaseService(opts.backendURL, *service, *envName, activeCluster, *historyLimit)
 	if err != nil {
 		return err
 	}
 	if *trigger {
-		triggerResult, err := triggerReleaseService(opts.backendURL, *service, *ref, nil)
+		triggerResult, err := triggerReleaseService(opts.backendURL, *service, *ref, activeCluster, nil)
 		if err != nil {
 			return err
 		}
@@ -2112,13 +2153,14 @@ func runReleaseService(opts globalOptions, args []string, out io.Writer) error {
 	})
 }
 
-func fetchReleaseService(backendURL, service, envName string, historyLimit int) (releaseServiceResult, error) {
-	status, err := fetchReleaseStatusData(backendURL, service)
+func fetchReleaseService(backendURL, service, envName, cluster string, historyLimit int) (releaseServiceResult, error) {
+	status, err := fetchReleaseStatusData(backendURL, service, cluster)
 	if err != nil {
 		return releaseServiceResult{}, err
 	}
 	result := releaseServiceResult{
 		Service:          firstNonEmptyString(stringValue(status["service"]), service),
+		Cluster:          cluster,
 		Environment:      firstNonEmptyString(stringValue(status["environment"]), envName),
 		Status:           stringValue(status["status"]),
 		Stage:            stringValue(status["stage"]),
@@ -2139,7 +2181,7 @@ func fetchReleaseService(backendURL, service, envName string, historyLimit int) 
 		result.ArgoCD = mapValue(evidence, "argocd")
 		result.Quality = mapValue(evidence, "quality")
 	}
-	if jobs, err := fetchReleaseJobsData(backendURL, service); err != nil {
+	if jobs, err := fetchReleaseJobsData(backendURL, service, cluster); err != nil {
 		result.Warnings = append(result.Warnings, "release jobs: "+err.Error())
 	} else {
 		result.Raw["jobs"] = jobs
@@ -2147,7 +2189,7 @@ func fetchReleaseService(backendURL, service, envName string, historyLimit int) 
 		result.JobCount = intValue(jobs["item_count"])
 	}
 	if historyLimit > 0 {
-		if history, err := fetchReleaseHistoryData(backendURL, service, historyLimit); err != nil {
+		if history, err := fetchReleaseHistoryData(backendURL, service, cluster, historyLimit); err != nil {
 			result.Warnings = append(result.Warnings, "release history: "+err.Error())
 		} else {
 			result.Raw["history"] = history
@@ -2158,8 +2200,8 @@ func fetchReleaseService(backendURL, service, envName string, historyLimit int) 
 	return result, nil
 }
 
-func triggerReleaseService(backendURL, service, ref string, variables map[string]string) (map[string]any, error) {
-	values := url.Values{"service": {service}, "ref": {ref}}
+func triggerReleaseService(backendURL, service, ref, cluster string, variables map[string]string) (map[string]any, error) {
+	values := addCluster(url.Values{"service": {service}, "ref": {ref}}, cluster)
 	for key, value := range variables {
 		values.Set("var."+key, value)
 	}
@@ -2178,12 +2220,12 @@ func triggerReleaseService(backendURL, service, ref string, variables map[string
 	return data, nil
 }
 
-func rollbackReleaseService(backendURL, service, target string) (map[string]any, error) {
-	body, err := post(backendURL, "/api/release/rollback", url.Values{
+func rollbackReleaseService(backendURL, service, target, cluster string) (map[string]any, error) {
+	body, err := post(backendURL, "/api/release/rollback", addCluster(url.Values{
 		"service": {service},
 		"to":      {target},
 		"confirm": {"true"},
-	})
+	}, cluster))
 	if err != nil {
 		return nil, err
 	}
@@ -2227,6 +2269,7 @@ func runQualityRun(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("quality run service", flag.ExitOnError)
 	service := fs.String("service", "", "release service name")
 	baseURL := fs.String("base-url", "", "override quality base URL")
+	cluster := fs.String("cluster", "", "cluster name")
 	_ = fs.Parse(args)
 	if *service == "" {
 		*service = positionalService
@@ -2237,7 +2280,7 @@ func runQualityRun(opts globalOptions, args []string, out io.Writer) error {
 	if *service == "" {
 		return fmt.Errorf("quality run service requires --service")
 	}
-	body, err := post(opts.backendURL, "/api/quality/run", url.Values{"service": {*service}, "base_url": {*baseURL}})
+	body, err := post(opts.backendURL, "/api/quality/run", addCluster(url.Values{"service": {*service}, "base_url": {*baseURL}}, firstNonEmptyString(*cluster, opts.cluster)))
 	if err != nil {
 		return err
 	}
@@ -2260,6 +2303,7 @@ func runQualityStatus(opts globalOptions, args []string, out io.Writer) error {
 	}
 	fs := flag.NewFlagSet("quality status service", flag.ExitOnError)
 	service := fs.String("service", "", "release service name")
+	cluster := fs.String("cluster", "", "cluster name")
 	_ = fs.Parse(args)
 	if *service == "" {
 		*service = positionalService
@@ -2270,7 +2314,7 @@ func runQualityStatus(opts globalOptions, args []string, out io.Writer) error {
 	if *service == "" {
 		return fmt.Errorf("quality status service requires --service")
 	}
-	body, err := get(opts.backendURL, "/api/quality/status", url.Values{"service": {*service}})
+	body, err := get(opts.backendURL, "/api/quality/status", addCluster(url.Values{"service": {*service}}, firstNonEmptyString(*cluster, opts.cluster)))
 	if err != nil {
 		return err
 	}
@@ -2354,8 +2398,8 @@ func unwrapData(body []byte, label string) (map[string]any, error) {
 	return data, nil
 }
 
-func fetchReleaseStatusData(backendURL, service string) (map[string]any, error) {
-	body, err := get(backendURL, "/api/release/status", url.Values{"service": {service}})
+func fetchReleaseStatusData(backendURL, service, cluster string) (map[string]any, error) {
+	body, err := get(backendURL, "/api/release/status", addCluster(url.Values{"service": {service}}, cluster))
 	if err != nil {
 		return nil, err
 	}
@@ -2370,8 +2414,8 @@ func fetchReleaseStatusData(backendURL, service string) (map[string]any, error) 
 	return data, nil
 }
 
-func fetchReleaseJobsData(backendURL, service string) (map[string]any, error) {
-	body, err := get(backendURL, "/api/release/jobs", url.Values{"service": {service}})
+func fetchReleaseJobsData(backendURL, service, cluster string) (map[string]any, error) {
+	body, err := get(backendURL, "/api/release/jobs", addCluster(url.Values{"service": {service}}, cluster))
 	if err != nil {
 		return nil, err
 	}
@@ -2386,8 +2430,8 @@ func fetchReleaseJobsData(backendURL, service string) (map[string]any, error) {
 	return data, nil
 }
 
-func fetchReleaseHistoryData(backendURL, service string, limit int) (map[string]any, error) {
-	body, err := get(backendURL, "/api/release/history", url.Values{"service": {service}, "limit": {strconv.Itoa(limit)}})
+func fetchReleaseHistoryData(backendURL, service, cluster string, limit int) (map[string]any, error) {
+	body, err := get(backendURL, "/api/release/history", addCluster(url.Values{"service": {service}, "limit": {strconv.Itoa(limit)}}, cluster))
 	if err != nil {
 		return nil, err
 	}
@@ -2405,6 +2449,7 @@ func fetchReleaseHistoryData(backendURL, service string, limit int) (map[string]
 func runReleaseStatus(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("release status", flag.ExitOnError)
 	service := fs.String("service", "", "release service name")
+	cluster := fs.String("cluster", "", "cluster name")
 	_ = fs.Parse(args)
 	if *service == "" && fs.NArg() > 0 {
 		*service = fs.Arg(0)
@@ -2412,7 +2457,7 @@ func runReleaseStatus(opts globalOptions, args []string, out io.Writer) error {
 	if *service == "" {
 		return fmt.Errorf("release status requires --service")
 	}
-	body, err := get(opts.backendURL, "/api/release/status", url.Values{"service": []string{*service}})
+	body, err := get(opts.backendURL, "/api/release/status", addCluster(url.Values{"service": []string{*service}}, firstNonEmptyString(*cluster, opts.cluster)))
 	if err != nil {
 		return err
 	}
@@ -2466,6 +2511,7 @@ func runReleaseStatus(opts globalOptions, args []string, out io.Writer) error {
 func runReleaseJobs(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("release jobs", flag.ExitOnError)
 	service := fs.String("service", "", "release service name")
+	cluster := fs.String("cluster", "", "cluster name")
 	_ = fs.Parse(args)
 	if *service == "" && fs.NArg() > 0 {
 		*service = fs.Arg(0)
@@ -2473,7 +2519,7 @@ func runReleaseJobs(opts globalOptions, args []string, out io.Writer) error {
 	if *service == "" {
 		return fmt.Errorf("release jobs requires --service")
 	}
-	body, err := get(opts.backendURL, "/api/release/jobs", url.Values{"service": []string{*service}})
+	body, err := get(opts.backendURL, "/api/release/jobs", addCluster(url.Values{"service": []string{*service}}, firstNonEmptyString(*cluster, opts.cluster)))
 	if err != nil {
 		return err
 	}
@@ -2501,6 +2547,7 @@ func runReleaseJobs(opts globalOptions, args []string, out io.Writer) error {
 func runReleaseLogs(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("release logs", flag.ExitOnError)
 	service := fs.String("service", "", "release service name")
+	cluster := fs.String("cluster", "", "cluster name")
 	job := fs.String("job", "", "GitLab job name")
 	jobID := fs.String("job-id", "", "GitLab job id")
 	tail := fs.Int("tail", 200, "tail lines")
@@ -2512,13 +2559,13 @@ func runReleaseLogs(opts globalOptions, args []string, out io.Writer) error {
 	if *service == "" {
 		return fmt.Errorf("release logs requires --service")
 	}
-	body, err := get(opts.backendURL, "/api/release/logs", url.Values{
+	body, err := get(opts.backendURL, "/api/release/logs", addCluster(url.Values{
 		"service":     []string{*service},
 		"job":         []string{*job},
 		"job_id":      []string{*jobID},
 		"tail_lines":  []string{strconv.Itoa(*tail)},
 		"limit_bytes": []string{strconv.Itoa(*limitBytes)},
-	})
+	}, firstNonEmptyString(*cluster, opts.cluster)))
 	if err != nil {
 		return err
 	}
@@ -2538,6 +2585,7 @@ func runReleaseLogs(opts globalOptions, args []string, out io.Writer) error {
 func runReleaseHistory(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("release history", flag.ExitOnError)
 	service := fs.String("service", "", "release service name")
+	cluster := fs.String("cluster", "", "cluster name")
 	limit := fs.Int("limit", 10, "history item limit")
 	_ = fs.Parse(args)
 	if *service == "" && fs.NArg() > 0 {
@@ -2546,7 +2594,7 @@ func runReleaseHistory(opts globalOptions, args []string, out io.Writer) error {
 	if *service == "" {
 		return fmt.Errorf("release history requires --service")
 	}
-	body, err := get(opts.backendURL, "/api/release/history", url.Values{"service": []string{*service}, "limit": []string{strconv.Itoa(*limit)}})
+	body, err := get(opts.backendURL, "/api/release/history", addCluster(url.Values{"service": []string{*service}, "limit": []string{strconv.Itoa(*limit)}}, firstNonEmptyString(*cluster, opts.cluster)))
 	if err != nil {
 		return err
 	}
@@ -2582,6 +2630,7 @@ func runReleaseHistory(opts globalOptions, args []string, out io.Writer) error {
 func runReleaseRollback(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("release rollback", flag.ExitOnError)
 	service := fs.String("service", "", "release service name")
+	cluster := fs.String("cluster", "", "cluster name")
 	target := fs.String("to", "", "target tag, full image, or GitOps revision")
 	fs.StringVar(target, "target", "", "target tag, full image, or GitOps revision")
 	confirm := fs.Bool("confirm", false, "confirm GitOps rollback commit")
@@ -2601,11 +2650,11 @@ func runReleaseRollback(opts globalOptions, args []string, out io.Writer) error 
 	if !*confirm {
 		return fmt.Errorf("release rollback requires --confirm")
 	}
-	body, err := post(opts.backendURL, "/api/release/rollback", url.Values{
+	body, err := post(opts.backendURL, "/api/release/rollback", addCluster(url.Values{
 		"service": []string{*service},
 		"to":      []string{*target},
 		"confirm": []string{strconv.FormatBool(*confirm)},
-	})
+	}, firstNonEmptyString(*cluster, opts.cluster)))
 	if err != nil {
 		return err
 	}
@@ -2633,9 +2682,9 @@ func runReleaseRollback(opts globalOptions, args []string, out io.Writer) error 
 	})
 }
 
-func fetchInspectCluster(backendURL, source string, limit int) (inspectClusterResult, error) {
-	result := inspectClusterResult{Raw: map[string]any{}}
-	if capabilities, err := fetchCapabilities(backendURL); err == nil {
+func fetchInspectCluster(backendURL, source, cluster string, limit int) (inspectClusterResult, error) {
+	result := inspectClusterResult{Cluster: cluster, Raw: map[string]any{}}
+	if capabilities, err := fetchCapabilities(backendURL, cluster); err == nil {
 		result.AvailableEvidence = capabilities.AvailableEvidence
 		result.MissingEvidence = capabilities.MissingEvidence
 		result.CapabilityWarnings = capabilities.Warnings
@@ -2643,7 +2692,7 @@ func fetchInspectCluster(backendURL, source string, limit int) (inspectClusterRe
 	} else {
 		result.CapabilityWarnings = append(result.CapabilityWarnings, "capabilities: "+err.Error())
 	}
-	abnormal, _ := getJSONMap(backendURL, "/api/k8s/pods", url.Values{"status": {"abnormal"}, "limit": {strconv.Itoa(limit)}})
+	abnormal, _ := getJSONMap(backendURL, "/api/k8s/pods", addCluster(url.Values{"status": {"abnormal"}, "limit": {strconv.Itoa(limit)}}, cluster))
 	nodes, _ := getJSONMap(backendURL, "/api/metrics/nodes", url.Values{"source": {source}, "limit": {"100"}})
 	topCPU, _ := getJSONMap(backendURL, "/api/metrics/pods", url.Values{"source": {source}, "sort": {"cpu"}, "limit": {strconv.Itoa(limit)}})
 	topMemory, _ := getJSONMap(backendURL, "/api/metrics/pods", url.Values{"source": {source}, "sort": {"memory"}, "limit": {strconv.Itoa(limit)}})

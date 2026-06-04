@@ -29,13 +29,28 @@ const (
 )
 
 type Client struct {
-	kubectl   string
-	mode      string
-	host      string
-	port      string
-	tokenPath string
-	caPath    string
-	http      *http.Client
+	kubectl        string
+	mode           string
+	clusterName    string
+	host           string
+	port           string
+	tokenPath      string
+	caPath         string
+	kubeconfigPath string
+	kubeContext    string
+	http           *http.Client
+}
+
+type ClientOptions struct {
+	ClusterName    string
+	Mode           string
+	Kubectl        string
+	Host           string
+	Port           string
+	TokenPath      string
+	CAPath         string
+	KubeconfigPath string
+	KubeContext    string
 }
 
 type LogRequest struct {
@@ -74,31 +89,64 @@ type JobRequest struct {
 }
 
 func NewClient() *Client {
-	tokenPath := env("OPSPILOT_SERVICEACCOUNT_TOKEN", "/var/run/secrets/kubernetes.io/serviceaccount/token")
-	caPath := env("OPSPILOT_SERVICEACCOUNT_CA", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
-	host := os.Getenv("KUBERNETES_SERVICE_HOST")
-	port := env("KUBERNETES_SERVICE_PORT", "443")
-	mode := "kubectl"
-	if host != "" && fileExists(tokenPath) {
-		mode = "in-cluster"
+	return NewClientWithOptions(ClientOptions{
+		ClusterName:    env("OPSPILOT_CLUSTER", "default"),
+		Mode:           os.Getenv("OPSPILOT_KUBERNETES_MODE"),
+		Kubectl:        env("OPSPILOT_KUBECTL", "kubectl"),
+		Host:           os.Getenv("KUBERNETES_SERVICE_HOST"),
+		Port:           env("KUBERNETES_SERVICE_PORT", "443"),
+		TokenPath:      env("OPSPILOT_SERVICEACCOUNT_TOKEN", "/var/run/secrets/kubernetes.io/serviceaccount/token"),
+		CAPath:         env("OPSPILOT_SERVICEACCOUNT_CA", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"),
+		KubeconfigPath: os.Getenv("OPSPILOT_KUBECONFIG"),
+		KubeContext:    os.Getenv("OPSPILOT_KUBE_CONTEXT"),
+	})
+}
+
+func NewClientWithOptions(opts ClientOptions) *Client {
+	tokenPath := firstNonEmptyString(opts.TokenPath, "/var/run/secrets/kubernetes.io/serviceaccount/token")
+	caPath := firstNonEmptyString(opts.CAPath, "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+	host := opts.Host
+	port := firstNonEmptyString(opts.Port, "443")
+	mode := strings.TrimSpace(opts.Mode)
+	if mode == "" {
+		mode = "kubectl"
+		if host != "" && fileExists(tokenPath) {
+			mode = "in-cluster"
+		} else if strings.TrimSpace(opts.KubeconfigPath) != "" {
+			mode = "remote"
+		}
 	}
 	return &Client{
-		kubectl:   env("OPSPILOT_KUBECTL", "kubectl"),
-		mode:      mode,
-		host:      host,
-		port:      port,
-		tokenPath: tokenPath,
-		caPath:    caPath,
-		http:      &http.Client{Timeout: 20 * time.Second},
+		kubectl:        firstNonEmptyString(opts.Kubectl, env("OPSPILOT_KUBECTL", "kubectl")),
+		mode:           mode,
+		clusterName:    firstNonEmptyString(opts.ClusterName, "default"),
+		host:           host,
+		port:           port,
+		tokenPath:      tokenPath,
+		caPath:         caPath,
+		kubeconfigPath: strings.TrimSpace(opts.KubeconfigPath),
+		kubeContext:    strings.TrimSpace(opts.KubeContext),
+		http:           &http.Client{Timeout: 20 * time.Second},
 	}
+}
+
+func (c *Client) ClusterName() string {
+	return firstNonEmptyString(c.clusterName, "default")
 }
 
 func (c *Client) Health() map[string]any {
 	out := map[string]any{
-		"mode": c.mode,
+		"cluster": c.ClusterName(),
+		"mode":    c.mode,
 	}
 	if c.mode == "kubectl" {
 		out["kubectl"] = c.kubectl
+	} else if c.mode == "remote" || c.mode == "kubeconfig" {
+		out["kubectl"] = c.kubectl
+		out["kubeconfig_configured"] = c.kubeconfigPath != ""
+		if c.kubeContext != "" {
+			out["kube_context"] = c.kubeContext
+		}
 	} else {
 		out["in_cluster_host"] = c.host
 	}
@@ -519,7 +567,7 @@ func (c *Client) PodContext(ctx context.Context, namespace, pod string) (map[str
 			"type":      "pod",
 			"namespace": namespace,
 			"name":      pod,
-			"cluster":   env("OPSPILOT_CLUSTER", "default"),
+			"cluster":   c.ClusterName(),
 		},
 		"summary": summary,
 		"evidence": map[string]any{
@@ -678,7 +726,7 @@ func (c *Client) kubectlText(ctx context.Context, args []string) (string, error)
 func (c *Client) kubectlTextInput(ctx context.Context, args []string, stdin string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, c.kubectl, args...)
+	cmd := exec.CommandContext(ctx, c.kubectl, c.kubectlArgs(args)...)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
@@ -697,6 +745,18 @@ func (c *Client) kubectlTextInput(ctx context.Context, args []string, stdin stri
 		return "", fmt.Errorf("kubectl failed: %s", msg)
 	}
 	return stdout.String(), nil
+}
+
+func (c *Client) kubectlArgs(args []string) []string {
+	fullArgs := []string{}
+	if c.kubeconfigPath != "" {
+		fullArgs = append(fullArgs, "--kubeconfig", c.kubeconfigPath)
+	}
+	if c.kubeContext != "" {
+		fullArgs = append(fullArgs, "--context", c.kubeContext)
+	}
+	fullArgs = append(fullArgs, args...)
+	return fullArgs
 }
 
 func labelSelector(labels map[string]string) string {
@@ -732,6 +792,15 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func fileExists(path string) bool {

@@ -114,6 +114,41 @@ The temporary account should be:
 - audited;
 - automatically revoked.
 
+## Read-Only User Configuration
+
+For people who only need to inspect data, do not give them the application
+runtime account. Give them a separate read-only account or a read-only replica.
+
+Recommended modes:
+
+| Scenario | Recommended configuration | Why |
+| --- | --- | --- |
+| Normal SQL troubleshooting | Dedicated read-only DB account on the same database | Simple and limited to `SELECT` plus metadata reads. |
+| Heavy ad hoc queries | Read replica or exported readonly copy | Avoids slow queries affecting the write database. |
+| Sync-style tools such as Obsidian | Separate readonly/export database or published file copy | Some clients write local/sync metadata even when the user only wants to read content. |
+| Production data access | Temporary readonly account with TTL and audit | Keeps access revocable and visible. |
+
+Minimum MySQL-style privileges for a readonly person:
+
+```sql
+CREATE USER 'readonly_xxx'@'%' IDENTIFIED BY '<temporary-password>';
+GRANT SELECT, SHOW VIEW ON app_database.* TO 'readonly_xxx'@'%';
+```
+
+Do not grant `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP`, `FILE`,
+`SUPER`, or broad `*.*` privileges. If the client needs to write sync/cache
+metadata, that is no longer a pure read-only user. Put that metadata in a
+separate writable helper database or use a published readonly copy.
+
+For OpsPilot-managed temporary access, the expected user instruction is:
+
+```text
+给 <service> 开一个 2 小时只读调试账号
+```
+
+OpsPilot should answer with the account scope, expiry, allowed operations, and
+revocation status without exposing the password in persistent logs.
+
 ## Observability Datasource Credentials
 
 A datasource credential should be scoped to the datasource:

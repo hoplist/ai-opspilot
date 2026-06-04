@@ -7,12 +7,17 @@ GitOps, credentials, middleware, or observability wiring. The platform should
 keep operational ownership while letting developers work with ordinary Git
 pushes and natural-language OpsPilot requests.
 
-Do not start by rewriting the large Argo CD manifests. The safer order is:
+The first governance stages are now in place. Argo CD portability can proceed
+as a controlled migration, but the live source path should only be switched
+after a render diff and Argo CD health verification.
+
+The safer order is:
 
 1. Build a credential ledger and repository permission boundary.
 2. Publish a one-page developer push and release flow.
 3. Template business-service GitOps output.
-4. Later refactor `argocd-core` into a portable Helm/Kustomize package.
+4. Refactor `argocd-core` into a portable Helm/Kustomize package.
+5. Switch the live Argo CD Application path in a separate GitOps release.
 
 ## Current State
 
@@ -194,7 +199,8 @@ catalog rules unless an explicit approved override exists.
 ConfigMaps, server, repo-server, controller, dex, redis, services, and network
 policies. That is acceptable for a live bootstrap, but poor for migration.
 
-Do this later, after the business release flow is stable:
+Use Kustomize first because it matches the current GitOps repository and avoids
+introducing Helm release state during the migration:
 
 ```text
 platform/argocd/
@@ -220,6 +226,27 @@ Only these values should differ per cluster:
 - Resource limits.
 - RBAC and SSO settings.
 - Whether `prune` is enabled for platform self-management.
+
+Current live path:
+
+```text
+clusters/test/argocd-core
+```
+
+Portable package path:
+
+```text
+platform/argocd/overlays/node200-test
+```
+
+Migration rule:
+
+1. Render the old and new paths.
+2. Compare resource identity and important specs.
+3. Change `apps/argocd-core-application.yaml` source path only after the render
+   diff is understood.
+4. Keep `prune: false` for the first migration sync.
+5. Delete the compatibility path only after Argo CD is `Synced` and `Healthy`.
 
 ## Multi-Cluster OpsPilot
 
@@ -259,6 +286,8 @@ clusters:
     kubernetes:
       mode: remote
       secret: opspilot-cluster-prod-a
+      kubeconfig: /var/run/opspilot/clusters/opspilot-cluster-prod-a/kubeconfig
+      context: prod-a
     prometheus:
       source: prod-a
     logs:
@@ -276,8 +305,49 @@ clusters:
   actions returning plans only.
 - Remote kubeconfigs or service-account tokens must live in Kubernetes Secrets
   or an external secret manager, never on client machines.
+- `opspilot-core` mounts remote kubeconfig Secrets under
+  `/var/run/opspilot/clusters/<secret-name>/kubeconfig`; the CLI only sends
+  `--cluster` and never receives kubeconfig content.
 - Every command should accept or infer `--cluster`, and every result should show
   the active cluster.
+
+### Runtime Configuration
+
+The environment form used by the current implementation is metadata-only. It
+registers where server-side kubeconfigs are mounted; it never stores the
+kubeconfig content itself:
+
+```text
+OPSPILOT_CLUSTER_CATALOG="node200-test=environment:test,kubernetes:in-cluster,prometheus:node200-k8s,gitops_project:platform/gitops-manifests,path:clusters/test,argocd_ns:argocd,registry:192.168.48.206:5050;prod-a=environment:prod,kubernetes:remote,secret:opspilot-cluster-prod-a,kubeconfig:/var/run/opspilot/clusters/opspilot-cluster-prod-a/kubeconfig,context:prod-a,prometheus:prod-a,logs:prod-elk,gitops_project:tpo/deploy/gitops-manifests,path:clusters/prod-a"
+```
+
+Remote kubeconfig Secret example:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: opspilot-cluster-prod-a
+  namespace: opspilot
+type: Opaque
+stringData:
+  kubeconfig: |
+    # kubeconfig content is managed outside Git
+```
+
+`opspilot-core` should mount the Secret at:
+
+```text
+/var/run/opspilot/clusters/<secret-name>/kubeconfig
+```
+
+The CLI only sends:
+
+```text
+--cluster prod-a
+```
+
+It must not read, copy, or print kubeconfig contents.
 
 ### Multi-Cluster Commands
 
@@ -300,7 +370,7 @@ opspilot release status --service skillshub-api --cluster node200-test
 5. Add credential registration plans for app middleware and observability
    datasources.
 6. Generate business GitOps from service intent files.
-7. Add multi-cluster datasource registry.
+7. Add multi-cluster datasource registry and cluster-aware execution.
 8. Refactor `argocd-core` into portable base/overlays or Helm values.
 
 ## Implementation Status
@@ -314,5 +384,14 @@ opspilot release status --service skillshub-api --cluster node200-test
 - Done: plan-first credential and datasource registration APIs.
 - Done: service onboarding results include structured GitOps path, Argo CD
   application name, image, standard flow, and middleware credential summaries.
-- In progress next: broader cluster-aware execution beyond datasource catalog
-  metadata, then portable Argo CD packaging.
+- Done: first cluster-aware execution path. OpsPilot core can route Kubernetes,
+  Pod logs, release evidence, quality jobs, and lifecycle evidence by
+  `cluster`; the CLI passes `--cluster` without handling kubeconfigs.
+- Done: first portable Argo CD Kustomize package in GitOps:
+  `platform/argocd/base` and `platform/argocd/overlays/node200-test`.
+- Done: node200-test is registered in the OpsPilot runtime cluster catalog so
+  `opspilot clusters catalog` returns the active cluster instead of an empty
+  list after deployment.
+- Remaining later work: switch the live `argocd-core` Application source path
+  in a separate planned GitOps change, then retire the compatibility path after
+  sync/health verification.

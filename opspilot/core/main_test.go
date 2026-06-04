@@ -95,7 +95,7 @@ func registerTestRoutes(t *testing.T, mux *http.ServeMux, services string) {
 	t.Helper()
 	registerRoutes(
 		mux,
-		k8s.NewClient(),
+		k8s.NewRegistry(k8s.RegistryConfig{}),
 		prom.NewRegistry("", "", ""),
 		nodeagent.NewRegistry("", ""),
 		logsearch.NewClientWithConfig("", "", logsearch.CorrelationConfig{}),

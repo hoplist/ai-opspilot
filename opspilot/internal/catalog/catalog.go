@@ -23,6 +23,8 @@ type Cluster struct {
 	Environment    string `json:"environment,omitempty"`
 	KubernetesMode string `json:"kubernetes_mode,omitempty"`
 	KubernetesRef  string `json:"kubernetes_ref,omitempty"`
+	KubeconfigPath string `json:"kubeconfig_path,omitempty"`
+	KubeContext    string `json:"kube_context,omitempty"`
 	Prometheus     string `json:"prometheus,omitempty"`
 	Logs           string `json:"logs,omitempty"`
 	GitOpsProject  string `json:"gitops_project,omitempty"`
@@ -114,7 +116,9 @@ func parseClusters(raw string) ([]Cluster, []string) {
 			Name:           name,
 			Environment:    attrs["environment"],
 			KubernetesMode: firstNonEmpty(attrs["kubernetes"], attrs["kubernetes_mode"], attrs["k8s"]),
-			KubernetesRef:  firstNonEmpty(attrs["secret"], attrs["service_account"], attrs["kubernetes_ref"]),
+			KubernetesRef:  firstNonEmpty(attrs["secret"], attrs["service_account"], attrs["kubernetes_ref"], attrs["ref"]),
+			KubeconfigPath: firstNonEmpty(attrs["kubeconfig"], attrs["kubeconfig_path"], attrs["kubeconfig_file"]),
+			KubeContext:    firstNonEmpty(attrs["context"], attrs["kube_context"], attrs["kubeconfig_context"]),
 			Prometheus:     attrs["prometheus"],
 			Logs:           attrs["logs"],
 			GitOpsProject:  attrs["gitops_project"],

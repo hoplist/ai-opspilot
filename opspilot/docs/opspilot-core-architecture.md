@@ -86,6 +86,21 @@ Clients should not receive kubeconfigs. Remote cluster credentials should live
 in Kubernetes Secrets or an external secret manager and be referenced by
 OpsPilot configuration.
 
+The first implementation supports:
+
+- `OPSPILOT_CLUSTER_CATALOG` entries with `kubernetes:in-cluster`,
+  `kubernetes:remote`, or `kubernetes:kubeconfig`.
+- Remote kubeconfig paths such as
+  `/var/run/opspilot/clusters/<secret-name>/kubeconfig`.
+- Optional kubeconfig context selection through `context:<name>`.
+- Cluster-aware Kubernetes inventory, Pod logs, Pod context, Pod diagnosis,
+  release status, quality jobs, lifecycle janitor/healer evidence, and
+  capability checks.
+
+Thin clients pass `--cluster <name>` only. If the requested cluster is not in
+the server-side catalog, OpsPilot returns an explicit missing registration error
+instead of falling back silently.
+
 ## Read-Only Catalog APIs
 
 OpsPilot exposes catalog metadata so users and AI can understand what the
@@ -111,6 +126,12 @@ OPSPILOT_CREDENTIAL_CATALOG="name=opspilot-release-secrets,class=platform-runtim
 OPSPILOT_CLUSTER_CATALOG="node200-test=environment:test,kubernetes:in-cluster,prometheus:node200-k8s,gitops_project:platform/gitops-manifests,path:clusters/test,argocd_ns:argocd,registry:192.168.48.206:5050"
 ```
 
+Remote example:
+
+```text
+OPSPILOT_CLUSTER_CATALOG="node200-test=environment:test,kubernetes:in-cluster,prometheus:node200-k8s,path:clusters/test;prod-a=environment:prod,kubernetes:remote,secret:opspilot-cluster-prod-a,kubeconfig:/var/run/opspilot/clusters/opspilot-cluster-prod-a/kubeconfig,context:prod-a,prometheus:prod-a,logs:prod-elk,path:clusters/prod-a"
+```
+
 The catalog stores metadata only. It must not include token values, passwords,
 kubeconfig contents, or database passwords.
 
@@ -121,5 +142,6 @@ kubeconfig contents, or database passwords.
 2. Move more AI/skill recommendations from CLI evidence builders to backend
    responses.
 3. Split CLI command implementations once backend ownership is clear.
-4. Keep Argo CD large YAML migration for a later Helm/Kustomize portability
-   phase.
+4. Switch live Argo CD from the compatibility `clusters/test/argocd-core`
+   source path to `platform/argocd/overlays/node200-test` after a planned
+   render diff and sync/health check.

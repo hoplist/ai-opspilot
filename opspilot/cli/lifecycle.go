@@ -152,9 +152,10 @@ func runJanitorPlan(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("janitor plan", flag.ExitOnError)
 	scope := fs.String("scope", "cluster", "cleanup scope: cluster, sandbox, or all")
 	source := fs.String("source", "all", "prometheus datasource, or all")
+	cluster := fs.String("cluster", "", "cluster name")
 	limit := fs.Int("limit", 10, "inspection limit")
 	_ = fs.Parse(args)
-	inspection, err := fetchInspectCluster(opts.backendURL, *source, *limit)
+	inspection, err := fetchInspectCluster(opts.backendURL, *source, firstNonEmptyString(*cluster, opts.cluster), *limit)
 	if err != nil {
 		return err
 	}
@@ -243,6 +244,7 @@ func runHealerDiagnose(opts globalOptions, args []string, out io.Writer) error {
 	service := fs.String("service", "", "release service name")
 	envName := fs.String("env", "test", "target environment")
 	source := fs.String("source", "", "prometheus datasource")
+	cluster := fs.String("cluster", "", "cluster name")
 	tail := fs.Int("tail", 300, "tail lines")
 	since := fs.Int("since", defaultPodLogSinceSeconds, "since seconds")
 	_ = fs.Parse(args)
@@ -255,11 +257,12 @@ func runHealerDiagnose(opts globalOptions, args []string, out io.Writer) error {
 	if *service == "" {
 		return fmt.Errorf("healer diagnose requires --service")
 	}
-	release, err := fetchReleaseService(opts.backendURL, *service, *envName, 5)
+	activeCluster := firstNonEmptyString(*cluster, opts.cluster)
+	release, err := fetchReleaseService(opts.backendURL, *service, *envName, activeCluster, 5)
 	if err != nil {
 		return err
 	}
-	inspection, inspectErr := fetchInspectService(opts.backendURL, *service, *envName, *source, *tail, *since)
+	inspection, inspectErr := fetchInspectService(opts.backendURL, *service, *envName, *source, activeCluster, *tail, *since)
 	actions := healerActionsFromRelease(release, inspection, inspectErr)
 	missing := []string{}
 	warnings := append([]string{}, release.Warnings...)
@@ -370,6 +373,7 @@ func runAppDecommissionPlan(opts globalOptions, args []string, out io.Writer) er
 	fs := flag.NewFlagSet("app decommission plan", flag.ExitOnError)
 	service := fs.String("service", "", "release service name")
 	envName := fs.String("env", "test", "target environment")
+	cluster := fs.String("cluster", "", "cluster name")
 	keepData := fs.Bool("keep-data", true, "keep PVC, PV, hostPath, database, and middleware data")
 	_ = fs.Parse(args)
 	if *service == "" {
@@ -381,11 +385,12 @@ func runAppDecommissionPlan(opts globalOptions, args []string, out io.Writer) er
 	if *service == "" {
 		return fmt.Errorf("app decommission plan requires --service")
 	}
-	release, err := fetchReleaseService(opts.backendURL, *service, *envName, 5)
+	activeCluster := firstNonEmptyString(*cluster, opts.cluster)
+	release, err := fetchReleaseService(opts.backendURL, *service, *envName, activeCluster, 5)
 	if err != nil {
 		return err
 	}
-	inspection, inspectErr := fetchInspectService(opts.backendURL, *service, *envName, "", 120, defaultPodLogSinceSeconds)
+	inspection, inspectErr := fetchInspectService(opts.backendURL, *service, *envName, "", activeCluster, 120, defaultPodLogSinceSeconds)
 	actions, blocked := decommissionActions(release, inspection, inspectErr, *keepData)
 	gaps := append([]string{}, release.Gaps...)
 	warnings := append([]string{}, release.Warnings...)

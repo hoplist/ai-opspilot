@@ -9,6 +9,8 @@ metadata:
 data:
   OPSPILOT_PORT: "18080"
   OPSPILOT_ACCESS_LOG: "1"
+  OPSPILOT_CLUSTER: "node200-test"
+  OPSPILOT_CLUSTER_KUBECONFIG_DIR: "/var/run/opspilot/clusters"
   OPSPILOT_PROMETHEUS_DEFAULT_SOURCE: "node200-k8s"
   OPSPILOT_PROMETHEUS_DATASOURCES: "node200-k8s=http://opspilot-prometheus-server.monitoring.svc.cluster.local,node206-host=http://192.168.48.206:9090"
   OPSPILOT_NODE_AGENT_DEFAULT_HOST: "node206"

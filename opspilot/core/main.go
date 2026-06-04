@@ -30,7 +30,11 @@ func main() {
 	port := flag.String("port", env("OPSPILOT_PORT", "18080"), "listen port")
 	flag.Parse()
 
-	client := k8s.NewClient()
+	k8sRegistry := k8s.NewRegistry(k8s.RegistryConfig{
+		CatalogRaw:     env("OPSPILOT_CLUSTER_CATALOG", ""),
+		DefaultCluster: env("OPSPILOT_CLUSTER", ""),
+		KubeconfigDir:  env("OPSPILOT_CLUSTER_KUBECONFIG_DIR", ""),
+	})
 	promRegistry := prom.NewRegistry(
 		env("OPSPILOT_PROMETHEUS_DEFAULT_SOURCE", ""),
 		env("OPSPILOT_PROMETHEUS_URL", ""),
@@ -67,7 +71,7 @@ func main() {
 	}
 	errorCollector := errorevidence.NewCollector(env("OPSPILOT_ERROR_EVENT_DIR", "/var/lib/opspilot/error-events"))
 	mux := http.NewServeMux()
-	registerRoutes(mux, client, promRegistry, agentRegistry, logClient, releaseRegistry, errorCollector, qualitySettings)
+	registerRoutes(mux, k8sRegistry, promRegistry, agentRegistry, logClient, releaseRegistry, errorCollector, qualitySettings)
 	addr := *host + ":" + *port
 	fmt.Printf("opspilot-core %s listening on http://%s\n", version.Version, addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
@@ -76,7 +80,8 @@ func main() {
 	}
 }
 
-func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, errorCollector *errorevidence.Collector, qualitySettings release.QualitySettings) {
+func registerRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, errorCollector *errorevidence.Collector, qualitySettings release.QualitySettings) {
+	defaultClient := k8sRegistry.DefaultClient()
 	mux.HandleFunc("/api/live", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return map[string]any{
 			"version": version.Version,
@@ -84,9 +89,11 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 		}, nil, nil
 	}))
 	mux.HandleFunc("/api/health", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		k8sHealth := defaultClient.Health()
+		k8sHealth["registry"] = k8sRegistry.Health()
 		return map[string]any{
 			"version":    version.Version,
-			"kubernetes": client.Health(),
+			"kubernetes": k8sHealth,
 			"prometheus": promRegistry.Health(ctx),
 			"node_agent": agentRegistry.Health(ctx),
 			"logsearch":  logClient.Health(ctx),
@@ -102,7 +109,15 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 		}, nil, nil
 	}))
 	mux.HandleFunc("/api/capabilities", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		return buildCapabilities(ctx, client, promRegistry, agentRegistry, logClient, releaseRegistry, qualitySettings)
+		client, clusterWarnings, err := k8sClientForRequest(r, k8sRegistry)
+		if err != nil {
+			return nil, clusterWarnings, err
+		}
+		data, warnings, err := buildCapabilities(ctx, client, promRegistry, agentRegistry, logClient, releaseRegistry, qualitySettings)
+		if data != nil {
+			data["cluster"] = client.ClusterName()
+		}
+		return data, append(clusterWarnings, warnings...), err
 	}))
 	mux.HandleFunc("/api/skills/registry", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
@@ -167,6 +182,10 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 	}))
 	mux.HandleFunc("/api/errors/recent", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
+		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		if err != nil {
+			return nil, warnings, err
+		}
 		return errorCollector.Recent(ctx, client, releaseRegistry, promRegistry, logClient, errorevidence.Request{
 			Source:    q.Get("source"),
 			Service:   q.Get("service"),
@@ -175,7 +194,13 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 		})
 	}))
 	mux.HandleFunc("/api/inventory/overview", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		return client.InventoryOverview(ctx, intQuery(r, "limit", 10)), nil, nil
+		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		if err != nil {
+			return nil, warnings, err
+		}
+		result := client.InventoryOverview(ctx, intQuery(r, "limit", 10))
+		result["cluster"] = client.ClusterName()
+		return result, warnings, nil
 	}))
 	mux.HandleFunc("/api/metrics/health", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return promRegistry.Health(ctx), nil, nil
@@ -209,11 +234,19 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 	}))
 	mux.HandleFunc("/api/k8s/pods", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
+		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		if err != nil {
+			return nil, warnings, err
+		}
 		result, err := client.ListPods(ctx, q.Get("namespace"), q.Get("status"), q.Get("q"), intQuery(r, "limit", 100))
-		return result, nil, err
+		return result, warnings, err
 	}))
 	mux.HandleFunc("/api/k8s/logs/pod", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
+		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		if err != nil {
+			return nil, warnings, err
+		}
 		req := k8s.LogRequest{
 			Namespace:    required(q.Get("namespace"), "namespace"),
 			Pod:          required(q.Get("pod"), "pod"),
@@ -225,7 +258,7 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 			Timestamps:   boolQuery(r, "timestamps"),
 		}
 		log, err := client.ReadPodLog(ctx, req)
-		return log, nil, err
+		return log, warnings, err
 	}))
 	mux.HandleFunc("/api/node-agents", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return agentRegistry.Health(ctx), nil, nil
@@ -290,14 +323,24 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 			return nil, nil, fmt.Errorf("release services are not configured")
 		}
 		q := r.URL.Query()
-		return releaseRegistry.Status(ctx, required(q.Get("service"), "service"), client, promRegistry, logClient, qualitySettings)
+		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		if err != nil {
+			return nil, warnings, err
+		}
+		data, moreWarnings, err := releaseRegistry.Status(ctx, required(q.Get("service"), "service"), client, promRegistry, logClient, qualitySettings)
+		return data, append(warnings, moreWarnings...), err
 	}))
 	mux.HandleFunc("/api/quality/status", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
 			return nil, nil, fmt.Errorf("release services are not configured")
 		}
 		q := r.URL.Query()
-		return releaseRegistry.QualityStatus(ctx, required(q.Get("service"), "service"), client, qualitySettings)
+		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		if err != nil {
+			return nil, warnings, err
+		}
+		data, moreWarnings, err := releaseRegistry.QualityStatus(ctx, required(q.Get("service"), "service"), client, qualitySettings)
+		return data, append(warnings, moreWarnings...), err
 	}))
 	mux.HandleFunc("/api/quality/run", wrapPost(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
@@ -306,7 +349,12 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 		if err := r.ParseForm(); err != nil {
 			return nil, nil, requestError{message: "form body is invalid"}
 		}
-		return releaseRegistry.RunQuality(ctx, required(r.Form.Get("service"), "service"), r.Form.Get("base_url"), client, qualitySettings)
+		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		if err != nil {
+			return nil, warnings, err
+		}
+		data, moreWarnings, err := releaseRegistry.RunQuality(ctx, required(r.Form.Get("service"), "service"), r.Form.Get("base_url"), client, qualitySettings)
+		return data, append(warnings, moreWarnings...), err
 	}))
 	mux.HandleFunc("/api/release/jobs", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
@@ -380,25 +428,41 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 		q := r.URL.Query()
 		namespace := required(q.Get("namespace"), "namespace")
 		pod := required(q.Get("pod"), "pod")
+		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		if err != nil {
+			return nil, warnings, err
+		}
 		podContext, err := client.PodContext(ctx, namespace, pod)
 		if err == nil {
 			addPodMetrics(ctx, promRegistry, sourceQuery(r), podContext, namespace, pod)
 		}
-		return podContext, nil, err
+		return podContext, warnings, err
 	}))
 	mux.HandleFunc("/api/diagnose/pod", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		namespace := required(q.Get("namespace"), "namespace")
 		pod := required(q.Get("pod"), "pod")
+		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		if err != nil {
+			return nil, warnings, err
+		}
 		diagnosis, err := client.DiagnosePod(ctx, namespace, pod)
 		if err == nil {
 			addPodMetrics(ctx, promRegistry, sourceQuery(r), diagnosis, namespace, pod)
 		}
-		return diagnosis, nil, err
+		return diagnosis, warnings, err
 	}))
 }
 
 type handlerFunc func(context.Context, *http.Request) (any, []string, error)
+
+func k8sClientForRequest(r *http.Request, registry *k8s.Registry) (*k8s.Client, []string, error) {
+	cluster := r.URL.Query().Get("cluster")
+	if cluster == "" {
+		cluster = r.Form.Get("cluster")
+	}
+	return registry.ClientFor(cluster)
+}
 
 func wrap(fn handlerFunc) http.HandlerFunc {
 	return wrapMethod(http.MethodGet, fn)
