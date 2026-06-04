@@ -119,6 +119,10 @@ func (r *Registry) clientFromCluster(item catalog.Cluster) *Client {
 		ClusterName:    item.Name,
 		Mode:           mode,
 		Kubectl:        env("OPSPILOT_KUBECTL", "kubectl"),
+		Host:           env("KUBERNETES_SERVICE_HOST", ""),
+		Port:           env("KUBERNETES_SERVICE_PORT", "443"),
+		TokenPath:      env("OPSPILOT_SERVICEACCOUNT_TOKEN", "/var/run/secrets/kubernetes.io/serviceaccount/token"),
+		CAPath:         env("OPSPILOT_SERVICEACCOUNT_CA", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"),
 		KubeconfigPath: path,
 		KubeContext:    item.KubeContext,
 	})

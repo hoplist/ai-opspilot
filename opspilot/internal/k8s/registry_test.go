@@ -45,6 +45,23 @@ func TestRegistryRejectsUnknownCluster(t *testing.T) {
 	}
 }
 
+func TestRegistryBuildsInClusterClientWithServiceAccountEnv(t *testing.T) {
+	t.Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1")
+	t.Setenv("KUBERNETES_SERVICE_PORT", "6443")
+	registry := NewRegistry(RegistryConfig{
+		CatalogRaw:     "node200-test=environment:test,kubernetes:in-cluster",
+		DefaultCluster: "node200-test",
+	})
+
+	client, _, err := registry.ClientFor("node200-test")
+	if err != nil {
+		t.Fatalf("ClientFor returned error: %v", err)
+	}
+	if client.mode != "in-cluster" || client.host != "10.0.0.1" || client.port != "6443" {
+		t.Fatalf("client = %#v", client)
+	}
+}
+
 func TestRegistryRejectsNonKubernetesDatasource(t *testing.T) {
 	registry := NewRegistry(RegistryConfig{
 		CatalogRaw:     "node206-host=environment:test,kubernetes:host-agent,prometheus:node206-host",

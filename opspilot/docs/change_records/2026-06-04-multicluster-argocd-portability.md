@@ -58,6 +58,12 @@ at the compatibility path until a separate planned GitOps migration changes it.
   datasource bundles but not Kubernetes clusters. Kubernetes inspection now
   returns an explicit "no Kubernetes datasource" error instead of silently using
   the default kubectl context.
+- Fixed a rollout-discovered bug where catalog-defined `kubernetes:in-cluster`
+  clients did not inherit ServiceAccount connection settings. The registry now
+  passes `KUBERNETES_SERVICE_HOST`, `KUBERNETES_SERVICE_PORT`, token path, and
+  CA path into named in-cluster clients.
+- Tightened CLI cluster inspection so non-Kubernetes datasource bundles fail
+  fast instead of mixing a capability error with unrelated metric evidence.
 - Documented read-only user configuration:
   - normal readonly DB account;
   - read replica/export copy for heavy reads;

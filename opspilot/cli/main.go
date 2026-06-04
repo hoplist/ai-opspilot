@@ -1738,6 +1738,9 @@ func fetchInspectService(backendURL, service, envName, source, cluster string, t
 		result.CapabilityWarnings = capabilities.Warnings
 		result.Raw["capabilities"] = capabilities.Raw
 	} else {
+		if strings.Contains(err.Error(), "does not have a Kubernetes datasource") {
+			return result, err
+		}
 		result.CapabilityWarnings = append(result.CapabilityWarnings, "capabilities: "+err.Error())
 	}
 	evidence := mapValue(data, "evidence")
