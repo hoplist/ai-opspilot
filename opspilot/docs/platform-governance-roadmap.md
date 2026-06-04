@@ -294,10 +294,18 @@ opspilot release status --service skillshub-api --cluster node200-test
 ## Implementation Order
 
 1. Add docs and ledger format.
-2. Add read-only `credentials catalog` and `clusters catalog` commands.
-3. Move service recommendations and skill routing fully server-side.
-4. Add credential registration plans for app middleware and observability
+2. Move natural-language intent parsing behind the OpsPilot backend.
+3. Add read-only `credentials catalog` and `clusters catalog` commands.
+4. Move service recommendations and skill routing fully server-side.
+5. Add credential registration plans for app middleware and observability
    datasources.
-5. Generate business GitOps from service intent files.
-6. Add multi-cluster datasource registry.
-7. Refactor `argocd-core` into portable base/overlays or Helm values.
+6. Generate business GitOps from service intent files.
+7. Add multi-cluster datasource registry.
+8. Refactor `argocd-core` into portable base/overlays or Helm values.
+
+## Implementation Status
+
+- Done: governance docs, credential ledger format, developer standard flow.
+- Done: backend `/api/intent/parse` and shared deterministic
+  `internal/intent` parser.
+- In progress next: read-only credential and cluster catalogs.

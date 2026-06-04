@@ -16,6 +16,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/contracts"
+	intentpkg "github.com/dualistpeng-netizen/ai-observability/opspilot/internal/intent"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/quality"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/skillregistry"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/version"
@@ -65,6 +66,10 @@ func run(args []string, out io.Writer) error {
 		return runDoctor(opts, args[1:], out)
 	case "skills":
 		return runSkillsRegistry(opts, args[1:], out)
+	case "credentials", "credential":
+		return runCredentialsCatalog(opts, args[1:], out)
+	case "clusters", "cluster":
+		return runClustersCatalog(opts, args[1:], out)
 	case "inventory":
 		endpoint, values = inventoryCommand(args[1:])
 	case "metrics":
@@ -165,12 +170,7 @@ type naturalLanguageResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-type naturalLanguageIntent struct {
-	Action  string
-	Service string
-	Target  string
-	Command []string
-}
+type naturalLanguageIntent = intentpkg.Intent
 
 type capabilityItem struct {
 	Name              string         `json:"name"`
@@ -431,6 +431,85 @@ func writeSkillsRegistryHuman(result skillsRegistryResult) func(io.Writer) error
 	}
 }
 
+func runCredentialsCatalog(opts globalOptions, args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] != "catalog" && args[0] != "list" {
+		return fmt.Errorf("expected credentials subcommand: catalog")
+	}
+	body, err := get(opts.backendURL, "/api/credentials/catalog", url.Values{})
+	if err != nil {
+		return err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return fmt.Errorf("credentials catalog response missing data")
+	}
+	return writeOutput(out, opts.output, data, writeCredentialsCatalogHuman(data, stringList(payload["warnings"])))
+}
+
+func writeCredentialsCatalogHuman(data map[string]any, warnings []string) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Credentials catalog: source=%s count=%d\n", stringValue(data["source"]), intValue(data["count"]))
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "NAME\tCLASS\tSCOPE\tSTORAGE\tNAMESPACE\tUSED BY")
+		for _, item := range mapsFromItems(data["items"]) {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				stringValue(item["name"]), stringValue(item["class"]), stringValue(item["scope"]),
+				stringValue(item["storage"]), stringValue(item["namespace"]), strings.Join(stringList(item["used_by"]), ","))
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		if len(warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(warnings, "; "))
+		}
+		return nil
+	}
+}
+
+func runClustersCatalog(opts globalOptions, args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] != "catalog" && args[0] != "list" {
+		return fmt.Errorf("expected clusters subcommand: catalog")
+	}
+	body, err := get(opts.backendURL, "/api/clusters/catalog", url.Values{})
+	if err != nil {
+		return err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return fmt.Errorf("clusters catalog response missing data")
+	}
+	return writeOutput(out, opts.output, data, writeClustersCatalogHuman(data, stringList(payload["warnings"])))
+}
+
+func writeClustersCatalogHuman(data map[string]any, warnings []string) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Clusters catalog: source=%s count=%d\n", stringValue(data["source"]), intValue(data["count"]))
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "NAME\tENV\tK8S\tPROMETHEUS\tLOGS\tGITOPS\tARGOCD\tREGISTRY")
+		for _, item := range mapsFromItems(data["items"]) {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				stringValue(item["name"]), stringValue(item["environment"]), stringValue(item["kubernetes_mode"]),
+				stringValue(item["prometheus"]), stringValue(item["logs"]), stringValue(item["gitops_path"]),
+				stringValue(item["argocd_namespace"]), stringValue(item["registry"]))
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		if len(warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(warnings, "; "))
+		}
+		return nil
+	}
+}
+
 func runNaturalLanguage(opts globalOptions, args []string, out io.Writer) error {
 	service := ""
 	ref := "main"
@@ -459,8 +538,7 @@ func runNaturalLanguage(opts globalOptions, args []string, out io.Writer) error 
 	if query == "" {
 		return fmt.Errorf("ask requires natural language text")
 	}
-	services, warnings := fetchConfiguredServices(opts.backendURL)
-	intent := interpretNaturalLanguage(query, service, services)
+	intent, warnings := fetchNaturalLanguageIntent(opts.backendURL, query, service)
 	if intent.Service == "" {
 		result := naturalLanguageResult{
 			Query:    query,
@@ -574,6 +652,38 @@ func writeNaturalLanguageHuman(result naturalLanguageResult) func(io.Writer) err
 		}
 		return nil
 	}
+}
+
+func fetchNaturalLanguageIntent(backendURL, query, service string) (intentpkg.Intent, []string) {
+	body, err := get(backendURL, "/api/intent/parse", url.Values{
+		"query":   {query},
+		"service": {service},
+	})
+	if err == nil {
+		var payload map[string]any
+		if jsonErr := json.Unmarshal(body, &payload); jsonErr != nil {
+			return intentpkg.Intent{}, []string{"intent parse: " + jsonErr.Error()}
+		}
+		data := mapValue(payload, "data")
+		if data == nil {
+			return intentpkg.Intent{}, []string{"intent parse: response missing data"}
+		}
+		raw, _ := json.Marshal(data)
+		var parsed intentpkg.Intent
+		if jsonErr := json.Unmarshal(raw, &parsed); jsonErr != nil {
+			return intentpkg.Intent{}, []string{"intent parse: " + jsonErr.Error()}
+		}
+		warnings := append(stringList(payload["warnings"]), parsed.Warnings...)
+		return parsed, warnings
+	}
+	services, warnings := fetchConfiguredServices(backendURL)
+	warnings = append(warnings, "backend intent parser unavailable; used CLI compatibility parser: "+err.Error())
+	parsed := intentpkg.Interpret(intentpkg.Request{
+		Query:           query,
+		ServiceOverride: service,
+		Services:        services,
+	})
+	return parsed, append(warnings, parsed.Warnings...)
 }
 
 func interpretNaturalLanguage(query, serviceOverride string, services []string) naturalLanguageIntent {

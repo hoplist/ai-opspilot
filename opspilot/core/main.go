@@ -12,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/catalog"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/errorevidence"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/intent"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/logsearch"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/nodeagent"
@@ -105,6 +107,22 @@ func registerRoutes(mux *http.ServeMux, client *k8s.Client, promRegistry *prom.R
 	mux.HandleFunc("/api/skills/registry", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		catalog, warnings := skillregistry.RegistryFromEnv(q.Get("category"), boolQuery(r, "integrated_only"))
+		return catalog, warnings, nil
+	}))
+	mux.HandleFunc("/api/intent/parse", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		return intent.Interpret(intent.Request{
+			Query:           required(q.Get("query"), "query"),
+			ServiceOverride: q.Get("service"),
+			Services:        releaseRegistry.Services(),
+		}), nil, nil
+	}))
+	mux.HandleFunc("/api/credentials/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		catalog, warnings := catalog.CredentialsFromEnv(env("OPSPILOT_CREDENTIAL_CATALOG", ""))
+		return catalog, warnings, nil
+	}))
+	mux.HandleFunc("/api/clusters/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		catalog, warnings := catalog.ClustersFromEnv(env("OPSPILOT_CLUSTER_CATALOG", ""))
 		return catalog, warnings, nil
 	}))
 	mux.HandleFunc("/api/errors/recent", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {

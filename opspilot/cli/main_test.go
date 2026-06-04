@@ -679,6 +679,50 @@ func TestNaturalLanguageInspectExecutes(t *testing.T) {
 	}
 }
 
+func TestCredentialsCatalogUsesBackend(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/credentials/catalog" {
+			http.NotFound(w, r)
+			return
+		}
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"version": "v1", "source": "env", "count": 1,
+			"items": []any{map[string]any{"name": "opspilot-release-secrets", "class": "platform-runtime"}},
+		}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "credentials", "catalog"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "opspilot-release-secrets") {
+		t.Fatalf("output = %s", out.String())
+	}
+}
+
+func TestClustersCatalogUsesBackend(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/clusters/catalog" {
+			http.NotFound(w, r)
+			return
+		}
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"version": "v1", "source": "env", "count": 1,
+			"items": []any{map[string]any{"name": "node200-test", "environment": "test"}},
+		}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "clusters", "catalog"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "node200-test") {
+		t.Fatalf("output = %s", out.String())
+	}
+}
+
 func TestOnboardServicePlan(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "opspilot.service.yaml")
