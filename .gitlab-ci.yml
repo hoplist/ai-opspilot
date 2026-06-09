@@ -122,7 +122,8 @@ update:gitops:
     - cp deploy/opspilot/core/service.yaml "gitops/$GITOPS_APP_PATH/service.yaml"
     - cp deploy/opspilot/core/kustomization.yaml "gitops/$GITOPS_APP_PATH/kustomization.yaml"
     - sed -i 's#../rbac#../opspilot-rbac#g' "gitops/$GITOPS_APP_PATH/kustomization.yaml"
-    - sed -i "s#image: .*opspilot-core.*#image: ${IMAGE_NAME}:${IMAGE_TAG}#" "gitops/$GITOPS_APP_PATH/deployment.yaml"
+    - |
+      sed -i "s#image: .*opspilot-core.*#image: ${IMAGE_NAME}:${IMAGE_TAG}#" "gitops/$GITOPS_APP_PATH/deployment.yaml"
     - |
       cat > "gitops/$GITOPS_APP_FILE" <<EOF
       apiVersion: argoproj.io/v1alpha1
