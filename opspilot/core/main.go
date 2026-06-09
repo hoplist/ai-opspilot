@@ -30,9 +30,10 @@ func main() {
 		env("OPSPILOT_PROMETHEUS_URL", ""),
 		env("OPSPILOT_PROMETHEUS_DATASOURCES", ""),
 	)
-	agentRegistry := nodeagent.NewRegistry(
+	agentRegistry := nodeagent.NewRegistryWithTokens(
 		env("OPSPILOT_NODE_AGENT_DEFAULT_HOST", ""),
 		env("OPSPILOT_NODE_AGENTS", ""),
+		env("OPSPILOT_NODE_AGENT_TOKENS", ""),
 	)
 	logClient := logsearch.NewClientWithConfig(
 		env("OPSPILOT_LOGSEARCH_URL", ""),

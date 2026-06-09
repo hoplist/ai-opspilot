@@ -10,8 +10,9 @@ import (
 const AllHosts = "all"
 
 type DataSource struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+	Token string `json:"-"`
 }
 
 type Registry struct {
@@ -21,7 +22,12 @@ type Registry struct {
 }
 
 func NewRegistry(defaultHost, rawAgents string) *Registry {
+	return NewRegistryWithTokens(defaultHost, rawAgents, "")
+}
+
+func NewRegistryWithTokens(defaultHost, rawAgents, rawTokens string) *Registry {
 	sources := ParseDataSources(rawAgents)
+	tokens := ParseTokenMap(rawTokens)
 	clients := map[string]*Client{}
 	order := []string{}
 	for _, source := range sources {
@@ -31,7 +37,7 @@ func NewRegistry(defaultHost, rawAgents string) *Registry {
 		if _, exists := clients[source.Name]; exists {
 			continue
 		}
-		clients[source.Name] = NewClient(source.URL)
+		clients[source.Name] = NewClientWithToken(source.URL, firstNonEmpty(tokens[source.Name], source.Token))
 		order = append(order, source.Name)
 	}
 	if defaultHost == "" && len(order) > 0 {
@@ -61,6 +67,35 @@ func ParseDataSources(raw string) []DataSource {
 		})
 	}
 	return sources
+}
+
+func ParseTokenMap(raw string) map[string]string {
+	tokens := map[string]string{}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		name, token, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		name = strings.TrimSpace(name)
+		token = strings.TrimSpace(token)
+		if name != "" && token != "" {
+			tokens[name] = token
+		}
+	}
+	return tokens
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (r *Registry) Configured() bool {

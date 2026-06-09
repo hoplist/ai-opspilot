@@ -20,6 +20,9 @@ spec:
       serviceAccountName: opspilot-core
       securityContext:
         fsGroup: 65533
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       imagePullSecrets:
         - name: gitlab-registry-pull
       containers:
@@ -42,6 +45,15 @@ spec:
             - name: opspilot-skills
               mountPath: /opt/opspilot/skills
               readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            capabilities:
+              drop:
+                - ALL
           resources:
             requests:
               cpu: 50m
@@ -103,6 +115,13 @@ spec:
                   optional: true
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65533
+            runAsGroup: 65533
+            capabilities:
+              drop:
+                - ALL
           volumeMounts:
             - name: opspilot-skills
               mountPath: /skills
@@ -115,4 +134,5 @@ spec:
               memory: 128Mi
       volumes:
         - name: opspilot-skills
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: 256Mi

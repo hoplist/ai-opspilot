@@ -36,6 +36,10 @@ type dockerClient struct {
 
 func main() {
 	cfg := loadConfig()
+	if err := validateConfig(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	docker := newDockerClient(cfg.dockerSocket)
 	mux := http.NewServeMux()
 	registerRoutes(mux, docker, cfg)
@@ -45,6 +49,22 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func validateConfig(cfg config) error {
+	if cfg.token != "" || isLocalListenHost(cfg.host) {
+		return nil
+	}
+	return fmt.Errorf("OPSPILOT_AGENT_TOKEN is required when listening on non-local host %q", cfg.host)
+}
+
+func isLocalListenHost(host string) bool {
+	host = strings.TrimSpace(strings.Trim(host, "[]"))
+	if host == "" || host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func loadConfig() config {

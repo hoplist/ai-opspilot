@@ -15,12 +15,18 @@ import (
 
 type Client struct {
 	baseURL string
+	token   string
 	http    *http.Client
 }
 
 func NewClient(baseURL string) *Client {
+	return NewClientWithToken(baseURL, "")
+}
+
+func NewClientWithToken(baseURL, token string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
+		token:   strings.TrimSpace(token),
 		http:    &http.Client{Timeout: 20 * time.Second},
 	}
 }
@@ -99,6 +105,9 @@ func (c *Client) getRaw(ctx context.Context, path string, values url.Values) ([]
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, 0, err
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {

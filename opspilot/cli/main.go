@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/contracts"
 	intentpkg "github.com/dualistpeng-netizen/ai-observability/opspilot/internal/intent"
@@ -24,6 +25,9 @@ import (
 
 const defaultBackend = "http://127.0.0.1:18080"
 const realFilesystemFilter = `fstype!~"tmpfs|overlay|squashfs|ramfs|cgroup2?|proc|sysfs|devtmpfs|devpts|securityfs|pstore|bpf|tracefs|debugfs|configfs|fusectl|mqueue|hugetlbfs"`
+const cliHTTPTimeout = 30 * time.Second
+
+var cliHTTPClient = &http.Client{Timeout: cliHTTPTimeout}
 
 type globalOptions struct {
 	backendURL string
@@ -3314,7 +3318,13 @@ func get(baseURL, endpoint string, values url.Values) ([]byte, error) {
 	if encoded := clean.Encode(); encoded != "" {
 		target += "?" + encoded
 	}
-	resp, err := http.Get(target)
+	ctx, cancel := context.WithTimeout(context.Background(), cliHTTPTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := cliHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -3337,12 +3347,14 @@ func post(baseURL, endpoint string, values url.Values) ([]byte, error) {
 		}
 	}
 	target := strings.TrimRight(baseURL, "/") + endpoint
-	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(clean.Encode()))
+	ctx, cancel := context.WithTimeout(context.Background(), cliHTTPTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(clean.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cliHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

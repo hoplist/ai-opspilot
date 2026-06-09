@@ -1554,6 +1554,94 @@ func TestRepoPreflightDetectsMissingReleaseFiles(t *testing.T) {
 	}
 }
 
+func TestRepoPreflightSupportsExplicitMonorepoPaths(t *testing.T) {
+	root := t.TempDir()
+	app := filepath.Join(root, "opspilot")
+	deploy := filepath.Join(root, "deploy", "opspilot", "core")
+	if err := os.MkdirAll(app, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(deploy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app, "go.mod"), []byte("module example.com/opspilot\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app, "Dockerfile"), []byte("FROM alpine:3.20\nEXPOSE 18080\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gitlab-ci.yml"), []byte("buildctl-daemonless.sh build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"namespace.yaml", "limitrange.yaml", "resourcequota.yaml", "serviceaccount.yaml", "service.yaml", "kustomization.yaml"} {
+		if err := os.WriteFile(filepath.Join(deploy, name), []byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: placeholder\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deployment := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opspilot
+  namespace: cicd-devex-opspilot
+spec:
+  template:
+    spec:
+      containers:
+        - name: opspilot
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+`
+	if err := os.WriteFile(filepath.Join(deploy, "deployment.yaml"), []byte(deployment), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{
+		"repo", "preflight",
+		"--repo", app,
+		"--project", "platform/opspilot",
+		"--ci-path", filepath.Join("..", ".gitlab-ci.yml"),
+		"--deploy-path", filepath.Join("..", "deploy", "opspilot", "core"),
+		"--namespace", "cicd-devex-opspilot",
+		"--namespace-path", filepath.Join("..", "deploy", "opspilot", "core", "namespace.yaml"),
+		"--limitrange-path", filepath.Join("..", "deploy", "opspilot", "core", "limitrange.yaml"),
+		"--resourcequota-path", filepath.Join("..", "deploy", "opspilot", "core", "resourcequota.yaml"),
+		"--serviceaccount-path", filepath.Join("..", "deploy", "opspilot", "core", "serviceaccount.yaml"),
+	}, &out); err != nil {
+		t.Fatalf("preflight with explicit monorepo paths failed: %v\n%s", err, out.String())
+	}
+	var payload repoPreflightResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, gap := range []string{"namespace", "deployment", "service", "kustomization"} {
+		if containsString(payload.Gaps, gap) {
+			t.Fatalf("did not expect %s gap with explicit paths: %#v", gap, payload.Gaps)
+		}
+	}
+	foundCIWarning := false
+	for _, item := range payload.Items {
+		if item.Name == "gitlab_ci" && item.Status == "warn" && item.Path == filepath.Join("..", ".gitlab-ci.yml") {
+			foundCIWarning = true
+		}
+	}
+	if !foundCIWarning {
+		t.Fatalf("expected CI warning with explicit path: %#v", payload.Items)
+	}
+}
+
 func TestRepoAutofixWritesPlatformFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {

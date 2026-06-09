@@ -112,9 +112,24 @@ func repoPreflightCommand(opts globalOptions, args []string, out io.Writer) erro
 	repo := fs.String("repo", ".", "repository path")
 	project := fs.String("project", "", "GitLab project path, for example tpo/devex/skillshub/skillshub-api")
 	catalog := fs.String("namespace-catalog", "opspilot.namespaces.yaml", "namespace catalog path")
+	ciPath := fs.String("ci-path", ".gitlab-ci.yml", "GitLab CI file path relative to repository path")
+	deployPath := fs.String("deploy-path", filepath.Join("deploy", "k8s"), "Kubernetes manifest directory relative to repository path")
+	namespace := fs.String("namespace", "", "override expected Kubernetes namespace for preflight")
+	namespacePath := fs.String("namespace-path", "", "namespace manifest path relative to repository path")
+	limitrangePath := fs.String("limitrange-path", "", "LimitRange manifest path relative to repository path")
+	resourcequotaPath := fs.String("resourcequota-path", "", "ResourceQuota manifest path relative to repository path")
+	serviceaccountPath := fs.String("serviceaccount-path", "", "ServiceAccount manifest path relative to repository path")
 	_ = fs.Parse(args)
 	result, err := withRepo(*repo, func() (repoPreflightResult, error) {
-		return repoPreflight(*project, *catalog)
+		return repoPreflight(*project, *catalog, repoLayoutOptions{
+			CIPath:             *ciPath,
+			DeployPath:         *deployPath,
+			Namespace:          *namespace,
+			NamespacePath:      *namespacePath,
+			LimitRangePath:     *limitrangePath,
+			ResourceQuotaPath:  *resourcequotaPath,
+			ServiceAccountPath: *serviceaccountPath,
+		})
 	})
 	if err != nil {
 		return err
@@ -171,7 +186,7 @@ func repoAutofixCommand(opts globalOptions, args []string, out io.Writer) error 
 	force := fs.Bool("force", false, "overwrite existing generated files")
 	_ = fs.Parse(args)
 	result, err := withRepo(*repo, func() (repoAutofixResult, error) {
-		preflight, err := repoPreflight(*project, *catalog)
+		preflight, err := repoPreflight(*project, *catalog, repoLayoutOptions{})
 		if err != nil {
 			return repoAutofixResult{}, err
 		}
@@ -223,25 +238,62 @@ func repoAutofixCommand(opts globalOptions, args []string, out io.Writer) error 
 	})
 }
 
-func repoPreflight(project, catalogPath string) (repoPreflightResult, error) {
+type repoLayoutOptions struct {
+	CIPath             string
+	DeployPath         string
+	Namespace          string
+	NamespacePath      string
+	LimitRangePath     string
+	ResourceQuotaPath  string
+	ServiceAccountPath string
+}
+
+func (o repoLayoutOptions) defaults() repoLayoutOptions {
+	if o.CIPath == "" {
+		o.CIPath = ".gitlab-ci.yml"
+	}
+	if o.DeployPath == "" {
+		o.DeployPath = filepath.Join("deploy", "k8s")
+	}
+	if o.NamespacePath == "" {
+		o.NamespacePath = filepath.Join(o.DeployPath, "namespace.yaml")
+	}
+	if o.LimitRangePath == "" {
+		o.LimitRangePath = filepath.Join(o.DeployPath, "limitrange.yaml")
+	}
+	if o.ResourceQuotaPath == "" {
+		o.ResourceQuotaPath = filepath.Join(o.DeployPath, "resourcequota.yaml")
+	}
+	if o.ServiceAccountPath == "" {
+		o.ServiceAccountPath = filepath.Join(o.DeployPath, "serviceaccount.yaml")
+	}
+	return o
+}
+
+func repoPreflight(project, catalogPath string, layout repoLayoutOptions) (repoPreflightResult, error) {
+	layout = layout.defaults()
 	detected, err := detectOnboardRepository(project, catalogPath)
 	if err != nil {
 		return repoPreflightResult{}, err
 	}
 	cfg := detected.Config
+	if layout.Namespace != "" {
+		cfg.Namespace = layout.Namespace
+		cfg.NamespaceSrc = "preflight-override"
+	}
 	if err := cfg.defaults(); err != nil {
 		return repoPreflightResult{}, err
 	}
 	items := []repoPolicyItem{
 		checkRepoDockerfile(cfg),
-		checkRepoCI(cfg),
-		checkRepoFile("namespace", filepath.Join("deploy", "k8s", "namespace.yaml"), "generate deploy/k8s/namespace.yaml from ownership"),
-		checkRepoFile("limitrange", filepath.Join("deploy", "k8s", "limitrange.yaml"), "generate deploy/k8s/limitrange.yaml for namespace defaults"),
-		checkRepoFile("resourcequota", filepath.Join("deploy", "k8s", "resourcequota.yaml"), "generate deploy/k8s/resourcequota.yaml for namespace quota"),
-		checkRepoFile("serviceaccount", filepath.Join("deploy", "k8s", "serviceaccount.yaml"), "generate deploy/k8s/serviceaccount.yaml for image pull access"),
-		checkRepoDeployment(cfg),
-		checkRepoFile("service", filepath.Join("deploy", "k8s", "service.yaml"), "generate deploy/k8s/service.yaml"),
-		checkRepoFile("kustomization", filepath.Join("deploy", "k8s", "kustomization.yaml"), "generate deploy/k8s/kustomization.yaml"),
+		checkRepoCI(cfg, layout.CIPath),
+		checkRepoFile("namespace", layout.NamespacePath, "generate deploy/k8s/namespace.yaml from ownership"),
+		checkRepoFile("limitrange", layout.LimitRangePath, "generate deploy/k8s/limitrange.yaml for namespace defaults"),
+		checkRepoFile("resourcequota", layout.ResourceQuotaPath, "generate deploy/k8s/resourcequota.yaml for namespace quota"),
+		checkRepoFile("serviceaccount", layout.ServiceAccountPath, "generate deploy/k8s/serviceaccount.yaml for image pull access"),
+		checkRepoDeployment(cfg, filepath.Join(layout.DeployPath, "deployment.yaml")),
+		checkRepoFile("service", filepath.Join(layout.DeployPath, "service.yaml"), "generate deploy/k8s/service.yaml"),
+		checkRepoFile("kustomization", filepath.Join(layout.DeployPath, "kustomization.yaml"), "generate deploy/k8s/kustomization.yaml"),
 		checkRepoQuality(),
 		checkRepoHealth(cfg),
 	}
@@ -341,23 +393,23 @@ func checkRepoDockerfile(cfg onboardServiceConfig) repoPolicyItem {
 	return repoPolicyItem{Name: "dockerfile", Path: path, Status: status, Level: level, Message: strings.Join(issues, "; "), Fixable: true, Action: "run repo autofix --write --force to replace Dockerfile with platform template"}
 }
 
-func checkRepoCI(cfg onboardServiceConfig) repoPolicyItem {
-	body, err := os.ReadFile(".gitlab-ci.yml")
+func checkRepoCI(cfg onboardServiceConfig, path string) repoPolicyItem {
+	body, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return repoPolicyItem{Name: "gitlab_ci", Path: ".gitlab-ci.yml", Status: "fail", Level: "blocker", Message: "missing", Fixable: true, Action: "run repo autofix --write to generate platform CI include"}
+			return repoPolicyItem{Name: "gitlab_ci", Path: path, Status: "fail", Level: "blocker", Message: "missing", Fixable: true, Action: "run repo autofix --write to generate platform CI include"}
 		}
-		return repoPolicyItem{Name: "gitlab_ci", Path: ".gitlab-ci.yml", Status: "fail", Level: "blocker", Message: err.Error(), Fixable: false, Action: "fix .gitlab-ci.yml filesystem error"}
+		return repoPolicyItem{Name: "gitlab_ci", Path: path, Status: "fail", Level: "blocker", Message: err.Error(), Fixable: false, Action: "fix .gitlab-ci.yml filesystem error"}
 	}
 	text := string(body)
 	template := "/ci/templates/buildkit-gitops." + cfg.Language + ".yml"
 	if strings.Contains(text, template) {
-		return repoPolicyItem{Name: "gitlab_ci", Path: ".gitlab-ci.yml", Status: "pass", Level: "info", Message: "platform template include detected"}
+		return repoPolicyItem{Name: "gitlab_ci", Path: path, Status: "pass", Level: "info", Message: "platform template include detected"}
 	}
 	if strings.Contains(text, "buildctl-daemonless.sh") || strings.Contains(text, "BUILDKIT_IMAGE") {
-		return repoPolicyItem{Name: "gitlab_ci", Path: ".gitlab-ci.yml", Status: "warn", Level: "warning", Message: "direct BuildKit CI detected; platform include is preferred", Fixable: true, Action: "run repo autofix --write --force to replace CI with platform include"}
+		return repoPolicyItem{Name: "gitlab_ci", Path: path, Status: "warn", Level: "warning", Message: "direct BuildKit CI detected; platform include is preferred", Fixable: true, Action: "run repo autofix --write --force to replace CI with platform include"}
 	}
-	return repoPolicyItem{Name: "gitlab_ci", Path: ".gitlab-ci.yml", Status: "fail", Level: "blocker", Message: "platform BuildKit/GitOps template not detected", Fixable: true, Action: "run repo autofix --write --force to replace CI with platform include"}
+	return repoPolicyItem{Name: "gitlab_ci", Path: path, Status: "fail", Level: "blocker", Message: "platform BuildKit/GitOps template not detected", Fixable: true, Action: "run repo autofix --write --force to replace CI with platform include"}
 }
 
 func checkRepoFile(name, path, action string) repoPolicyItem {
@@ -388,8 +440,7 @@ func checkRepoQuality() repoPolicyItem {
 	return repoPolicyItem{Name: "quality_config", Path: path, Status: "pass", Level: "info", Message: "optional API quality checks configured"}
 }
 
-func checkRepoDeployment(cfg onboardServiceConfig) repoPolicyItem {
-	path := filepath.Join("deploy", "k8s", "deployment.yaml")
+func checkRepoDeployment(cfg onboardServiceConfig, path string) repoPolicyItem {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
