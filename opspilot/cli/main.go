@@ -365,8 +365,11 @@ type skillsRegistryResult struct {
 }
 
 func runSkillsRegistry(opts globalOptions, args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == "validate" {
+		return runSkillsValidate(opts, args[1:], out)
+	}
 	if len(args) > 0 && args[0] != "registry" && args[0] != "list" {
-		return fmt.Errorf("expected skills subcommand: registry")
+		return fmt.Errorf("expected skills subcommand: registry or validate")
 	}
 	if len(args) > 0 {
 		args = args[1:]
@@ -381,6 +384,14 @@ func runSkillsRegistry(opts globalOptions, args []string, out io.Writer) error {
 		return err
 	}
 	return writeOutput(out, opts.output, result, writeSkillsRegistryHuman(result))
+}
+
+func runSkillsValidate(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("skills validate", flag.ExitOnError)
+	dir := fs.String("dir", env("OPSPILOT_SKILLS_DIR", ""), "server-side skills directory to validate")
+	_ = fs.Parse(args)
+	result := skillregistry.ValidateDirectory(*dir)
+	return writeOutput(out, opts.output, result, writeSkillsValidationHuman(result))
 }
 
 func fetchSkillsRegistry(backendURL, category string, integratedOnly bool) (skillsRegistryResult, error) {
@@ -444,6 +455,28 @@ func writeSkillsRegistryHuman(result skillsRegistryResult) func(io.Writer) error
 			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
 		}
 		return nil
+	}
+}
+
+func writeSkillsValidationHuman(result skillregistry.ValidationResult) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Skills validation: ready=%t root=%s skills=%d errors=%d warnings=%d\n",
+			result.Ready, result.Root, result.SkillCount, result.ErrorCount, result.WarnCount)
+		if len(result.SkillNames) > 0 {
+			fmt.Fprintf(w, "Skills: %s\n", strings.Join(result.SkillNames, ", "))
+		}
+		if len(result.ExampleGaps) > 0 {
+			fmt.Fprintf(w, "Example gaps: %s\n", strings.Join(result.ExampleGaps, ", "))
+		}
+		if len(result.Issues) == 0 {
+			return nil
+		}
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "LEVEL\tSKILL\tFIELD\tMESSAGE")
+		for _, issue := range result.Issues {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", issue.Level, issue.Skill, issue.Field, oneLine(issue.Message, 120))
+		}
+		return tw.Flush()
 	}
 }
 

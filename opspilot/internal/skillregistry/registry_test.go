@@ -113,6 +113,44 @@ func TestRegistryWithOptionsLoadsGitSyncStyleSkillsSubdir(t *testing.T) {
 	}
 }
 
+func TestValidateDirectoryReportsReadySkillRepo(t *testing.T) {
+	dir := t.TempDir()
+	writeTestSkillRepo(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "opspilot-ops", "SKILL.md"), []byte("# OpsPilot Ops\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "opspilot-ops", "examples"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	result := ValidateDirectory(dir)
+	if !result.Ready || result.ErrorCount != 0 || result.SkillCount != 1 {
+		t.Fatalf("validation result = %#v", result)
+	}
+}
+
+func TestValidateDirectoryBlocksArbitraryShellCommand(t *testing.T) {
+	dir := t.TempDir()
+	writeTestSkillRepo(t, dir)
+	yaml := `name: risky
+label: Risky
+category: security
+integrated: true
+commands:
+  - kubectl delete pod demo
+`
+	skillDir := filepath.Join(dir, "risky")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "skill.yaml"), []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result := ValidateDirectory(dir)
+	if result.Ready || result.ErrorCount == 0 {
+		t.Fatalf("expected validation error: %#v", result)
+	}
+}
+
 func writeTestSkillRepo(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
