@@ -161,6 +161,39 @@ skills:
 	}
 }
 
+func TestSkillsImportPlanEndpoint(t *testing.T) {
+	root := t.TempDir()
+	skillsRoot := filepath.Join(root, "skills")
+	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "registry.yaml"), []byte(`version: test
+sources:
+  - name: garrytan/gstack
+    status: mirrored
+skills:
+  - name: gstack-health
+    status: candidate
+    source: garrytan/gstack
+    upstream_path: skills/health
+    category: platform
+    reason: test candidate
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPSPILOT_SKILLS_DIR", skillsRoot)
+	mux := http.NewServeMux()
+	registerTestRoutes(t, mux, "")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/skills/import-plan?name=gstack-health", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"status":"candidate_plan"`) || !strings.Contains(recorder.Body.String(), "skills/gstack-health/skill.yaml") {
+		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}
+
 func TestCredentialPlanEndpoint(t *testing.T) {
 	mux := http.NewServeMux()
 	registerTestRoutes(t, mux, "")

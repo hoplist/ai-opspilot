@@ -3,6 +3,7 @@ package skillregistry
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -189,6 +190,58 @@ skills:
 	}
 	if len(index.Sources) != 1 || index.Sources[0].Name != "garrytan/gstack" {
 		t.Fatalf("sources = %#v", index.Sources)
+	}
+}
+
+func TestImportPlanWithSkillsDirGeneratesDraftForCandidate(t *testing.T) {
+	root := t.TempDir()
+	writeTestSkillRepo(t, filepath.Join(root, "skills"))
+	registry := `version: test
+sources:
+  - name: garrytan/gstack
+    status: mirrored
+skills:
+  - name: gstack-health
+    status: candidate
+    source: garrytan/gstack
+    upstream_path: skills/health
+    category: platform
+    reason: useful server-side health review
+`
+	if err := os.WriteFile(filepath.Join(root, "registry.yaml"), []byte(registry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := ImportPlanWithSkillsDir(filepath.Join(root, "skills"), "gstack-health")
+	if !plan.Ready || !plan.DryRun || plan.Status != "candidate_plan" || plan.RuntimePath != "skills/gstack-health" {
+		t.Fatalf("plan = %#v", plan)
+	}
+	if len(plan.Files) != 3 || plan.Files[0].Path != "skills/gstack-health/skill.yaml" {
+		t.Fatalf("files = %#v", plan.Files)
+	}
+	if !strings.Contains(plan.Files[0].Body, "integrated: false") || !strings.Contains(plan.Files[0].Body, "doctor") {
+		t.Fatalf("skill draft = %s", plan.Files[0].Body)
+	}
+}
+
+func TestImportPlanWithSkillsDirDoesNotPromoteUnsupported(t *testing.T) {
+	root := t.TempDir()
+	writeTestSkillRepo(t, filepath.Join(root, "skills"))
+	registry := `version: test
+skills:
+  - name: gstack-browse
+    status: unsupported
+    source: garrytan/gstack
+    reason: requires browser runtime
+`
+	if err := os.WriteFile(filepath.Join(root, "registry.yaml"), []byte(registry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := ImportPlanWithSkillsDir(filepath.Join(root, "skills"), "gstack-browse")
+	if plan.Ready || plan.Status != "unsupported" || len(plan.Files) != 0 {
+		t.Fatalf("plan = %#v", plan)
+	}
+	if !strings.Contains(strings.Join(plan.Warnings, " "), "browser runtime") {
+		t.Fatalf("warnings = %#v", plan.Warnings)
 	}
 }
 

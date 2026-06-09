@@ -1,6 +1,7 @@
 package skillregistry
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -33,6 +34,27 @@ type MirrorIndex struct {
 	Unsupported      []MirrorEntry `json:"unsupported,omitempty"`
 	Sources          []MirrorEntry `json:"sources,omitempty"`
 	Warnings         []string      `json:"warnings,omitempty"`
+}
+
+type GeneratedSkillFile struct {
+	Path   string `json:"path"`
+	Body   string `json:"body"`
+	Exists bool   `json:"exists"`
+}
+
+type ImportPlan struct {
+	Ready       bool                 `json:"ready"`
+	DryRun      bool                 `json:"dry_run"`
+	Name        string               `json:"name"`
+	Status      string               `json:"status"`
+	Source      string               `json:"source,omitempty"`
+	Category    string               `json:"category,omitempty"`
+	Reason      string               `json:"reason,omitempty"`
+	RuntimePath string               `json:"runtime_path,omitempty"`
+	Candidate   MirrorEntry          `json:"candidate,omitempty"`
+	Files       []GeneratedSkillFile `json:"files,omitempty"`
+	Warnings    []string             `json:"warnings,omitempty"`
+	Next        []string             `json:"next,omitempty"`
 }
 
 func MirrorFromEnv() MirrorIndex {
@@ -80,6 +102,97 @@ func MirrorWithSkillsDir(skillsDir string) MirrorIndex {
 	sortMirrorEntries(index.Unsupported)
 	sortMirrorEntries(index.Sources)
 	return index
+}
+
+func ImportPlanFromEnv(name string) ImportPlan {
+	return ImportPlanWithSkillsDir(env("OPSPILOT_SKILLS_DIR", defaultDynamicSkillsDir), name)
+}
+
+func ImportPlanWithSkillsDir(skillsDir, name string) ImportPlan {
+	name = strings.TrimSpace(name)
+	plan := ImportPlan{
+		DryRun: true,
+		Name:   name,
+		Status: "not_found",
+		Next: []string{
+			"Check skills candidates to confirm the candidate name.",
+			"Only commit generated files to the GitLab skills repository after review.",
+		},
+	}
+	if name == "" {
+		plan.Warnings = append(plan.Warnings, "skill name is required")
+		return plan
+	}
+	index := MirrorWithSkillsDir(skillsDir)
+	plan.Warnings = append(plan.Warnings, index.Warnings...)
+	if !index.Ready {
+		plan.Status = "mirror_unavailable"
+		plan.Next = []string{"Fix the server-side skills mirror mount or OPSPILOT_SKILLS_DIR before importing candidates."}
+		return plan
+	}
+	for _, entry := range index.Integrated {
+		if strings.EqualFold(entry.Name, name) {
+			plan.Ready = true
+			plan.Status = "already_integrated"
+			plan.Source = entry.Source
+			plan.Category = entry.Category
+			plan.Reason = entry.Reason
+			plan.RuntimePath = firstNonEmptyString(entry.RuntimePath, filepath.ToSlash(filepath.Join("skills", entry.Name)))
+			plan.Candidate = entry
+			plan.Next = []string{"No import is needed; this skill is already enabled under skills/."}
+			return plan
+		}
+	}
+	for _, entry := range index.Unsupported {
+		if strings.EqualFold(entry.Name, name) {
+			plan.Status = "unsupported"
+			plan.Source = entry.Source
+			plan.Category = entry.Category
+			plan.Reason = entry.Reason
+			plan.Candidate = entry
+			plan.Warnings = append(plan.Warnings, firstNonEmptyString(entry.Reason, "candidate requires unsupported runtime capabilities"))
+			plan.Next = []string{"Do not promote this candidate until its runtime dependency can execute server-side in OpsPilot."}
+			return plan
+		}
+	}
+	for _, entry := range index.Candidates {
+		if strings.EqualFold(entry.Name, name) {
+			return buildImportPlan(index.Root, entry)
+		}
+	}
+	return plan
+}
+
+func buildImportPlan(root string, entry MirrorEntry) ImportPlan {
+	runtimePath := firstNonEmptyString(entry.RuntimePath, filepath.ToSlash(filepath.Join("skills", entry.Name)))
+	category := firstNonEmptyString(entry.Category, "workflow")
+	files := []GeneratedSkillFile{
+		generatedSkillFile(root, filepath.ToSlash(filepath.Join(runtimePath, "skill.yaml")), renderCandidateSkillYAML(entry, category)),
+		generatedSkillFile(root, filepath.ToSlash(filepath.Join(runtimePath, "SKILL.md")), renderCandidateSkillMarkdown(entry, category)),
+		generatedSkillFile(root, filepath.ToSlash(filepath.Join(runtimePath, "examples", entry.Name+"-example.md")), renderCandidateExample(entry)),
+	}
+	return ImportPlan{
+		Ready:       true,
+		DryRun:      true,
+		Name:        entry.Name,
+		Status:      "candidate_plan",
+		Source:      entry.Source,
+		Category:    category,
+		Reason:      entry.Reason,
+		RuntimePath: runtimePath,
+		Candidate:   entry,
+		Files:       files,
+		Next: []string{
+			"Review the generated draft and adjust commands/boundaries for OpsPilot server-side execution.",
+			"Commit the reviewed files under skills/ in the GitLab skills repository.",
+			"Run opspilot skills validate after GitLab sync; only then treat the skill as enabled.",
+		},
+	}
+}
+
+func generatedSkillFile(root, relPath, body string) GeneratedSkillFile {
+	_, err := os.Stat(filepath.Join(root, filepath.FromSlash(relPath)))
+	return GeneratedSkillFile{Path: relPath, Body: body, Exists: err == nil}
 }
 
 func mirrorRootFromSkillsDir(skillsDir string) string {
@@ -273,4 +386,137 @@ func sortMirrorEntries(entries []MirrorEntry) {
 		}
 		return entries[i].Status < entries[j].Status
 	})
+}
+
+func renderCandidateSkillYAML(entry MirrorEntry, category string) string {
+	return fmt.Sprintf(`name: %s
+label: %s
+category: %s
+integration_tier: candidate
+integrated: false
+priority: %d
+summary: Review draft for server-side OpsPilot adaptation from %s.
+use_when:
+  - review whether %s should become an OpsPilot runtime skill
+evidence:
+  - upstream source: %s
+  - candidate reason: %s
+commands:
+%s
+boundaries:
+  - dry-run draft only until reviewed and committed in GitLab
+  - server-side execution only; no client-local dependencies
+  - no destructive actions without an explicit OpsPilot-controlled guard
+source_description: Generated import draft from skills mirror candidate metadata.
+`, entry.Name, titleFromName(entry.Name), category, candidatePriority(entry), firstNonEmptyString(entry.Source, "unknown source"), entry.Name, firstNonEmptyString(entry.UpstreamPath, entry.Source, "unknown"), firstNonEmptyString(entry.Reason, "not specified"), yamlList(candidateCommands(entry)))
+}
+
+func renderCandidateSkillMarkdown(entry MirrorEntry, category string) string {
+	return fmt.Sprintf(`# %s
+
+Generated review draft for OpsPilot server-side skill promotion.
+
+## Source
+
+- Source: %s
+- Upstream path: %s
+- Category: %s
+- Reason: %s
+
+## Runtime Intent
+
+Use this skill only after adapting it to OpsPilot's backend capabilities. The client CLI should call OpsPilot APIs; it should not carry its own copy of this skill.
+
+## Suggested Commands
+
+%s
+
+## Review Checklist
+
+- Confirm every command maps to an existing OpsPilot CLI/API command or a safe new backend capability.
+- Remove any browser, desktop, local shell, or user-session dependency.
+- Keep risky actions plan-only unless OpsPilot has an explicit confirmation and permission gate.
+- Run `+"`opspilot skills validate`"+` after GitLab sync before marking this skill integrated.
+`, titleFromName(entry.Name), firstNonEmptyString(entry.Source, "unknown"), firstNonEmptyString(entry.UpstreamPath, "not specified"), category, firstNonEmptyString(entry.Reason, "not specified"), markdownList(candidateCommands(entry)))
+}
+
+func renderCandidateExample(entry MirrorEntry) string {
+	return fmt.Sprintf(`# %s Example
+
+User asks OpsPilot a question that may benefit from %s.
+
+OpsPilot should:
+
+1. Pick this skill only if it is integrated in the server-side skills registry.
+2. Gather read-only evidence first.
+3. Return a concise plan or result with missing evidence called out.
+`, titleFromName(entry.Name), entry.Name)
+}
+
+func candidatePriority(entry MirrorEntry) int {
+	if entry.Priority > 0 {
+		return entry.Priority
+	}
+	return 60
+}
+
+func candidateCommands(entry MirrorEntry) []string {
+	switch strings.ToLower(entry.Name) {
+	case "gstack-health":
+		return []string{"doctor", "inspect cluster", "repo precheck"}
+	case "gstack-canary":
+		return []string{"release status", "quality status", "inspect service"}
+	case "gstack-careful", "gstack-guard":
+		return []string{"repo preflight", "app decommission plan", "janitor plan"}
+	case "gstack-qa":
+		return []string{"quality run", "quality status", "repo precheck"}
+	case "gstack-benchmark":
+		return []string{"quality run", "metrics query", "inspect service"}
+	case "gstack-document-release":
+		return []string{"release history", "release status"}
+	case "gstack-autoplan", "gstack-spec":
+		return []string{"onboard plan", "repo autofix --dry-run", "repo preflight"}
+	default:
+		return []string{"inspect service", "repo precheck"}
+	}
+}
+
+func yamlList(items []string) string {
+	var b strings.Builder
+	for _, item := range items {
+		b.WriteString("  - ")
+		b.WriteString(item)
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func markdownList(items []string) string {
+	var b strings.Builder
+	for _, item := range items {
+		b.WriteString("- `")
+		b.WriteString(item)
+		b.WriteString("`\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func titleFromName(name string) string {
+	parts := strings.Fields(strings.ReplaceAll(strings.ReplaceAll(name, "-", " "), "_", " "))
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + part[1:]
+	}
+	return strings.Join(parts, " ")
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

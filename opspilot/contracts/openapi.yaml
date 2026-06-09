@@ -33,6 +33,37 @@ paths:
       responses:
         "200":
           description: Integrated Codex skills mapped to OpsPilot command and evidence surfaces
+  /api/skills/validate:
+    get:
+      summary: Validate the server-side OpsPilot skills repository
+      responses:
+        "200":
+          description: Validation result for runtime skills
+  /api/skills/sources:
+    get:
+      summary: Return mirrored upstream skill sources and inventory counts
+      responses:
+        "200":
+          description: Skills mirror sources, registry path, candidates, and unsupported counts
+  /api/skills/candidates:
+    get:
+      summary: Return mirrored skill candidates and unsupported entries
+      responses:
+        "200":
+          description: Candidate skills that require review before runtime promotion
+  /api/skills/import-plan:
+    get:
+      summary: Generate a dry-run import plan for one mirrored skill candidate
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Candidate skill name, for example gstack-health
+      responses:
+        "200":
+          description: Reviewable generated skill files and next steps; no server-side write is performed
   /api/inventory/overview:
     get:
       summary: Return inventory overview

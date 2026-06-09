@@ -34,6 +34,10 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 			"warnings":          index.Warnings,
 		}, nil, nil
 	}))
+	mux.HandleFunc("/api/skills/import-plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		return skillregistry.ImportPlanFromEnv(required(q.Get("name"), "name")), nil, nil
+	}))
 	mux.HandleFunc("/api/skills/recommend", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		catalog, warnings := skillregistry.RegistryFromEnv("", true)

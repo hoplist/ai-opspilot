@@ -31,6 +31,31 @@
       "description": "Return the OpsPilot skills registry that maps integrated Codex skills to deterministic OpsPilot commands, evidence sources, boundaries, and AI follow-up routing."
     },
     {
+      "name": "skills validate",
+      "readonly": true,
+      "description": "Validate the server-side GitLab skills repository, or a local skills directory when --dir is provided for development checks."
+    },
+    {
+      "name": "skills sources",
+      "readonly": true,
+      "description": "List mirrored upstream skill sources, registry path, candidate counts, and unsupported counts from the server-side skills mirror."
+    },
+    {
+      "name": "skills candidates",
+      "readonly": true,
+      "description": "List mirrored candidate skills and unsupported skills that are not yet enabled as OpsPilot runtime skills."
+    },
+    {
+      "name": "skills import-plan",
+      "readonly": true,
+      "description": "Generate a dry-run, reviewable runtime skill draft for one mirrored candidate. Does not write files or enable the skill."
+    },
+    {
+      "name": "skills promote",
+      "readonly": true,
+      "description": "Dry-run alias for skills import-plan. Real promotion must happen through reviewed GitLab skills repository commits."
+    },
+    {
       "name": "inventory overview",
       "readonly": true,
       "description": "Return cluster, server, workload, pod, and container overview."

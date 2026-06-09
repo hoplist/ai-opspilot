@@ -312,6 +312,94 @@ func TestSkillsCandidatesCommand(t *testing.T) {
 	}
 }
 
+func TestSkillsImportPlanCommand(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/skills/import-plan" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("name") != "gstack-health" {
+			t.Fatalf("query = %s", r.URL.RawQuery)
+		}
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"ready":        true,
+			"dry_run":      true,
+			"name":         "gstack-health",
+			"status":       "candidate_plan",
+			"source":       "garrytan/gstack",
+			"category":     "platform",
+			"runtime_path": "skills/gstack-health",
+			"files": []map[string]any{{
+				"path":   "skills/gstack-health/skill.yaml",
+				"body":   "name: gstack-health\nintegrated: false\n",
+				"exists": false,
+			}},
+			"next": []string{"review", "commit"},
+		}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "--output", "human", "skills", "import-plan", "--name", "gstack-health"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "candidate_plan") || !strings.Contains(out.String(), "skills/gstack-health/skill.yaml") {
+		t.Fatalf("out = %s", out.String())
+	}
+}
+
+func TestSkillsPromoteDryRunCommand(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/skills/import-plan" {
+			http.NotFound(w, r)
+			return
+		}
+		called = true
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"ready":   true,
+			"dry_run": true,
+			"name":    "gstack-health",
+			"status":  "candidate_plan",
+		}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "skills", "promote", "--name", "gstack-health", "--dry-run"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("import plan endpoint was not called")
+	}
+}
+
+func TestSkillsPromoteRejectsWriteMode(t *testing.T) {
+	var out bytes.Buffer
+	err := run([]string{"skills", "promote", "--name", "gstack-health", "--dry-run=false"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "dry-run only") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestCLISchemaIncludesSkillsMirrorCommands(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "contracts", "cli-schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range [][]byte{
+		[]byte(`"name": "skills sources"`),
+		[]byte(`"name": "skills candidates"`),
+		[]byte(`"name": "skills import-plan"`),
+		[]byte(`"name": "skills promote"`),
+		[]byte("Does not write files or enable the skill"),
+	} {
+		if !bytes.Contains(body, expected) {
+			t.Fatalf("cli schema missing %s", expected)
+		}
+	}
+}
+
 func TestReleaseHistoryCommand(t *testing.T) {
 	endpoint, values := releaseCommand([]string{"history", "--service", "opspilot-core", "--limit", "5"})
 	if endpoint != "/api/release/history" {

@@ -35,8 +35,14 @@ func runSkillsRegistry(opts globalOptions, args []string, out io.Writer) error {
 	if len(args) > 0 && args[0] == "candidates" {
 		return runSkillsCandidates(opts, args[1:], out)
 	}
+	if len(args) > 0 && args[0] == "import-plan" {
+		return runSkillsImportPlan(opts, args[1:], out)
+	}
+	if len(args) > 0 && args[0] == "promote" {
+		return runSkillsPromote(opts, args[1:], out)
+	}
 	if len(args) > 0 && args[0] != "registry" && args[0] != "list" {
-		return fmt.Errorf("expected skills subcommand: registry, validate, sources, or candidates")
+		return fmt.Errorf("expected skills subcommand: registry, validate, sources, candidates, import-plan, or promote")
 	}
 	if len(args) > 0 {
 		args = args[1:]
@@ -90,6 +96,32 @@ func runSkillsCandidates(opts globalOptions, args []string, out io.Writer) error
 	return writeOutput(out, opts.output, result, writeSkillsCandidatesHuman(result))
 }
 
+func runSkillsImportPlan(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("skills import-plan", flag.ExitOnError)
+	name := fs.String("name", "", "candidate skill name")
+	_ = fs.Parse(args)
+	result, err := fetchSkillsImportPlan(opts.backendURL, *name)
+	if err != nil {
+		return err
+	}
+	return writeOutput(out, opts.output, result, writeSkillsImportPlanHuman(result))
+}
+
+func runSkillsPromote(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("skills promote", flag.ExitOnError)
+	name := fs.String("name", "", "candidate skill name")
+	dryRun := fs.Bool("dry-run", true, "generate a review plan without writing files")
+	_ = fs.Parse(args)
+	if !*dryRun {
+		return fmt.Errorf("skills promote is dry-run only; commit reviewed files through the GitLab skills repository")
+	}
+	result, err := fetchSkillsImportPlan(opts.backendURL, *name)
+	if err != nil {
+		return err
+	}
+	return writeOutput(out, opts.output, result, writeSkillsImportPlanHuman(result))
+}
+
 func fetchSkillsRegistry(backendURL, category string, integratedOnly bool) (skillsRegistryResult, error) {
 	body, err := get(backendURL, "/api/skills/registry", url.Values{
 		"category":        {category},
@@ -112,6 +144,27 @@ func fetchSkillsRegistry(backendURL, category string, integratedOnly bool) (skil
 		return skillsRegistryResult{}, err
 	}
 	return skillsResultFromCatalog(catalog, stringList(payload["warnings"])), nil
+}
+
+func fetchSkillsImportPlan(backendURL, name string) (skillregistry.ImportPlan, error) {
+	body, err := get(backendURL, "/api/skills/import-plan", url.Values{"name": {name}})
+	if err != nil {
+		return skillregistry.ImportPlan{}, fmt.Errorf("backend skills import plan unavailable: %w", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return skillregistry.ImportPlan{}, err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return skillregistry.ImportPlan{}, fmt.Errorf("skills import plan response missing data")
+	}
+	raw, _ := json.Marshal(data)
+	var result skillregistry.ImportPlan
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return skillregistry.ImportPlan{}, err
+	}
+	return result, nil
 }
 
 func fetchSkillsValidation(backendURL string) (skillregistry.ValidationResult, error) {
@@ -259,6 +312,35 @@ func writeSkillsCandidatesHuman(result skillregistry.MirrorIndex) func(io.Writer
 		}
 		if len(result.Warnings) > 0 {
 			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		return nil
+	}
+}
+
+func writeSkillsImportPlanHuman(result skillregistry.ImportPlan) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Skills import plan: name=%s status=%s ready=%t dry_run=%t\n", result.Name, result.Status, result.Ready, result.DryRun)
+		if result.Source != "" || result.Category != "" || result.RuntimePath != "" {
+			fmt.Fprintf(w, "Source: %s category=%s runtime_path=%s\n", result.Source, result.Category, result.RuntimePath)
+		}
+		if result.Reason != "" {
+			fmt.Fprintf(w, "Reason: %s\n", result.Reason)
+		}
+		if len(result.Files) > 0 {
+			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "PATH\tEXISTS\tPREVIEW")
+			for _, file := range result.Files {
+				fmt.Fprintf(tw, "%s\t%t\t%s\n", file.Path, file.Exists, oneLine(file.Body, 100))
+			}
+			if err := tw.Flush(); err != nil {
+				return err
+			}
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		if len(result.Next) > 0 {
+			fmt.Fprintf(w, "Next: %s\n", strings.Join(result.Next, " | "))
 		}
 		return nil
 	}
