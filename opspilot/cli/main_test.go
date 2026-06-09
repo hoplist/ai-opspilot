@@ -382,6 +382,61 @@ func TestSkillsPromoteRejectsWriteMode(t *testing.T) {
 	}
 }
 
+func TestSkillsDiscoverAndReviewCommands(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/skills/discover":
+			if r.URL.Query().Get("include_unsupported") != "true" {
+				t.Fatalf("query = %s", r.URL.RawQuery)
+			}
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"ready":               true,
+				"root":                "/opt/opspilot/skills/current",
+				"item_count":          2,
+				"promotion_ready":     1,
+				"blocked":             1,
+				"confirmation_needed": true,
+				"items": []map[string]any{
+					{"name": "api-quality-check", "decision": "promotion_ready", "score": 95, "grade": "A", "category": "quality", "import_plan_ready": true, "reasons": []string{"quality mapping"}},
+					{"name": "gstack-browse", "decision": "blocked", "score": 0, "grade": "F", "category": "browser", "blockers": []string{"browser runtime"}},
+				},
+			}})
+		case "/api/skills/review":
+			if r.URL.Query().Get("name") != "api-quality-check" {
+				t.Fatalf("query = %s", r.URL.RawQuery)
+			}
+			writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+				"ready":               true,
+				"root":                "/opt/opspilot/skills/current",
+				"item_count":          1,
+				"promotion_ready":     1,
+				"confirmation_needed": true,
+				"items": []map[string]any{
+					{"name": "api-quality-check", "decision": "promotion_ready", "score": 95, "grade": "A", "category": "quality", "import_plan_ready": true, "reasons": []string{"quality mapping"}},
+				},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "--output", "human", "skills", "discover", "--include-unsupported"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "api-quality-check") || !strings.Contains(out.String(), "gstack-browse") {
+		t.Fatalf("out = %s", out.String())
+	}
+	out.Reset()
+	if err := run([]string{"--backend-url", server.URL, "--output", "human", "skills", "review", "--name", "api-quality-check"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "promotion_ready") || !strings.Contains(out.String(), "confirmation_needed=true") {
+		t.Fatalf("out = %s", out.String())
+	}
+}
+
 func TestCLISchemaIncludesSkillsMirrorCommands(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join("..", "contracts", "cli-schema.json"))
 	if err != nil {
@@ -390,6 +445,8 @@ func TestCLISchemaIncludesSkillsMirrorCommands(t *testing.T) {
 	for _, expected := range [][]byte{
 		[]byte(`"name": "skills sources"`),
 		[]byte(`"name": "skills candidates"`),
+		[]byte(`"name": "skills discover"`),
+		[]byte(`"name": "skills review"`),
 		[]byte(`"name": "skills import-plan"`),
 		[]byte(`"name": "skills promote"`),
 		[]byte("Does not write files or enable the skill"),

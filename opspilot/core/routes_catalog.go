@@ -38,6 +38,13 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 		q := r.URL.Query()
 		return skillregistry.ImportPlanFromEnv(required(q.Get("name"), "name")), nil, nil
 	}))
+	mux.HandleFunc("/api/skills/discover", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		return skillregistry.ReviewPipelineFromEnv("", boolQuery(r, "include_unsupported")), nil, nil
+	}))
+	mux.HandleFunc("/api/skills/review", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		return skillregistry.ReviewPipelineFromEnv(required(q.Get("name"), "name"), true), nil, nil
+	}))
 	mux.HandleFunc("/api/skills/recommend", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		catalog, warnings := skillregistry.RegistryFromEnv("", true)

@@ -46,6 +46,16 @@
       "description": "List mirrored candidate skills and unsupported skills that are not yet enabled as OpsPilot runtime skills."
     },
     {
+      "name": "skills discover",
+      "readonly": true,
+      "description": "Automatically discover mirrored skill candidates and score whether they fit OpsPilot server-side runtime boundaries. Does not write files or enable skills."
+    },
+    {
+      "name": "skills review",
+      "readonly": true,
+      "description": "Review one mirrored candidate, return suitability score, blockers, missing mappings, and next steps before import-plan or GitLab promotion."
+    },
+    {
       "name": "skills import-plan",
       "readonly": true,
       "description": "Generate a dry-run, reviewable runtime skill draft for one mirrored candidate. Does not write files or enable the skill."

@@ -245,6 +245,41 @@ skills:
 	}
 }
 
+func TestReviewPipelineWithSkillsDirScoresCandidates(t *testing.T) {
+	root := t.TempDir()
+	writeTestSkillRepo(t, filepath.Join(root, "skills"))
+	registry := `version: test
+skills:
+  - name: api-quality-check
+    status: candidate
+    source: opspilot-roadmap
+    category: quality
+    priority: 82
+    reason: API response time and basic security checks map to quality run and quality status.
+  - name: gstack-browse
+    status: unsupported
+    source: garrytan/gstack
+    category: browser
+    reason: requires browser runtime
+`
+	if err := os.WriteFile(filepath.Join(root, "registry.yaml"), []byte(registry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pipeline := ReviewPipelineWithSkillsDir(filepath.Join(root, "skills"), "", true)
+	if !pipeline.Ready || pipeline.ItemCount != 2 || pipeline.PromotionReady != 1 || pipeline.Blocked != 1 {
+		t.Fatalf("pipeline = %#v", pipeline)
+	}
+	var apiReview CandidateReview
+	for _, item := range pipeline.Items {
+		if item.Name == "api-quality-check" {
+			apiReview = item
+		}
+	}
+	if apiReview.Decision != "promotion_ready" || !apiReview.ImportPlanReady || apiReview.Score < 80 {
+		t.Fatalf("api review = %#v", apiReview)
+	}
+}
+
 func writeTestSkillRepo(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

@@ -57,6 +57,37 @@ type ImportPlan struct {
 	Next        []string             `json:"next,omitempty"`
 }
 
+type ReviewPipeline struct {
+	Ready              bool              `json:"ready"`
+	Root               string            `json:"root"`
+	ItemCount          int               `json:"item_count"`
+	PromotionReady     int               `json:"promotion_ready"`
+	NeedsReview        int               `json:"needs_review"`
+	Blocked            int               `json:"blocked"`
+	ConfirmationNeeded bool              `json:"confirmation_needed"`
+	Items              []CandidateReview `json:"items"`
+	Warnings           []string          `json:"warnings,omitempty"`
+	Next               []string          `json:"next,omitempty"`
+}
+
+type CandidateReview struct {
+	Name            string      `json:"name"`
+	Status          string      `json:"status"`
+	Source          string      `json:"source,omitempty"`
+	Category        string      `json:"category,omitempty"`
+	Score           int         `json:"score"`
+	Grade           string      `json:"grade"`
+	Decision        string      `json:"decision"`
+	RuntimePath     string      `json:"runtime_path,omitempty"`
+	ImportPlanReady bool        `json:"import_plan_ready"`
+	FileCount       int         `json:"file_count"`
+	Reasons         []string    `json:"reasons,omitempty"`
+	Blockers        []string    `json:"blockers,omitempty"`
+	MissingMappings []string    `json:"missing_mappings,omitempty"`
+	Next            []string    `json:"next,omitempty"`
+	Candidate       MirrorEntry `json:"candidate,omitempty"`
+}
+
 func MirrorFromEnv() MirrorIndex {
 	return MirrorWithSkillsDir(env("OPSPILOT_SKILLS_DIR", defaultDynamicSkillsDir))
 }
@@ -106,6 +137,132 @@ func MirrorWithSkillsDir(skillsDir string) MirrorIndex {
 
 func ImportPlanFromEnv(name string) ImportPlan {
 	return ImportPlanWithSkillsDir(env("OPSPILOT_SKILLS_DIR", defaultDynamicSkillsDir), name)
+}
+
+func ReviewPipelineFromEnv(name string, includeUnsupported bool) ReviewPipeline {
+	return ReviewPipelineWithSkillsDir(env("OPSPILOT_SKILLS_DIR", defaultDynamicSkillsDir), name, includeUnsupported)
+}
+
+func ReviewPipelineWithSkillsDir(skillsDir, name string, includeUnsupported bool) ReviewPipeline {
+	name = strings.TrimSpace(name)
+	index := MirrorWithSkillsDir(skillsDir)
+	pipeline := ReviewPipeline{
+		Ready:              index.Ready,
+		Root:               index.Root,
+		ConfirmationNeeded: true,
+		Warnings:           append([]string{}, index.Warnings...),
+		Next: []string{
+			"Run skills import-plan for promotion-ready candidates to inspect generated draft files.",
+			"Commit reviewed runtime files under skills/ in the GitLab skills repository only after explicit confirmation.",
+			"Run skills validate after git-sync updates the server-side skills repository.",
+		},
+	}
+	if !index.Ready {
+		pipeline.Next = []string{"Fix the server-side skills mirror mount or OPSPILOT_SKILLS_DIR before reviewing candidates."}
+		return pipeline
+	}
+	addReview := func(entry MirrorEntry) {
+		if name != "" && !strings.EqualFold(entry.Name, name) {
+			return
+		}
+		review := ReviewCandidate(index.Root, entry)
+		pipeline.Items = append(pipeline.Items, review)
+		switch review.Decision {
+		case "promotion_ready", "already_integrated":
+			pipeline.PromotionReady++
+		case "blocked":
+			pipeline.Blocked++
+		default:
+			pipeline.NeedsReview++
+		}
+	}
+	for _, entry := range index.Candidates {
+		addReview(entry)
+	}
+	for _, entry := range index.Integrated {
+		addReview(entry)
+	}
+	if includeUnsupported || name != "" {
+		for _, entry := range index.Unsupported {
+			addReview(entry)
+		}
+	}
+	sort.SliceStable(pipeline.Items, func(i, j int) bool {
+		if pipeline.Items[i].Decision == pipeline.Items[j].Decision {
+			if pipeline.Items[i].Score == pipeline.Items[j].Score {
+				return pipeline.Items[i].Name < pipeline.Items[j].Name
+			}
+			return pipeline.Items[i].Score > pipeline.Items[j].Score
+		}
+		return reviewDecisionRank(pipeline.Items[i].Decision) < reviewDecisionRank(pipeline.Items[j].Decision)
+	})
+	pipeline.ItemCount = len(pipeline.Items)
+	if name != "" && pipeline.ItemCount == 0 {
+		pipeline.Warnings = append(pipeline.Warnings, "candidate not found in skills mirror registry")
+	}
+	return pipeline
+}
+
+func ReviewCandidate(root string, entry MirrorEntry) CandidateReview {
+	status := firstNonEmptyString(entry.Status, "candidate")
+	review := CandidateReview{
+		Name:      entry.Name,
+		Status:    status,
+		Source:    entry.Source,
+		Category:  entry.Category,
+		Score:     40,
+		Grade:     "C",
+		Decision:  "needs_review",
+		Candidate: entry,
+		Next: []string{
+			"Review generated draft files before enabling this skill.",
+			"Keep promotion as a GitLab skills repository commit with explicit confirmation.",
+		},
+	}
+	if strings.EqualFold(status, "integrated") {
+		review.Score = 100
+		review.Grade = "A"
+		review.Decision = "already_integrated"
+		review.RuntimePath = firstNonEmptyString(entry.RuntimePath, filepath.ToSlash(filepath.Join("skills", entry.Name)))
+		review.ImportPlanReady = true
+		review.Reasons = append(review.Reasons, "Already enabled as a server-side runtime skill.")
+		review.Next = []string{"Keep validating this skill through skills validate and release evidence."}
+		return review
+	}
+	if strings.EqualFold(status, "unsupported") {
+		review.Score = 0
+		review.Grade = "F"
+		review.Decision = "blocked"
+		review.Blockers = append(review.Blockers, firstNonEmptyString(entry.Reason, "Unsupported runtime dependency."))
+		review.Next = []string{"Do not promote until the dependency can run inside OpsPilot backend boundaries."}
+		return review
+	}
+	plan := buildImportPlan(root, entry)
+	review.RuntimePath = plan.RuntimePath
+	review.ImportPlanReady = plan.Ready
+	review.FileCount = len(plan.Files)
+	review.Score += suitabilityScore(entry, &review)
+	switch {
+	case len(review.Blockers) > 0:
+		review.Decision = "blocked"
+	case review.Score >= 80:
+		review.Decision = "promotion_ready"
+		review.Next = []string{
+			"Run skills import-plan and review the generated draft.",
+			"Commit reviewed files to skills/ only after explicit confirmation.",
+			"Run skills validate after git-sync refreshes the server-side repository.",
+		}
+	case review.Score >= 60:
+		review.Decision = "needs_review"
+	default:
+		review.Decision = "hold"
+	}
+	review.Grade = gradeForScore(review.Score)
+	if review.Score > 100 {
+		review.Score = 100
+		review.Grade = gradeForScore(review.Score)
+	}
+	return review
 }
 
 func ImportPlanWithSkillsDir(skillsDir, name string) ImportPlan {
@@ -462,6 +619,16 @@ func candidatePriority(entry MirrorEntry) int {
 
 func candidateCommands(entry MirrorEntry) []string {
 	switch strings.ToLower(entry.Name) {
+	case "api-quality-check":
+		return []string{"quality run", "quality status", "release status", "inspect service"}
+	case "middleware-provisioning":
+		return []string{"onboard plan", "repo preflight", "repo autofix --dry-run", "errors recent --source middleware"}
+	case "release-healer":
+		return []string{"release service", "release jobs", "release logs", "healer diagnose"}
+	case "storage-guardrail":
+		return []string{"repo preflight", "metrics filesystems", "inspect cluster", "janitor plan"}
+	case "frontend-smoke":
+		return []string{"repo precheck", "quality run", "quality status", "release logs"}
 	case "gstack-health":
 		return []string{"doctor", "inspect cluster", "repo precheck"}
 	case "gstack-canary":
@@ -478,6 +645,94 @@ func candidateCommands(entry MirrorEntry) []string {
 		return []string{"onboard plan", "repo autofix --dry-run", "repo preflight"}
 	default:
 		return []string{"inspect service", "repo precheck"}
+	}
+}
+
+func suitabilityScore(entry MirrorEntry, review *CandidateReview) int {
+	score := 0
+	commands := candidateCommands(entry)
+	if len(commands) > 0 {
+		score += 20
+		review.Reasons = append(review.Reasons, "Has OpsPilot command mappings: "+strings.Join(commands, ", "))
+	} else {
+		review.MissingMappings = append(review.MissingMappings, "commands")
+	}
+	category := strings.ToLower(entry.Category)
+	switch category {
+	case "quality", "release", "platform", "storage", "middleware", "rca", "observability", "safety", "performance":
+		score += 15
+		review.Reasons = append(review.Reasons, "Category maps to existing OpsPilot evidence surfaces.")
+	default:
+		score += 5
+		review.MissingMappings = append(review.MissingMappings, "category mapping")
+	}
+	text := strings.ToLower(strings.Join([]string{entry.Name, entry.Category, entry.Source, entry.UpstreamPath, entry.Reason}, " "))
+	if containsAnyNeedle(text, []string{"browser", "ios", "desktop", "pair", "client runtime", "local device"}) {
+		review.Blockers = append(review.Blockers, "Requires client-local or external interactive runtime.")
+		return 0
+	}
+	if containsAnyNeedle(text, []string{"delete", "destructive", "mutation", "guardrail", "decommission"}) {
+		score += 5
+		review.Reasons = append(review.Reasons, "Risky actions are acceptable only as plan-only or confirmation-gated flows.")
+	} else {
+		score += 10
+	}
+	if entry.Priority >= 70 {
+		score += 10
+	}
+	if strings.TrimSpace(entry.Reason) != "" {
+		score += 10
+	} else {
+		review.MissingMappings = append(review.MissingMappings, "candidate reason")
+	}
+	if strings.TrimSpace(entry.Source) != "" {
+		score += 5
+	}
+	if strings.TrimSpace(entry.UpstreamPath) != "" || strings.HasPrefix(entry.Source, "opspilot") {
+		score += 5
+	}
+	if len(review.MissingMappings) == 0 {
+		score += 10
+	}
+	return score
+}
+
+func containsAnyNeedle(text string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func gradeForScore(score int) string {
+	switch {
+	case score >= 90:
+		return "A"
+	case score >= 80:
+		return "B"
+	case score >= 60:
+		return "C"
+	case score >= 40:
+		return "D"
+	default:
+		return "F"
+	}
+}
+
+func reviewDecisionRank(decision string) int {
+	switch decision {
+	case "promotion_ready":
+		return 0
+	case "needs_review":
+		return 1
+	case "hold":
+		return 2
+	case "already_integrated":
+		return 3
+	default:
+		return 4
 	}
 }
 

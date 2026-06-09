@@ -38,11 +38,17 @@ func runSkillsRegistry(opts globalOptions, args []string, out io.Writer) error {
 	if len(args) > 0 && args[0] == "import-plan" {
 		return runSkillsImportPlan(opts, args[1:], out)
 	}
+	if len(args) > 0 && args[0] == "discover" {
+		return runSkillsDiscover(opts, args[1:], out)
+	}
+	if len(args) > 0 && args[0] == "review" {
+		return runSkillsReview(opts, args[1:], out)
+	}
 	if len(args) > 0 && args[0] == "promote" {
 		return runSkillsPromote(opts, args[1:], out)
 	}
 	if len(args) > 0 && args[0] != "registry" && args[0] != "list" {
-		return fmt.Errorf("expected skills subcommand: registry, validate, sources, candidates, import-plan, or promote")
+		return fmt.Errorf("expected skills subcommand: registry, validate, sources, candidates, discover, review, import-plan, or promote")
 	}
 	if len(args) > 0 {
 		args = args[1:]
@@ -107,6 +113,28 @@ func runSkillsImportPlan(opts globalOptions, args []string, out io.Writer) error
 	return writeOutput(out, opts.output, result, writeSkillsImportPlanHuman(result))
 }
 
+func runSkillsDiscover(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("skills discover", flag.ExitOnError)
+	includeUnsupported := fs.Bool("include-unsupported", false, "include unsupported candidates in the review pipeline")
+	_ = fs.Parse(args)
+	result, err := fetchSkillsReviewPipeline(opts.backendURL, "/api/skills/discover", "", *includeUnsupported)
+	if err != nil {
+		return err
+	}
+	return writeOutput(out, opts.output, result, writeSkillsReviewPipelineHuman(result))
+}
+
+func runSkillsReview(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("skills review", flag.ExitOnError)
+	name := fs.String("name", "", "candidate skill name")
+	_ = fs.Parse(args)
+	result, err := fetchSkillsReviewPipeline(opts.backendURL, "/api/skills/review", *name, true)
+	if err != nil {
+		return err
+	}
+	return writeOutput(out, opts.output, result, writeSkillsReviewPipelineHuman(result))
+}
+
 func runSkillsPromote(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("skills promote", flag.ExitOnError)
 	name := fs.String("name", "", "candidate skill name")
@@ -120,6 +148,30 @@ func runSkillsPromote(opts globalOptions, args []string, out io.Writer) error {
 		return err
 	}
 	return writeOutput(out, opts.output, result, writeSkillsImportPlanHuman(result))
+}
+
+func fetchSkillsReviewPipeline(backendURL, endpoint, name string, includeUnsupported bool) (skillregistry.ReviewPipeline, error) {
+	body, err := get(backendURL, endpoint, url.Values{
+		"name":                {name},
+		"include_unsupported": {strconv.FormatBool(includeUnsupported)},
+	})
+	if err != nil {
+		return skillregistry.ReviewPipeline{}, fmt.Errorf("backend skills review unavailable: %w", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return skillregistry.ReviewPipeline{}, err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return skillregistry.ReviewPipeline{}, fmt.Errorf("skills review response missing data")
+	}
+	raw, _ := json.Marshal(data)
+	var result skillregistry.ReviewPipeline
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return skillregistry.ReviewPipeline{}, err
+	}
+	return result, nil
 }
 
 func fetchSkillsRegistry(backendURL, category string, integratedOnly bool) (skillsRegistryResult, error) {
@@ -331,6 +383,35 @@ func writeSkillsImportPlanHuman(result skillregistry.ImportPlan) func(io.Writer)
 			fmt.Fprintln(tw, "PATH\tEXISTS\tPREVIEW")
 			for _, file := range result.Files {
 				fmt.Fprintf(tw, "%s\t%t\t%s\n", file.Path, file.Exists, oneLine(file.Body, 100))
+			}
+			if err := tw.Flush(); err != nil {
+				return err
+			}
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		if len(result.Next) > 0 {
+			fmt.Fprintf(w, "Next: %s\n", strings.Join(result.Next, " | "))
+		}
+		return nil
+	}
+}
+
+func writeSkillsReviewPipelineHuman(result skillregistry.ReviewPipeline) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Skills review pipeline: ready=%t root=%s items=%d promotion_ready=%d needs_review=%d blocked=%d confirmation_needed=%t\n",
+			result.Ready, result.Root, result.ItemCount, result.PromotionReady, result.NeedsReview, result.Blocked, result.ConfirmationNeeded)
+		if len(result.Items) > 0 {
+			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "SKILL\tDECISION\tSCORE\tGRADE\tCATEGORY\tPLAN\tREASON")
+			for _, item := range result.Items {
+				reason := strings.Join(item.Reasons, "; ")
+				if reason == "" {
+					reason = strings.Join(item.Blockers, "; ")
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%t\t%s\n",
+					item.Name, item.Decision, item.Score, item.Grade, item.Category, item.ImportPlanReady, oneLine(reason, 120))
 			}
 			if err := tw.Flush(); err != nil {
 				return err

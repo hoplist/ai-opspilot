@@ -194,6 +194,51 @@ skills:
 	}
 }
 
+func TestSkillsDiscoverAndReviewEndpoints(t *testing.T) {
+	root := t.TempDir()
+	skillsRoot := filepath.Join(root, "skills")
+	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "registry.yaml"), []byte(`version: test
+skills:
+  - name: api-quality-check
+    status: candidate
+    source: opspilot-roadmap
+    category: quality
+    priority: 82
+    reason: maps to quality run and quality status
+  - name: gstack-browse
+    status: unsupported
+    source: garrytan/gstack
+    category: browser
+    reason: requires browser runtime
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPSPILOT_SKILLS_DIR", skillsRoot)
+	mux := http.NewServeMux()
+	registerTestRoutes(t, mux, "")
+
+	discover := httptest.NewRecorder()
+	mux.ServeHTTP(discover, httptest.NewRequest(http.MethodGet, "/api/skills/discover?include_unsupported=true", nil))
+	if discover.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", discover.Code, discover.Body.String())
+	}
+	if !strings.Contains(discover.Body.String(), `"promotion_ready":1`) || !strings.Contains(discover.Body.String(), `"blocked":1`) {
+		t.Fatalf("body = %s", discover.Body.String())
+	}
+
+	review := httptest.NewRecorder()
+	mux.ServeHTTP(review, httptest.NewRequest(http.MethodGet, "/api/skills/review?name=api-quality-check", nil))
+	if review.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", review.Code, review.Body.String())
+	}
+	if !strings.Contains(review.Body.String(), `"decision":"promotion_ready"`) || !strings.Contains(review.Body.String(), `"import_plan_ready":true`) {
+		t.Fatalf("body = %s", review.Body.String())
+	}
+}
+
 func TestCredentialPlanEndpoint(t *testing.T) {
 	mux := http.NewServeMux()
 	registerTestRoutes(t, mux, "")

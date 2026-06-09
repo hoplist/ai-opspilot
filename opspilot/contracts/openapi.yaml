@@ -64,6 +64,31 @@ paths:
       responses:
         "200":
           description: Reviewable generated skill files and next steps; no server-side write is performed
+  /api/skills/discover:
+    get:
+      summary: Discover mirrored skill candidates and score OpsPilot runtime suitability
+      parameters:
+        - name: include_unsupported
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Candidate review pipeline with scores, decisions, blockers, and next steps
+  /api/skills/review:
+    get:
+      summary: Review one mirrored candidate before import-plan or promotion
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Candidate skill name
+      responses:
+        "200":
+          description: Suitability score, decision, blockers, missing mappings, and next steps
   /api/inventory/overview:
     get:
       summary: Return inventory overview
