@@ -29,8 +29,14 @@ func runSkillsRegistry(opts globalOptions, args []string, out io.Writer) error {
 	if len(args) > 0 && args[0] == "validate" {
 		return runSkillsValidate(opts, args[1:], out)
 	}
+	if len(args) > 0 && args[0] == "sources" {
+		return runSkillsSources(opts, args[1:], out)
+	}
+	if len(args) > 0 && args[0] == "candidates" {
+		return runSkillsCandidates(opts, args[1:], out)
+	}
 	if len(args) > 0 && args[0] != "registry" && args[0] != "list" {
-		return fmt.Errorf("expected skills subcommand: registry or validate")
+		return fmt.Errorf("expected skills subcommand: registry, validate, sources, or candidates")
 	}
 	if len(args) > 0 {
 		args = args[1:]
@@ -62,6 +68,26 @@ func runSkillsValidate(opts globalOptions, args []string, out io.Writer) error {
 		}
 	}
 	return writeOutput(out, opts.output, result, writeSkillsValidationHuman(result))
+}
+
+func runSkillsSources(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("skills sources", flag.ExitOnError)
+	_ = fs.Parse(args)
+	result, err := fetchSkillsMirror(opts.backendURL, "/api/skills/sources")
+	if err != nil {
+		return err
+	}
+	return writeOutput(out, opts.output, result, writeSkillsSourcesHuman(result))
+}
+
+func runSkillsCandidates(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("skills candidates", flag.ExitOnError)
+	_ = fs.Parse(args)
+	result, err := fetchSkillsMirror(opts.backendURL, "/api/skills/candidates")
+	if err != nil {
+		return err
+	}
+	return writeOutput(out, opts.output, result, writeSkillsCandidatesHuman(result))
 }
 
 func fetchSkillsRegistry(backendURL, category string, integratedOnly bool) (skillsRegistryResult, error) {
@@ -105,6 +131,27 @@ func fetchSkillsValidation(backendURL string) (skillregistry.ValidationResult, e
 	var result skillregistry.ValidationResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return skillregistry.ValidationResult{}, err
+	}
+	return result, nil
+}
+
+func fetchSkillsMirror(backendURL, endpoint string) (skillregistry.MirrorIndex, error) {
+	body, err := get(backendURL, endpoint, url.Values{})
+	if err != nil {
+		return skillregistry.MirrorIndex{}, fmt.Errorf("backend skills mirror unavailable: %w", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return skillregistry.MirrorIndex{}, err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return skillregistry.MirrorIndex{}, fmt.Errorf("skills mirror response missing data")
+	}
+	raw, _ := json.Marshal(data)
+	var result skillregistry.MirrorIndex
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return skillregistry.MirrorIndex{}, err
 	}
 	return result, nil
 }
@@ -168,5 +215,51 @@ func writeSkillsValidationHuman(result skillregistry.ValidationResult) func(io.W
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", issue.Level, issue.Skill, issue.Field, oneLine(issue.Message, 120))
 		}
 		return tw.Flush()
+	}
+}
+
+func writeSkillsSourcesHuman(result skillregistry.MirrorIndex) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Skills mirror: ready=%t root=%s skills=%d candidates=%d unsupported=%d upstream=%d\n",
+			result.Ready, result.Root, result.SkillsCount, result.CandidateCount, result.UnsupportedCount, result.UpstreamCount)
+		if result.RegistryPath != "" {
+			fmt.Fprintf(w, "Registry: %s\n", result.RegistryPath)
+		}
+		if len(result.Sources) > 0 {
+			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "SOURCE\tSTATUS\tREASON")
+			for _, source := range result.Sources {
+				fmt.Fprintf(tw, "%s\t%s\t%s\n", source.Name, source.Status, oneLine(source.Reason, 120))
+			}
+			if err := tw.Flush(); err != nil {
+				return err
+			}
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		return nil
+	}
+}
+
+func writeSkillsCandidatesHuman(result skillregistry.MirrorIndex) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Skills candidates: ready=%t root=%s candidates=%d unsupported=%d\n",
+			result.Ready, result.Root, result.CandidateCount, result.UnsupportedCount)
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "SKILL\tSTATUS\tCATEGORY\tSOURCE\tREASON")
+		for _, item := range result.Candidates {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", item.Name, firstNonEmpty(item.Status, "candidate"), item.Category, item.Source, oneLine(item.Reason, 100))
+		}
+		for _, item := range result.Unsupported {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", item.Name, firstNonEmpty(item.Status, "unsupported"), item.Category, item.Source, oneLine(item.Reason, 100))
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		return nil
 	}
 }

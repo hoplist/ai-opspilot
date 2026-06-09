@@ -19,6 +19,21 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 	mux.HandleFunc("/api/skills/validate", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return skillregistry.ValidateDirectory(env("OPSPILOT_SKILLS_DIR", "")), nil, nil
 	}))
+	mux.HandleFunc("/api/skills/sources", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		return skillregistry.MirrorFromEnv(), nil, nil
+	}))
+	mux.HandleFunc("/api/skills/candidates", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		index := skillregistry.MirrorFromEnv()
+		return map[string]any{
+			"ready":             index.Ready,
+			"root":              index.Root,
+			"candidate_count":   index.CandidateCount,
+			"unsupported_count": index.UnsupportedCount,
+			"candidates":        index.Candidates,
+			"unsupported":       index.Unsupported,
+			"warnings":          index.Warnings,
+		}, nil, nil
+	}))
 	mux.HandleFunc("/api/skills/recommend", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		catalog, warnings := skillregistry.RegistryFromEnv("", true)

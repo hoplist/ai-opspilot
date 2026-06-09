@@ -119,6 +119,48 @@ boundaries:
 	}
 }
 
+func TestSkillsSourcesEndpoint(t *testing.T) {
+	root := t.TempDir()
+	skillsRoot := filepath.Join(root, "skills")
+	skillDir := filepath.Join(skillsRoot, "opspilot-ops")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "skill.yaml"), []byte(`name: opspilot-ops
+category: platform
+integrated: true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "upstream", "garrytan-gstack"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "registry.yaml"), []byte(`version: test
+sources:
+  - name: garrytan/gstack
+    status: mirrored
+    reason: test source
+skills:
+  - name: gstack-health
+    status: candidate
+    source: garrytan/gstack
+    reason: test candidate
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPSPILOT_SKILLS_DIR", skillsRoot)
+	mux := http.NewServeMux()
+	registerTestRoutes(t, mux, "")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/skills/sources", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "garrytan/gstack") || !strings.Contains(recorder.Body.String(), "gstack-health") {
+		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}
+
 func TestCredentialPlanEndpoint(t *testing.T) {
 	mux := http.NewServeMux()
 	registerTestRoutes(t, mux, "")

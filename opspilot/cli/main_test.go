@@ -244,6 +244,74 @@ func TestSkillsValidateUsesBackendByDefault(t *testing.T) {
 	}
 }
 
+func TestSkillsSourcesCommand(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/skills/sources" {
+			http.NotFound(w, r)
+			return
+		}
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"ready":             true,
+			"root":              "/opt/opspilot/skills/current",
+			"skills_count":      15,
+			"candidate_count":   1,
+			"unsupported_count": 1,
+			"upstream_count":    1,
+			"sources": []map[string]any{{
+				"name":   "garrytan/gstack",
+				"status": "mirrored",
+				"reason": "test source",
+			}},
+		}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "--output", "human", "skills", "sources"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "garrytan/gstack") || !strings.Contains(out.String(), "candidates=1") {
+		t.Fatalf("out = %s", out.String())
+	}
+}
+
+func TestSkillsCandidatesCommand(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/skills/candidates" {
+			http.NotFound(w, r)
+			return
+		}
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"ready":             true,
+			"root":              "/opt/opspilot/skills/current",
+			"candidate_count":   1,
+			"unsupported_count": 1,
+			"candidates": []map[string]any{{
+				"name":     "gstack-health",
+				"status":   "candidate",
+				"category": "platform",
+				"source":   "garrytan/gstack",
+				"reason":   "test candidate",
+			}},
+			"unsupported": []map[string]any{{
+				"name":   "gstack-browse",
+				"status": "unsupported",
+				"source": "garrytan/gstack",
+				"reason": "browser runtime",
+			}},
+		}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "--output", "human", "skills", "candidates"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "gstack-health") || !strings.Contains(out.String(), "gstack-browse") {
+		t.Fatalf("out = %s", out.String())
+	}
+}
+
 func TestReleaseHistoryCommand(t *testing.T) {
 	endpoint, values := releaseCommand([]string{"history", "--service", "opspilot-core", "--limit", "5"})
 	if endpoint != "/api/release/history" {

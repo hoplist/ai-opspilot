@@ -151,6 +151,47 @@ commands:
 	}
 }
 
+func TestMirrorWithSkillsDirReadsRegistryAndCandidates(t *testing.T) {
+	root := t.TempDir()
+	writeTestSkillRepo(t, filepath.Join(root, "skills"))
+	if err := os.MkdirAll(filepath.Join(root, "upstream", "garrytan-gstack"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	registry := `version: test
+sources:
+  - name: garrytan/gstack
+    status: mirrored
+    reason: local mirror for OpsPilot adaptation
+skills:
+  - name: gstack-ship
+    status: integrated
+    source: garrytan/gstack
+    runtime_path: skills/gstack-ship
+    category: release
+    priority: 90
+  - name: gstack-health
+    status: candidate
+    source: garrytan/gstack
+    upstream_path: skills/health
+    category: platform
+    reason: useful but not mapped yet
+  - name: gstack-browse
+    status: unsupported
+    source: garrytan/gstack
+    reason: requires client browser runtime
+`
+	if err := os.WriteFile(filepath.Join(root, "registry.yaml"), []byte(registry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	index := MirrorWithSkillsDir(filepath.Join(root, "skills"))
+	if !index.Ready || index.SkillsCount != 1 || index.CandidateCount != 1 || index.UnsupportedCount != 1 || index.UpstreamCount != 1 {
+		t.Fatalf("index = %#v", index)
+	}
+	if len(index.Sources) != 1 || index.Sources[0].Name != "garrytan/gstack" {
+		t.Fatalf("sources = %#v", index.Sources)
+	}
+}
+
 func writeTestSkillRepo(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
