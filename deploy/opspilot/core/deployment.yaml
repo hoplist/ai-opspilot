@@ -125,6 +125,8 @@ spec:
           volumeMounts:
             - name: opspilot-skills
               mountPath: /skills
+            - name: skills-sync-tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 10m
@@ -136,3 +138,6 @@ spec:
         - name: opspilot-skills
           emptyDir:
             sizeLimit: 256Mi
+        - name: skills-sync-tmp
+          emptyDir:
+            sizeLimit: 64Mi

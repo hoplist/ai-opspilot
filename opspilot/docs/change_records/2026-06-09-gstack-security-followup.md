@@ -46,6 +46,9 @@ that are safe to land now.
   Linux capabilities, read-only root filesystem, and explicit user/group IDs.
 - Added `LimitRange` and `ResourceQuota` for the `opspilot` namespace and added
   an `emptyDir.sizeLimit` for the runtime skills volume.
+- Kept `skills-sync` on a read-only root filesystem and added a bounded
+  `/tmp` `emptyDir` because git-sync creates a temporary gitconfig file at
+  startup.
 - Added node-agent startup validation: when listening on a non-local host,
   `OPSPILOT_AGENT_TOKEN` must be configured. Localhost-only development remains
   token-optional.
