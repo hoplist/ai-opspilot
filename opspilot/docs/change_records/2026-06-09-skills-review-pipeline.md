@@ -26,7 +26,7 @@ The following OpsPilot-owned platform gaps are now tracked as skills mirror cand
 - Added `opspilot skills discover`.
 - Added `opspilot skills review --name <candidate>`.
 - Review output includes decision, score, grade, import-plan readiness, blockers, missing mappings, and next steps.
-- Stabilized the OpsPilot `update:gitops` CI job by removing runtime `apk add git yq`; the job now uses the Go CI image and `sed` for the small manifest edits needed by the platform deployment.
+- Stabilized the OpsPilot `update:gitops` CI job by removing runtime `apk add git yq`; the job now uses the Go CI image and GitLab Commit API, so it no longer depends on git/yq being installed inside the runner image.
 
 ## Safety Boundary
 

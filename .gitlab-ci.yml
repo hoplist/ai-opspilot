@@ -14,6 +14,8 @@ variables:
   BUILDKIT_CACHE_IMAGE: "$CI_REGISTRY_IMAGE/opspilot-core:buildcache"
   GOFLAGS: "-buildvcs=false"
   GITOPS_REPO: "http://oauth2:${GITOPS_TOKEN}@192.168.48.206:8929/platform/gitops-manifests.git"
+  GITOPS_PROJECT: "platform/gitops-manifests"
+  GITLAB_API: "http://192.168.48.206:8929/api/v4"
   GITOPS_APP_PATH: "clusters/test/apps/opspilot-core"
   GITOPS_APP_FILE: "apps/opspilot-core-application.yaml"
   GITOPS_CONTAINER_NAME: "core"
@@ -106,27 +108,67 @@ update:gitops:
     name: "$GO_VERSION_IMAGE"
   needs:
     - job: build:image
-  before_script:
-    - git config --global user.email "gitlab-ci@node206.local"
-    - git config --global user.name "gitlab-ci"
   script:
     - test -n "$GITOPS_TOKEN"
-    - git clone "$GITOPS_REPO" gitops
-    - mkdir -p "gitops/$GITOPS_APP_PATH" "gitops/apps"
-    - rm -rf gitops/clusters/test/apps/opspilot-rbac
-    - rm -rf gitops/clusters/test/apps/opspilot-bootstrap
-    - mkdir -p gitops/clusters/test/apps/opspilot-rbac
-    - cp -R deploy/opspilot/rbac/. gitops/clusters/test/apps/opspilot-rbac/
-    - cp deploy/opspilot/core/configmap.yaml "gitops/$GITOPS_APP_PATH/configmap.yaml"
-    - cp deploy/opspilot/core/deployment.yaml "gitops/$GITOPS_APP_PATH/deployment.yaml"
-    - cp deploy/opspilot/core/service.yaml "gitops/$GITOPS_APP_PATH/service.yaml"
-    - cp deploy/opspilot/core/kustomization.yaml "gitops/$GITOPS_APP_PATH/kustomization.yaml"
-    - sed -i 's#../rbac#../opspilot-rbac#g' "gitops/$GITOPS_APP_PATH/kustomization.yaml"
     - |
-      sed -i "s#image: .*opspilot-core.*#image: ${IMAGE_NAME}:${IMAGE_TAG}#" "gitops/$GITOPS_APP_PATH/deployment.yaml"
-    - |
-      cat > "gitops/$GITOPS_APP_FILE" <<EOF
-      apiVersion: argoproj.io/v1alpha1
+      cat > /tmp/gitops_commit.go <<'GO'
+      package main
+
+      import (
+        "bytes"
+        "encoding/json"
+        "fmt"
+        "io"
+        "net/http"
+        "net/url"
+        "os"
+        "path/filepath"
+        "strings"
+      )
+
+      type action struct {
+        Action   string `json:"action"`
+        FilePath string `json:"file_path"`
+        Content  string `json:"content"`
+      }
+
+      func mustEnv(key string) string {
+        value := strings.TrimSpace(os.Getenv(key))
+        if value == "" {
+          panic(key + " is required")
+        }
+        return value
+      }
+
+      func read(path string) string {
+        data, err := os.ReadFile(path)
+        if err != nil {
+          panic(err)
+        }
+        return string(data)
+      }
+
+      func updateCoreImage(body, image string) string {
+        lines := strings.Split(body, "\n")
+        for i, line := range lines {
+          if strings.Contains(line, "image:") && strings.Contains(line, "opspilot-core") {
+            prefix := line[:strings.Index(line, "image:")]
+            lines[i] = prefix + "image: " + image
+          }
+        }
+        return strings.Join(lines, "\n")
+      }
+
+      func main() {
+        image := mustEnv("IMAGE_NAME") + ":" + mustEnv("IMAGE_TAG")
+        appPath := mustEnv("GITOPS_APP_PATH")
+        appFile := mustEnv("GITOPS_APP_FILE")
+        actions := []action{
+          {Action: "update", FilePath: appPath + "/configmap.yaml", Content: read("deploy/opspilot/core/configmap.yaml")},
+          {Action: "update", FilePath: appPath + "/deployment.yaml", Content: updateCoreImage(read("deploy/opspilot/core/deployment.yaml"), image)},
+          {Action: "update", FilePath: appPath + "/service.yaml", Content: read("deploy/opspilot/core/service.yaml")},
+          {Action: "update", FilePath: appPath + "/kustomization.yaml", Content: strings.ReplaceAll(read("deploy/opspilot/core/kustomization.yaml"), "../rbac", "../opspilot-rbac")},
+          {Action: "update", FilePath: appFile, Content: `apiVersion: argoproj.io/v1alpha1
       kind: Application
       metadata:
         name: opspilot-core
@@ -146,11 +188,47 @@ update:gitops:
             selfHeal: true
           syncOptions:
             - CreateNamespace=true
-      EOF
-    - cd gitops
-    - git add "$GITOPS_APP_PATH" clusters/test/apps/opspilot-rbac "$GITOPS_APP_FILE"
-    - git add -A clusters/test/apps/opspilot-bootstrap || true
-    - git commit -m "deploy opspilot-core ${IMAGE_TAG}" || echo "no changes"
-    - git push origin main
+      `},
+        }
+        rbacFiles, err := filepath.Glob("deploy/opspilot/rbac/*")
+        if err != nil {
+          panic(err)
+        }
+        for _, path := range rbacFiles {
+          info, err := os.Stat(path)
+          if err != nil || info.IsDir() {
+            continue
+          }
+          actions = append(actions, action{Action: "update", FilePath: "clusters/test/apps/opspilot-rbac/" + filepath.Base(path), Content: read(path)})
+        }
+        payload := map[string]any{
+          "branch":         "main",
+          "commit_message": "deploy opspilot-core " + mustEnv("IMAGE_TAG"),
+          "actions":        actions,
+        }
+        body, err := json.Marshal(payload)
+        if err != nil {
+          panic(err)
+        }
+        endpoint := strings.TrimRight(mustEnv("GITLAB_API"), "/") + "/projects/" + url.PathEscape(mustEnv("GITOPS_PROJECT")) + "/repository/commits"
+        req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+        if err != nil {
+          panic(err)
+        }
+        req.Header.Set("Content-Type", "application/json")
+        req.Header.Set("PRIVATE-TOKEN", mustEnv("GITOPS_TOKEN"))
+        resp, err := http.DefaultClient.Do(req)
+        if err != nil {
+          panic(err)
+        }
+        defer resp.Body.Close()
+        respBody, _ := io.ReadAll(resp.Body)
+        if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+          panic(fmt.Sprintf("gitops commit failed: %s %s", resp.Status, strings.TrimSpace(string(respBody))))
+        }
+        fmt.Println("gitops commit submitted")
+      }
+      GO
+      go run /tmp/gitops_commit.go
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
