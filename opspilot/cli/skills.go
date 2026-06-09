@@ -1,0 +1,172 @@
+package main
+
+import (
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"net/url"
+	"strconv"
+	"strings"
+	"text/tabwriter"
+
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/skillregistry"
+)
+
+type skillsRegistryResult struct {
+	Version         string                `json:"version"`
+	Source          string                `json:"source"`
+	SourcePath      string                `json:"source_path,omitempty"`
+	SourceVersion   string                `json:"source_version,omitempty"`
+	ItemCount       int                   `json:"item_count"`
+	IntegratedCount int                   `json:"integrated_count"`
+	DynamicCount    int                   `json:"dynamic_count,omitempty"`
+	Items           []skillregistry.Skill `json:"items"`
+	Warnings        []string              `json:"warnings,omitempty"`
+}
+
+func runSkillsRegistry(opts globalOptions, args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == "validate" {
+		return runSkillsValidate(opts, args[1:], out)
+	}
+	if len(args) > 0 && args[0] != "registry" && args[0] != "list" {
+		return fmt.Errorf("expected skills subcommand: registry or validate")
+	}
+	if len(args) > 0 {
+		args = args[1:]
+	}
+	fs := flag.NewFlagSet("skills registry", flag.ExitOnError)
+	category := fs.String("category", "", "skill category filter")
+	integratedOnly := fs.Bool("integrated-only", false, "show only integrated skills")
+	_ = fs.Parse(args)
+
+	result, err := fetchSkillsRegistry(opts.backendURL, *category, *integratedOnly)
+	if err != nil {
+		return err
+	}
+	return writeOutput(out, opts.output, result, writeSkillsRegistryHuman(result))
+}
+
+func runSkillsValidate(opts globalOptions, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("skills validate", flag.ExitOnError)
+	dir := fs.String("dir", "", "local skills directory to validate; omit to validate the backend runtime registry")
+	_ = fs.Parse(args)
+	var result skillregistry.ValidationResult
+	var err error
+	if strings.TrimSpace(*dir) != "" {
+		result = skillregistry.ValidateDirectory(*dir)
+	} else {
+		result, err = fetchSkillsValidation(opts.backendURL)
+		if err != nil {
+			return err
+		}
+	}
+	return writeOutput(out, opts.output, result, writeSkillsValidationHuman(result))
+}
+
+func fetchSkillsRegistry(backendURL, category string, integratedOnly bool) (skillsRegistryResult, error) {
+	body, err := get(backendURL, "/api/skills/registry", url.Values{
+		"category":        {category},
+		"integrated_only": {strconv.FormatBool(integratedOnly)},
+	})
+	if err != nil {
+		return skillsRegistryResult{}, fmt.Errorf("backend skills registry unavailable: %w", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return skillsRegistryResult{}, err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return skillsRegistryResult{}, fmt.Errorf("skills registry response missing data")
+	}
+	raw, _ := json.Marshal(data)
+	var catalog skillregistry.Catalog
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		return skillsRegistryResult{}, err
+	}
+	return skillsResultFromCatalog(catalog, stringList(payload["warnings"])), nil
+}
+
+func fetchSkillsValidation(backendURL string) (skillregistry.ValidationResult, error) {
+	body, err := get(backendURL, "/api/skills/validate", url.Values{})
+	if err != nil {
+		return skillregistry.ValidationResult{}, fmt.Errorf("backend skills validation unavailable: %w", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return skillregistry.ValidationResult{}, err
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return skillregistry.ValidationResult{}, fmt.Errorf("skills validation response missing data")
+	}
+	raw, _ := json.Marshal(data)
+	var result skillregistry.ValidationResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return skillregistry.ValidationResult{}, err
+	}
+	return result, nil
+}
+
+func skillsResultFromCatalog(catalog skillregistry.Catalog, warnings []string) skillsRegistryResult {
+	return skillsRegistryResult{
+		Version:         catalog.Version,
+		Source:          catalog.Source,
+		SourcePath:      catalog.SourcePath,
+		SourceVersion:   catalog.SourceVersion,
+		ItemCount:       catalog.ItemCount,
+		IntegratedCount: catalog.IntegratedCount,
+		DynamicCount:    catalog.DynamicCount,
+		Items:           catalog.Items,
+		Warnings:        warnings,
+	}
+}
+
+func writeSkillsRegistryHuman(result skillsRegistryResult) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Skills registry: version=%s source=%s items=%d integrated=%d dynamic=%d\n",
+			result.Version, result.Source, result.ItemCount, result.IntegratedCount, result.DynamicCount)
+		if result.SourcePath != "" {
+			fmt.Fprintf(w, "Source path: %s\n", result.SourcePath)
+		}
+		if result.SourceVersion != "" {
+			fmt.Fprintf(w, "Source version: %s\n", result.SourceVersion)
+		}
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "SKILL\tCATEGORY\tTIER\tINTEGRATED\tCOMMANDS")
+		for _, item := range result.Items {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%t\t%s\n",
+				item.Name, item.Category, item.IntegrationTier, item.Integrated, oneLine(strings.Join(item.Commands, ", "), 100))
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		return nil
+	}
+}
+
+func writeSkillsValidationHuman(result skillregistry.ValidationResult) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "Skills validation: ready=%t root=%s skills=%d errors=%d warnings=%d\n",
+			result.Ready, result.Root, result.SkillCount, result.ErrorCount, result.WarnCount)
+		if len(result.SkillNames) > 0 {
+			fmt.Fprintf(w, "Skills: %s\n", strings.Join(result.SkillNames, ", "))
+		}
+		if len(result.ExampleGaps) > 0 {
+			fmt.Fprintf(w, "Example gaps: %s\n", strings.Join(result.ExampleGaps, ", "))
+		}
+		if len(result.Issues) == 0 {
+			return nil
+		}
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "LEVEL\tSKILL\tFIELD\tMESSAGE")
+		for _, issue := range result.Issues {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", issue.Level, issue.Skill, issue.Field, oneLine(issue.Message, 120))
+		}
+		return tw.Flush()
+	}
+}

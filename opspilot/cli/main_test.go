@@ -214,6 +214,36 @@ func TestSkillsRegistryDoesNotFallbackToClientEmbeddedRegistry(t *testing.T) {
 	}
 }
 
+func TestSkillsValidateUsesBackendByDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/skills/validate" {
+			http.NotFound(w, r)
+			return
+		}
+		writeTestJSON(w, map[string]any{"ok": true, "data": map[string]any{
+			"ready":       true,
+			"root":        "/opt/opspilot/skills/current/skills",
+			"skill_count": 1,
+			"error_count": 0,
+			"warn_count":  0,
+			"skill_names": []string{"opspilot-ops"},
+		}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := run([]string{"--backend-url", server.URL, "--output", "json", "skills", "validate"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload skillregistry.ValidationResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Ready || payload.Root != "/opt/opspilot/skills/current/skills" || payload.SkillCount != 1 {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestReleaseHistoryCommand(t *testing.T) {
 	endpoint, values := releaseCommand([]string{"history", "--service", "opspilot-core", "--limit", "5"})
 	if endpoint != "/api/release/history" {
@@ -1619,6 +1649,7 @@ spec:
 		"--limitrange-path", filepath.Join("..", "deploy", "opspilot", "core", "limitrange.yaml"),
 		"--resourcequota-path", filepath.Join("..", "deploy", "opspilot", "core", "resourcequota.yaml"),
 		"--serviceaccount-path", filepath.Join("..", "deploy", "opspilot", "core", "serviceaccount.yaml"),
+		"--quality-path", filepath.Join("..", ".opspilot", "quality.yaml"),
 	}, &out); err != nil {
 		t.Fatalf("preflight with explicit monorepo paths failed: %v\n%s", err, out.String())
 	}
@@ -1631,14 +1662,36 @@ spec:
 			t.Fatalf("did not expect %s gap with explicit paths: %#v", gap, payload.Gaps)
 		}
 	}
-	foundCIWarning := false
+	foundCIPass := false
 	for _, item := range payload.Items {
-		if item.Name == "gitlab_ci" && item.Status == "warn" && item.Path == filepath.Join("..", ".gitlab-ci.yml") {
-			foundCIWarning = true
+		if item.Name == "gitlab_ci" && item.Status == "pass" && item.Path == filepath.Join("..", ".gitlab-ci.yml") {
+			foundCIPass = true
 		}
 	}
-	if !foundCIWarning {
-		t.Fatalf("expected CI warning with explicit path: %#v", payload.Items)
+	if !foundCIPass {
+		t.Fatalf("expected platform CI pass with explicit path: %#v", payload.Items)
+	}
+}
+
+func TestCodePrecheckIgnoresHTTPQueryHelperLoops(t *testing.T) {
+	items := scanCodePrecheckText("core/http.go", `package main
+
+func queryList(r *http.Request, name string) []string {
+	values := []string{}
+	for _, raw := range r.URL.Query()[name] {
+		for _, part := range strings.FieldsFunc(raw, func(ch rune) bool {
+			return ch == ',' || ch == '|'
+		}) {
+			values = append(values, part)
+		}
+	}
+	return values
+}
+`)
+	for _, item := range items {
+		if item.ID == "possible_n_plus_one" {
+			t.Fatalf("unexpected possible_n_plus_one finding: %#v", items)
+		}
 	}
 }
 

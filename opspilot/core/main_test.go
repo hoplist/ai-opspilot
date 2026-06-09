@@ -77,6 +77,48 @@ commands: [release status, release jobs]
 	}
 }
 
+func TestSkillsValidateEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "opspilot-ops")
+	if err := os.MkdirAll(filepath.Join(skillDir, "examples"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# OpsPilot Ops\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "skill.yaml"), []byte(`name: opspilot-ops
+label: OpsPilot Ops
+category: platform
+integration_tier: core
+integrated: true
+priority: 100
+summary: Server-side OpsPilot skill.
+use_when:
+  - inspect platform
+evidence:
+  - doctor
+commands:
+  - doctor
+boundaries:
+  - no arbitrary shell
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPSPILOT_SKILLS_DYNAMIC_ENABLED", "true")
+	t.Setenv("OPSPILOT_SKILLS_DIR", dir)
+	mux := http.NewServeMux()
+	registerTestRoutes(t, mux, "demo-api=namespace:demo,deployment:demo-api")
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/skills/validate", nil)
+	mux.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"ready":true`) || !strings.Contains(recorder.Body.String(), `"skill_count":1`) {
+		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}
+
 func TestCredentialPlanEndpoint(t *testing.T) {
 	mux := http.NewServeMux()
 	registerTestRoutes(t, mux, "")

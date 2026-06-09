@@ -16,6 +16,9 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 		catalog, warnings := skillregistry.RegistryFromEnv(q.Get("category"), boolQuery(r, "integrated_only"))
 		return catalog, warnings, nil
 	}))
+	mux.HandleFunc("/api/skills/validate", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		return skillregistry.ValidateDirectory(env("OPSPILOT_SKILLS_DIR", "")), nil, nil
+	}))
 	mux.HandleFunc("/api/skills/recommend", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		catalog, warnings := skillregistry.RegistryFromEnv("", true)

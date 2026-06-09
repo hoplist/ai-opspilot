@@ -119,6 +119,7 @@ func repoPreflightCommand(opts globalOptions, args []string, out io.Writer) erro
 	limitrangePath := fs.String("limitrange-path", "", "LimitRange manifest path relative to repository path")
 	resourcequotaPath := fs.String("resourcequota-path", "", "ResourceQuota manifest path relative to repository path")
 	serviceaccountPath := fs.String("serviceaccount-path", "", "ServiceAccount manifest path relative to repository path")
+	qualityPath := fs.String("quality-path", "", "optional quality config path relative to repository path")
 	_ = fs.Parse(args)
 	result, err := withRepo(*repo, func() (repoPreflightResult, error) {
 		return repoPreflight(*project, *catalog, repoLayoutOptions{
@@ -129,6 +130,7 @@ func repoPreflightCommand(opts globalOptions, args []string, out io.Writer) erro
 			LimitRangePath:     *limitrangePath,
 			ResourceQuotaPath:  *resourcequotaPath,
 			ServiceAccountPath: *serviceaccountPath,
+			QualityPath:        *qualityPath,
 		})
 	})
 	if err != nil {
@@ -246,6 +248,7 @@ type repoLayoutOptions struct {
 	LimitRangePath     string
 	ResourceQuotaPath  string
 	ServiceAccountPath string
+	QualityPath        string
 }
 
 func (o repoLayoutOptions) defaults() repoLayoutOptions {
@@ -266,6 +269,9 @@ func (o repoLayoutOptions) defaults() repoLayoutOptions {
 	}
 	if o.ServiceAccountPath == "" {
 		o.ServiceAccountPath = filepath.Join(o.DeployPath, "serviceaccount.yaml")
+	}
+	if o.QualityPath == "" {
+		o.QualityPath = filepath.Join(".opspilot", "quality.yaml")
 	}
 	return o
 }
@@ -294,7 +300,7 @@ func repoPreflight(project, catalogPath string, layout repoLayoutOptions) (repoP
 		checkRepoDeployment(cfg, filepath.Join(layout.DeployPath, "deployment.yaml")),
 		checkRepoFile("service", filepath.Join(layout.DeployPath, "service.yaml"), "generate deploy/k8s/service.yaml"),
 		checkRepoFile("kustomization", filepath.Join(layout.DeployPath, "kustomization.yaml"), "generate deploy/k8s/kustomization.yaml"),
-		checkRepoQuality(),
+		checkRepoQuality(layout.QualityPath),
 		checkRepoHealth(cfg),
 	}
 	items = append(items, checkRepoMiddleware(cfg)...)
@@ -407,6 +413,9 @@ func checkRepoCI(cfg onboardServiceConfig, path string) repoPolicyItem {
 		return repoPolicyItem{Name: "gitlab_ci", Path: path, Status: "pass", Level: "info", Message: "platform template include detected"}
 	}
 	if strings.Contains(text, "buildctl-daemonless.sh") || strings.Contains(text, "BUILDKIT_IMAGE") {
+		if cfg.GitLabProject == "platform/opspilot" {
+			return repoPolicyItem{Name: "gitlab_ci", Path: path, Status: "pass", Level: "info", Message: "platform repository owns direct BuildKit CI"}
+		}
 		return repoPolicyItem{Name: "gitlab_ci", Path: path, Status: "warn", Level: "warning", Message: "direct BuildKit CI detected; platform include is preferred", Fixable: true, Action: "run repo autofix --write --force to replace CI with platform include"}
 	}
 	return repoPolicyItem{Name: "gitlab_ci", Path: path, Status: "fail", Level: "blocker", Message: "platform BuildKit/GitOps template not detected", Fixable: true, Action: "run repo autofix --write --force to replace CI with platform include"}
@@ -421,8 +430,7 @@ func checkRepoFile(name, path, action string) repoPolicyItem {
 	return repoPolicyItem{Name: name, Path: path, Status: "fail", Level: "blocker", Message: "missing", Fixable: true, Action: action}
 }
 
-func checkRepoQuality() repoPolicyItem {
-	path := filepath.Join(".opspilot", "quality.yaml")
+func checkRepoQuality(path string) repoPolicyItem {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -1026,11 +1034,21 @@ func codePrecheckNPlusOne(path string, lineNo int, lines []string, index int) *c
 		end = len(lines)
 	}
 	window := strings.ToLower(strings.Join(lines[index:end], "\n"))
+	if isHTTPQueryHelperWindow(window) {
+		return nil
+	}
 	if containsAny(window, []string{".query(", ".find(", ".findall(", ".filter(", "select ", "jdbc", "gorm.", "db."}) {
 		item := codePrecheckFinding("possible_n_plus_one", "warning", "database", path, lineNo, "loop contains database-like access", lines[index], "database-optimizer", "Batch the query, prefetch relations, or move database access outside the loop.")
 		return &item
 	}
 	return nil
+}
+
+func isHTTPQueryHelperWindow(window string) bool {
+	return strings.Contains(window, "r.url.query()") ||
+		strings.Contains(window, ".url.query()") ||
+		strings.Contains(window, "url.values") ||
+		strings.Contains(window, "strings.fieldsfunc")
 }
 
 func normalizeSQLLine(line string) string {
