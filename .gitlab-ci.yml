@@ -103,11 +103,10 @@ build:image:
 update:gitops:
   stage: update-gitops
   image:
-    name: "$ALPINE_IMAGE"
+    name: "$GO_VERSION_IMAGE"
   needs:
     - job: build:image
   before_script:
-    - apk add --no-cache git yq
     - git config --global user.email "gitlab-ci@node206.local"
     - git config --global user.name "gitlab-ci"
   script:
@@ -122,8 +121,8 @@ update:gitops:
     - cp deploy/opspilot/core/deployment.yaml "gitops/$GITOPS_APP_PATH/deployment.yaml"
     - cp deploy/opspilot/core/service.yaml "gitops/$GITOPS_APP_PATH/service.yaml"
     - cp deploy/opspilot/core/kustomization.yaml "gitops/$GITOPS_APP_PATH/kustomization.yaml"
-    - yq -i '(.resources[] | select(. == "../rbac")) = "../opspilot-rbac"' "gitops/$GITOPS_APP_PATH/kustomization.yaml"
-    - yq -i '(.spec.template.spec.containers[] | select(.name == strenv(GITOPS_CONTAINER_NAME)).image) = strenv(IMAGE_NAME) + ":" + strenv(IMAGE_TAG)' "gitops/$GITOPS_APP_PATH/deployment.yaml"
+    - sed -i 's#../rbac#../opspilot-rbac#g' "gitops/$GITOPS_APP_PATH/kustomization.yaml"
+    - sed -i "s#image: .*opspilot-core.*#image: ${IMAGE_NAME}:${IMAGE_TAG}#" "gitops/$GITOPS_APP_PATH/deployment.yaml"
     - |
       cat > "gitops/$GITOPS_APP_FILE" <<EOF
       apiVersion: argoproj.io/v1alpha1

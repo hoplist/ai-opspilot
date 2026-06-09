@@ -26,6 +26,7 @@ The following OpsPilot-owned platform gaps are now tracked as skills mirror cand
 - Added `opspilot skills discover`.
 - Added `opspilot skills review --name <candidate>`.
 - Review output includes decision, score, grade, import-plan readiness, blockers, missing mappings, and next steps.
+- Stabilized the OpsPilot `update:gitops` CI job by removing runtime `apk add git yq`; the job now uses the Go CI image and `sed` for the small manifest edits needed by the platform deployment.
 
 ## Safety Boundary
 
@@ -49,5 +50,6 @@ skills discover
 ## Validation
 
 - Unit tests cover scoring, unsupported blocking, API endpoints, CLI output, and CLI schema registration.
+- Release pipeline validation covers the GitOps job without external Alpine package installation.
 - Standard release flow remains required for OpsPilot backend changes:
   node206 GitLab Runner -> BuildKit -> Registry -> GitOps -> node200 Argo CD.
