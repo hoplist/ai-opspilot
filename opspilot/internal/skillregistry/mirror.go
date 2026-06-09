@@ -666,11 +666,14 @@ func suitabilityScore(entry MirrorEntry, review *CandidateReview) int {
 		score += 5
 		review.MissingMappings = append(review.MissingMappings, "category mapping")
 	}
-	text := strings.ToLower(strings.Join([]string{entry.Name, entry.Category, entry.Source, entry.UpstreamPath, entry.Reason}, " "))
-	if containsAnyNeedle(text, []string{"browser", "ios", "desktop", "pair", "client runtime", "local device"}) {
+	nameAndCategory := strings.ToLower(strings.Join([]string{entry.Name, entry.Category, entry.UpstreamPath}, " "))
+	reason := strings.ToLower(entry.Reason)
+	if containsAnyNeedle(nameAndCategory, []string{"browse", "browser", "ios", "desktop", "pair", "client runtime", "local device"}) ||
+		containsAnyNeedle(reason, []string{"requires client", "requires local", "local device", "client browser runtime", "external session"}) {
 		review.Blockers = append(review.Blockers, "Requires client-local or external interactive runtime.")
 		return 0
 	}
+	text := strings.ToLower(strings.Join([]string{entry.Name, entry.Category, entry.Source, entry.UpstreamPath, entry.Reason}, " "))
 	if containsAnyNeedle(text, []string{"delete", "destructive", "mutation", "guardrail", "decommission"}) {
 		score += 5
 		review.Reasons = append(review.Reasons, "Risky actions are acceptable only as plan-only or confirmation-gated flows.")
