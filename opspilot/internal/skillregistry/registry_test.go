@@ -116,21 +116,38 @@ func TestRegistryWithOptionsLoadsGitSyncStyleSkillsSubdir(t *testing.T) {
 
 func TestRegistryWithOptionsFallsBackToEmbeddedSkills(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "missing")
-	catalog, warnings := RegistryWithOptions("", true, Options{DynamicEnabled: true, SkillsDir: dir, FallbackEnabled: true})
-	if catalog.Source != "fallback-embedded" || catalog.ItemCount == 0 {
+	fallbackDir := t.TempDir()
+	writeTestSkillRepo(t, fallbackDir)
+	catalog, warnings := RegistryWithOptions("", true, Options{DynamicEnabled: true, SkillsDir: dir, FallbackEnabled: true, FallbackDir: fallbackDir})
+	if catalog.Source != "fallback-image" || catalog.ItemCount != 1 {
 		t.Fatalf("catalog = %#v", catalog)
 	}
-	if !containsWarning(warnings, "embedded fallback") {
+	if !containsWarning(warnings, "image-bundled fallback") {
 		t.Fatalf("warnings = %#v", warnings)
 	}
 }
 
 func TestValidateRuntimeFromEnvFallsBackToEmbeddedSkills(t *testing.T) {
 	t.Setenv("OPSPILOT_SKILLS_DIR", filepath.Join(t.TempDir(), "missing"))
+	fallbackDir := t.TempDir()
+	writeTestSkillRepo(t, fallbackDir)
+	t.Setenv("OPSPILOT_SKILLS_FALLBACK_DIR", fallbackDir)
 	t.Setenv("OPSPILOT_SKILLS_FALLBACK_ENABLED", "true")
 	result := ValidateRuntimeFromEnv()
-	if !result.Ready || !result.Fallback || result.Source != "fallback-embedded" || result.SkillCount == 0 {
+	if !result.Ready || !result.Fallback || result.Source != "fallback-image" || result.SkillCount != 1 {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestRegistryWithOptionsFallsBackToMetadataWhenImageSkillsMissing(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing")
+	fallbackDir := filepath.Join(t.TempDir(), "missing-fallback")
+	catalog, warnings := RegistryWithOptions("", true, Options{DynamicEnabled: true, SkillsDir: dir, FallbackEnabled: true, FallbackDir: fallbackDir})
+	if catalog.Source != "fallback-metadata" || catalog.ItemCount == 0 {
+		t.Fatalf("catalog = %#v", catalog)
+	}
+	if !containsWarning(warnings, "metadata fallback") {
+		t.Fatalf("warnings = %#v", warnings)
 	}
 }
 

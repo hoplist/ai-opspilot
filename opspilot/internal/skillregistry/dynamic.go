@@ -10,11 +10,13 @@ import (
 )
 
 const defaultDynamicSkillsDir = "/opt/opspilot/skills/current"
+const defaultFallbackSkillsDir = "/opt/opspilot/fallback-skills/skills"
 
 type Options struct {
 	DynamicEnabled  bool
 	SkillsDir       string
 	FallbackEnabled bool
+	FallbackDir     string
 }
 
 func RegistryFromEnv(category string, integratedOnly bool) (Catalog, []string) {
@@ -22,6 +24,7 @@ func RegistryFromEnv(category string, integratedOnly bool) (Catalog, []string) {
 		DynamicEnabled:  boolEnv("OPSPILOT_SKILLS_DYNAMIC_ENABLED", true),
 		SkillsDir:       env("OPSPILOT_SKILLS_DIR", defaultDynamicSkillsDir),
 		FallbackEnabled: boolEnv("OPSPILOT_SKILLS_FALLBACK_ENABLED", true),
+		FallbackDir:     env("OPSPILOT_SKILLS_FALLBACK_DIR", defaultFallbackSkillsDir),
 	})
 }
 
@@ -39,11 +42,27 @@ func RegistryWithOptions(category string, integratedOnly bool, opts Options) (Ca
 	dynamic, sourceVersion, warnings := loadDynamicSkills(dir)
 	if len(dynamic) == 0 {
 		if opts.FallbackEnabled {
-			warnings = append(warnings, "skills: using embedded fallback registry because GitLab-backed skills are unavailable")
+			fallbackDir := strings.TrimSpace(opts.FallbackDir)
+			if fallbackDir == "" {
+				fallbackDir = defaultFallbackSkillsDir
+			}
+			fallback, fallbackVersion, fallbackWarnings := loadDynamicSkills(fallbackDir)
+			warnings = append(warnings, fallbackWarnings...)
+			if len(fallback) > 0 {
+				warnings = append(warnings, "skills: using image-bundled fallback registry because GitLab-backed skills are unavailable")
+				return registryFromItems(fallback, category, integratedOnly, Catalog{
+					Version:       Version,
+					Source:        "fallback-image",
+					SourcePath:    fallbackDir,
+					SourceVersion: fallbackVersion,
+					DynamicCount:  len(fallback),
+				}), warnings
+			}
+			warnings = append(warnings, "skills: using embedded metadata fallback because GitLab-backed and image-bundled skills are unavailable")
 			return registryFromItems(allSkills(), category, integratedOnly, Catalog{
 				Version:    Version,
-				Source:     "fallback-embedded",
-				SourcePath: dir,
+				Source:     "fallback-metadata",
+				SourcePath: fallbackDir,
 			}), warnings
 		}
 		return registryFromItems(nil, category, integratedOnly, Catalog{

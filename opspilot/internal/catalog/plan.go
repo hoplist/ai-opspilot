@@ -145,6 +145,99 @@ func DebugAccessPlan(req RegistrationPlanRequest) RegistrationPlan {
 	}
 }
 
+func CredentialRevokePlan(req RegistrationPlanRequest) RegistrationPlan {
+	req = normalizePlanRequest(req)
+	name := firstNonEmpty(req.Name, plannedCredentialName(req))
+	scope := firstNonEmpty(req.Scope, plannedCredentialScope(req))
+	return RegistrationPlan{
+		Type:        "credential_revoke",
+		Kind:        firstNonEmpty(req.Kind, "generic"),
+		Name:        name,
+		Service:     req.Service,
+		Cluster:     req.Cluster,
+		Environment: req.Environment,
+		Scope:       scope,
+		Risk:        "controlled_mutate",
+		Automation:  "plan_first",
+		Summary:     fmt.Sprintf("Plan revocation for credential %s without deleting or disabling it yet.", name),
+		Credential: Credential{
+			Name:        name,
+			Class:       "planned-revoke",
+			Environment: req.Environment,
+			Scope:       scope,
+			Storage:     "credential-ledger",
+			Namespace:   serviceNamespace(req.Service),
+			UsedBy:      nonEmptyList(req.Service),
+			Permissions: []string{"revoke credential after dependency check"},
+			Owner:       "platform",
+			Source:      "plan",
+		},
+		Steps: []string{
+			"Find all workloads, CI jobs, GitOps manifests, and debug sessions that reference the credential.",
+			"Confirm no active release or workload still requires the credential.",
+			"Create a replacement credential first if the service still needs access.",
+			"Revoke or disable the old account in the upstream system.",
+			"Remove only metadata references after rollout evidence confirms the replacement works.",
+		},
+		Validation: []string{
+			"opspilot credentials catalog --output human",
+			"opspilot release status --service " + req.Service + " --output human",
+			"opspilot inspect service " + req.Service + " --output human",
+		},
+		Warnings: []string{
+			"This command only produces a revocation plan in this phase.",
+			"Never revoke shared or unknown-scope credentials without dependency evidence.",
+		},
+	}
+}
+
+func CredentialRotatePlan(req RegistrationPlanRequest) RegistrationPlan {
+	req = normalizePlanRequest(req)
+	name := firstNonEmpty(req.Name, plannedCredentialName(req))
+	scope := firstNonEmpty(req.Scope, plannedCredentialScope(req))
+	return RegistrationPlan{
+		Type:        "credential_rotate",
+		Kind:        firstNonEmpty(req.Kind, "generic"),
+		Name:        name,
+		Service:     req.Service,
+		Cluster:     req.Cluster,
+		Environment: req.Environment,
+		Scope:       scope,
+		Risk:        "controlled_mutate",
+		Automation:  "plan_first",
+		Summary:     fmt.Sprintf("Plan rotation for credential %s without exposing the new secret value.", name),
+		Credential: Credential{
+			Name:        name,
+			Class:       "planned-rotate",
+			Environment: req.Environment,
+			Scope:       scope,
+			Storage:     "credential-ledger",
+			Namespace:   serviceNamespace(req.Service),
+			UsedBy:      nonEmptyList(req.Service),
+			Permissions: credentialPermissions(firstNonEmpty(req.Kind, "generic")),
+			Owner:       "platform",
+			Rotation:    "planned",
+			Source:      "plan",
+		},
+		Steps: []string{
+			"Generate a replacement secret in the upstream system or external secret manager.",
+			"Update the Kubernetes Secret or external secret reference without committing the secret value.",
+			"Roll out dependent workloads through GitOps or a controlled restart.",
+			"Verify readiness, logs, metrics, and release status after the new credential is used.",
+			"Revoke the old credential only after the replacement is confirmed healthy.",
+		},
+		Validation: []string{
+			"opspilot credentials catalog --output human",
+			"opspilot release status --service " + req.Service + " --output human",
+			"opspilot fix service " + req.Service + " --dry-run --output evidence",
+		},
+		Warnings: []string{
+			"This command only produces a rotation plan in this phase.",
+			"Do not print or store the new secret value in OpsPilot evidence output.",
+		},
+	}
+}
+
 func DatasourceRegistrationPlan(req RegistrationPlanRequest) RegistrationPlan {
 	req = normalizePlanRequest(req)
 	name := firstNonEmpty(req.Name, req.Kind+"-"+req.Cluster)

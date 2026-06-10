@@ -4,9 +4,11 @@ RUN addgroup -S opspilot && adduser -S -G opspilot -u 65532 opspilot
 
 COPY build/linux-amd64/opspilot-core /usr/local/bin/opspilot-core
 COPY build/linux-amd64/opspilot /usr/local/bin/opspilot
+COPY opspilot/skills-repo/skills /opt/opspilot/fallback-skills/skills
 
 ENV OPSPILOT_HOST=0.0.0.0
 ENV OPSPILOT_PORT=18080
+ENV OPSPILOT_SKILLS_FALLBACK_DIR=/opt/opspilot/fallback-skills/skills
 
 EXPOSE 18080
 

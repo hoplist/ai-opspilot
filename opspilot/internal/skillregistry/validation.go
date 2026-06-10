@@ -39,11 +39,11 @@ func ValidateRuntimeFromEnv() ValidationResult {
 		return result
 	}
 	if boolEnv("OPSPILOT_SKILLS_FALLBACK_ENABLED", true) {
-		catalog := Registry("", true)
+		catalog, warnings := RegistryFromEnv("", true)
 		fallback := ValidationResult{
 			Ready:      len(catalog.Items) > 0,
-			Root:       dir,
-			Source:     "fallback-embedded",
+			Root:       firstNonEmptyString(catalog.SourcePath, dir),
+			Source:     catalog.Source,
 			Fallback:   true,
 			SkillCount: len(catalog.Items),
 			SkillNames: make([]string, 0, len(catalog.Items)),
@@ -55,7 +55,10 @@ func ValidateRuntimeFromEnv() ValidationResult {
 		for _, issue := range result.Issues {
 			fallback.addIssue("warning", issue.Skill, issue.Path, issue.Field, "runtime skills unavailable: "+issue.Message)
 		}
-		fallback.addIssue("warning", "", dir, "", "using embedded fallback registry because runtime skills directory is not ready")
+		for _, warning := range warnings {
+			fallback.addIssue("warning", "", fallback.Root, "", warning)
+		}
+		fallback.addIssue("warning", "", fallback.Root, "", "using fallback registry because runtime skills directory is not ready")
 		fallback.finish()
 		return fallback
 	}

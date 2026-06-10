@@ -60,3 +60,22 @@ func TestClusterRegistrationPlan(t *testing.T) {
 		t.Fatalf("required keys = %v", plan.RequiredKeys)
 	}
 }
+
+func TestCredentialRevokeAndRotatePlans(t *testing.T) {
+	revoke := CredentialRevokePlan(RegistrationPlanRequest{
+		Name:    "demo-api-mysql-credentials",
+		Kind:    "mysql",
+		Service: "demo-api",
+	})
+	if revoke.Type != "credential_revoke" || revoke.Automation != "plan_first" || len(revoke.Warnings) == 0 {
+		t.Fatalf("revoke plan = %#v", revoke)
+	}
+	rotate := CredentialRotatePlan(RegistrationPlanRequest{
+		Name:    "demo-api-mysql-credentials",
+		Kind:    "mysql",
+		Service: "demo-api",
+	})
+	if rotate.Type != "credential_rotate" || rotate.Credential.Class != "planned-rotate" || len(rotate.Steps) == 0 {
+		t.Fatalf("rotate plan = %#v", rotate)
+	}
+}

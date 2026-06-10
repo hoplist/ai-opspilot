@@ -87,6 +87,44 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 			TTL:         q.Get("ttl"),
 		}), nil, nil
 	}))
+	mux.HandleFunc("/api/credentials/access", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		return catalog.DebugAccessPlan(catalog.RegistrationPlanRequest{
+			Type:        "credential_access",
+			Kind:        required(q.Get("kind"), "kind"),
+			Name:        q.Get("name"),
+			Service:     q.Get("service"),
+			Cluster:     q.Get("cluster"),
+			Environment: q.Get("environment"),
+			Scope:       q.Get("scope"),
+			Mode:        q.Get("mode"),
+			TTL:         q.Get("ttl"),
+		}), nil, nil
+	}))
+	mux.HandleFunc("/api/credentials/revoke", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		return catalog.CredentialRevokePlan(catalog.RegistrationPlanRequest{
+			Type:        "credential_revoke",
+			Kind:        q.Get("kind"),
+			Name:        q.Get("name"),
+			Service:     q.Get("service"),
+			Cluster:     q.Get("cluster"),
+			Environment: q.Get("environment"),
+			Scope:       q.Get("scope"),
+		}), nil, nil
+	}))
+	mux.HandleFunc("/api/credentials/rotate", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		return catalog.CredentialRotatePlan(catalog.RegistrationPlanRequest{
+			Type:        "credential_rotate",
+			Kind:        q.Get("kind"),
+			Name:        q.Get("name"),
+			Service:     q.Get("service"),
+			Cluster:     q.Get("cluster"),
+			Environment: q.Get("environment"),
+			Scope:       q.Get("scope"),
+		}), nil, nil
+	}))
 	mux.HandleFunc("/api/clusters/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		clusterCatalog, warnings := catalog.ClustersFromEnv(env("OPSPILOT_CLUSTER_CATALOG", ""))
 		return clusterCatalog, warnings, nil

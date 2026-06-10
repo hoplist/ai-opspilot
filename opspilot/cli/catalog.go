@@ -14,8 +14,17 @@ func runCredentialsCatalog(opts globalOptions, args []string, out io.Writer) err
 	if len(args) > 0 && args[0] == "plan" {
 		return runCredentialPlan(opts, args[1:], out)
 	}
+	if len(args) > 0 && args[0] == "access" {
+		return runCredentialLifecyclePlan(opts, "/api/credentials/access", args[1:], out, true)
+	}
+	if len(args) > 0 && args[0] == "revoke" {
+		return runCredentialLifecyclePlan(opts, "/api/credentials/revoke", args[1:], out, false)
+	}
+	if len(args) > 0 && args[0] == "rotate" {
+		return runCredentialLifecyclePlan(opts, "/api/credentials/rotate", args[1:], out, false)
+	}
 	if len(args) > 0 && args[0] != "catalog" && args[0] != "list" {
-		return fmt.Errorf("expected credentials subcommand: catalog or plan")
+		return fmt.Errorf("expected credentials subcommand: catalog, plan, access, revoke, or rotate")
 	}
 	body, err := get(opts.backendURL, "/api/credentials/catalog", url.Values{})
 	if err != nil {
@@ -30,6 +39,47 @@ func runCredentialsCatalog(opts globalOptions, args []string, out io.Writer) err
 		return fmt.Errorf("credentials catalog response missing data")
 	}
 	return writeOutput(out, opts.output, data, writeCredentialsCatalogHuman(data, stringList(payload["warnings"])))
+}
+
+func runCredentialLifecyclePlan(opts globalOptions, endpoint string, args []string, out io.Writer, temporary bool) error {
+	fs := flag.NewFlagSet("credentials lifecycle", flag.ExitOnError)
+	kind := fs.String("kind", "", "credential kind, for example mysql, redis, s3")
+	service := fs.String("service", "", "service name")
+	name := fs.String("name", "", "credential/catalog name")
+	cluster := fs.String("cluster", "", "cluster name")
+	environment := fs.String("environment", "test", "environment name")
+	scope := fs.String("scope", "", "credential scope")
+	mode := fs.String("mode", "", "access mode, for example readonly")
+	ttl := fs.String("ttl", "", "temporary access TTL, for example 2h")
+	_ = fs.Parse(args)
+	if *kind == "" && fs.NArg() > 0 {
+		*kind = fs.Arg(0)
+	}
+	if temporary {
+		if *kind == "" {
+			*kind = "mysql"
+		}
+		if *mode == "" {
+			*mode = "readonly"
+		}
+		if *ttl == "" {
+			*ttl = "2h"
+		}
+	}
+	body, err := get(opts.backendURL, endpoint, url.Values{
+		"kind":        {*kind},
+		"service":     {*service},
+		"name":        {*name},
+		"cluster":     {*cluster},
+		"environment": {*environment},
+		"scope":       {*scope},
+		"mode":        {*mode},
+		"ttl":         {*ttl},
+	})
+	if err != nil {
+		return err
+	}
+	return writeRegistrationPlanOutput(out, opts.output, body)
 }
 
 func runCredentialPlan(opts globalOptions, args []string, out io.Writer) error {

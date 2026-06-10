@@ -23,6 +23,8 @@ data:
   OPSPILOT_GITOPS_REF: "main"
   OPSPILOT_SKILLS_DYNAMIC_ENABLED: "1"
   OPSPILOT_SKILLS_DIR: "/opt/opspilot/skills/current/skills"
+  OPSPILOT_SKILLS_FALLBACK_ENABLED: "1"
+  OPSPILOT_SKILLS_FALLBACK_DIR: "/opt/opspilot/fallback-skills/skills"
   OPSPILOT_SKILLS_GIT_URL: "http://192.168.48.206:8929/platform/opspilot-skills.git"
   OPSPILOT_SKILLS_GIT_REF: "main"
   OPSPILOT_SKILLS_SYNC_SECONDS: "60"
