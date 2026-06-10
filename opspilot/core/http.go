@@ -16,6 +16,20 @@ import (
 
 type handlerFunc func(context.Context, *http.Request) (any, []string, error)
 
+func handleAPI(mux *http.ServeMux, path string, handler http.HandlerFunc) {
+	mux.HandleFunc(path, handler)
+	if versioned := apiV1Path(path); versioned != path {
+		mux.HandleFunc(versioned, handler)
+	}
+}
+
+func apiV1Path(path string) string {
+	if !strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/api/v1/") {
+		return path
+	}
+	return "/api/v1/" + strings.TrimPrefix(path, "/api/")
+}
+
 func k8sClientForRequest(r *http.Request, registry *k8s.Registry) (*k8s.Client, []string, error) {
 	cluster := r.URL.Query().Get("cluster")
 	if cluster == "" {

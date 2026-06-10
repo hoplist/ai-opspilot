@@ -11,18 +11,18 @@ import (
 )
 
 func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry) {
-	mux.HandleFunc("/api/skills/registry", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/skills/registry", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		catalog, warnings := skillregistry.RegistryFromEnv(q.Get("category"), boolQuery(r, "integrated_only"))
 		return catalog, warnings, nil
 	}))
-	mux.HandleFunc("/api/skills/validate", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/skills/validate", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return skillregistry.ValidateRuntimeFromEnv(), nil, nil
 	}))
-	mux.HandleFunc("/api/skills/sources", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/skills/sources", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return skillregistry.MirrorFromEnv(), nil, nil
 	}))
-	mux.HandleFunc("/api/skills/candidates", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/skills/candidates", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		index := skillregistry.MirrorFromEnv()
 		return map[string]any{
 			"ready":             index.Ready,
@@ -34,18 +34,18 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 			"warnings":          index.Warnings,
 		}, nil, nil
 	}))
-	mux.HandleFunc("/api/skills/import-plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/skills/import-plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		return skillregistry.ImportPlanFromEnv(required(q.Get("name"), "name")), nil, nil
 	}))
-	mux.HandleFunc("/api/skills/discover", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/skills/discover", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return skillregistry.ReviewPipelineFromEnv("", boolQuery(r, "include_unsupported")), nil, nil
 	}))
-	mux.HandleFunc("/api/skills/review", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/skills/review", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		return skillregistry.ReviewPipelineFromEnv(required(q.Get("name"), "name"), true), nil, nil
 	}))
-	mux.HandleFunc("/api/skills/recommend", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/skills/recommend", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		catalog, warnings := skillregistry.RegistryFromEnv("", true)
 		return map[string]any{
@@ -61,7 +61,7 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 			"skills": skillregistry.Summary(catalog),
 		}, warnings, nil
 	}))
-	mux.HandleFunc("/api/intent/parse", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/intent/parse", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		return intent.Interpret(intent.Request{
 			Query:           required(q.Get("query"), "query"),
@@ -69,11 +69,11 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 			Services:        releaseRegistry.Services(),
 		}), nil, nil
 	}))
-	mux.HandleFunc("/api/credentials/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/credentials/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		credentialCatalog, warnings := catalog.CredentialsFromEnv(env("OPSPILOT_CREDENTIAL_CATALOG", ""))
 		return credentialCatalog, warnings, nil
 	}))
-	mux.HandleFunc("/api/credentials/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/credentials/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		return catalog.CredentialRegistrationPlan(catalog.RegistrationPlanRequest{
 			Type:        "credential",
@@ -87,7 +87,7 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 			TTL:         q.Get("ttl"),
 		}), nil, nil
 	}))
-	mux.HandleFunc("/api/credentials/access", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/credentials/access", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		return catalog.DebugAccessPlan(catalog.RegistrationPlanRequest{
 			Type:        "credential_access",
@@ -101,7 +101,7 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 			TTL:         q.Get("ttl"),
 		}), nil, nil
 	}))
-	mux.HandleFunc("/api/credentials/revoke", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/credentials/revoke", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		return catalog.CredentialRevokePlan(catalog.RegistrationPlanRequest{
 			Type:        "credential_revoke",
@@ -113,7 +113,7 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 			Scope:       q.Get("scope"),
 		}), nil, nil
 	}))
-	mux.HandleFunc("/api/credentials/rotate", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/credentials/rotate", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		return catalog.CredentialRotatePlan(catalog.RegistrationPlanRequest{
 			Type:        "credential_rotate",
@@ -125,11 +125,11 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 			Scope:       q.Get("scope"),
 		}), nil, nil
 	}))
-	mux.HandleFunc("/api/clusters/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/clusters/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		clusterCatalog, warnings := catalog.ClustersFromEnv(env("OPSPILOT_CLUSTER_CATALOG", ""))
 		return clusterCatalog, warnings, nil
 	}))
-	mux.HandleFunc("/api/clusters/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/clusters/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		return catalog.ClusterRegistrationPlan(catalog.RegistrationPlanRequest{
 			Type:        "cluster",
@@ -141,7 +141,7 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 			Mode:        q.Get("mode"),
 		}), nil, nil
 	}))
-	mux.HandleFunc("/api/datasources/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/datasources/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		return catalog.DatasourceRegistrationPlan(catalog.RegistrationPlanRequest{
 			Type:        "datasource",

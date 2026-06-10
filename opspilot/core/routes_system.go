@@ -14,13 +14,13 @@ import (
 
 func registerSystemRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, qualitySettings release.QualitySettings) {
 	defaultClient := k8sRegistry.DefaultClient()
-	mux.HandleFunc("/api/live", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/live", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return map[string]any{
 			"version": version.Version,
 			"ready":   true,
 		}, nil, nil
 	}))
-	mux.HandleFunc("/api/health", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/health", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		k8sHealth := defaultClient.Health()
 		k8sHealth["registry"] = k8sRegistry.Health()
 		return map[string]any{
@@ -40,7 +40,7 @@ func registerSystemRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promReg
 			},
 		}, nil, nil
 	}))
-	mux.HandleFunc("/api/capabilities", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/capabilities", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		client, clusterWarnings, err := k8sClientForRequest(r, k8sRegistry)
 		if err != nil {
 			return nil, clusterWarnings, err

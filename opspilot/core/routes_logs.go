@@ -9,19 +9,19 @@ import (
 )
 
 func registerLogAndNodeRoutes(mux *http.ServeMux, agentRegistry *nodeagent.Registry, logClient *logsearch.Client) {
-	mux.HandleFunc("/api/node-agents", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/node-agents", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return agentRegistry.Health(ctx), nil, nil
 	}))
-	mux.HandleFunc("/api/docker/containers", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/docker/containers", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		result, warnings, err := agentRegistry.Containers(ctx, hostQuery(r))
 		return result, warnings, err
 	}))
-	mux.HandleFunc("/api/docker/inspect", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/docker/inspect", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		result, err := agentRegistry.Inspect(ctx, hostQuery(r), required(q.Get("container"), "container"))
 		return result, nil, err
 	}))
-	mux.HandleFunc("/api/docker/logs", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/docker/logs", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		req := nodeagent.LogRequest{
 			Host:         hostQuery(r),
@@ -34,12 +34,12 @@ func registerLogAndNodeRoutes(mux *http.ServeMux, agentRegistry *nodeagent.Regis
 		log, err := agentRegistry.Logs(ctx, req)
 		return log, nil, err
 	}))
-	mux.HandleFunc("/api/docker/stats", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/docker/stats", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		result, err := agentRegistry.Stats(ctx, hostQuery(r), required(q.Get("container"), "container"))
 		return result, nil, err
 	}))
-	mux.HandleFunc("/api/logs/search", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/logs/search", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		result, err := logClient.Search(ctx, logsearch.SearchRequest{
 			Namespace: q.Get("namespace"),
@@ -50,7 +50,7 @@ func registerLogAndNodeRoutes(mux *http.ServeMux, agentRegistry *nodeagent.Regis
 		})
 		return result, nil, err
 	}))
-	mux.HandleFunc("/api/evidence/request", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/evidence/request", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		result, err := logClient.CorrelateRequest(ctx, logsearch.CorrelateRequest{
 			Host:            q.Get("host"),
@@ -67,7 +67,7 @@ func registerLogAndNodeRoutes(mux *http.ServeMux, agentRegistry *nodeagent.Regis
 		})
 		return result, nil, err
 	}))
-	mux.HandleFunc("/api/diagnose/docker", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/diagnose/docker", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		req := nodeagent.LogRequest{
 			Host:         hostQuery(r),

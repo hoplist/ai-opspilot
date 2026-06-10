@@ -42,6 +42,21 @@ func TestWrapConvertsBadRequestPanic(t *testing.T) {
 	}
 }
 
+func TestHandleAPIRegistersV1Alias(t *testing.T) {
+	mux := http.NewServeMux()
+	handleAPI(mux, "/api/example", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		return map[string]string{"path": r.URL.Path}, nil, nil
+	}))
+
+	for _, path := range []string{"/api/example", "/api/v1/example"} {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status = %d body=%s", path, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
 func TestSkillsRecommendEndpoint(t *testing.T) {
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "devops-engineer")

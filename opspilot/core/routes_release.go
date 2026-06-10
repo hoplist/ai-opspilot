@@ -12,7 +12,7 @@ import (
 )
 
 func registerReleaseRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promRegistry *prom.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, qualitySettings release.QualitySettings) {
-	mux.HandleFunc("/api/release/status", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/release/status", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
 			return nil, nil, fmt.Errorf("release services are not configured")
 		}
@@ -24,7 +24,7 @@ func registerReleaseRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promRe
 		data, moreWarnings, err := releaseRegistry.Status(ctx, required(q.Get("service"), "service"), client, promRegistry, logClient, qualitySettings)
 		return data, append(warnings, moreWarnings...), err
 	}))
-	mux.HandleFunc("/api/quality/status", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/quality/status", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
 			return nil, nil, fmt.Errorf("release services are not configured")
 		}
@@ -36,7 +36,7 @@ func registerReleaseRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promRe
 		data, moreWarnings, err := releaseRegistry.QualityStatus(ctx, required(q.Get("service"), "service"), client, qualitySettings)
 		return data, append(warnings, moreWarnings...), err
 	}))
-	mux.HandleFunc("/api/quality/run", wrapPost(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/quality/run", wrapPost(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
 			return nil, nil, fmt.Errorf("release services are not configured")
 		}
@@ -50,14 +50,14 @@ func registerReleaseRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promRe
 		data, moreWarnings, err := releaseRegistry.RunQuality(ctx, required(r.Form.Get("service"), "service"), r.Form.Get("base_url"), client, qualitySettings)
 		return data, append(warnings, moreWarnings...), err
 	}))
-	mux.HandleFunc("/api/release/jobs", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/release/jobs", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
 			return nil, nil, fmt.Errorf("release services are not configured")
 		}
 		q := r.URL.Query()
 		return releaseRegistry.Jobs(ctx, required(q.Get("service"), "service"))
 	}))
-	mux.HandleFunc("/api/release/trigger", wrapPost(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/release/trigger", wrapPost(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
 			return nil, nil, fmt.Errorf("release services are not configured")
 		}
@@ -71,7 +71,7 @@ func registerReleaseRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promRe
 			releaseVariablesFromForm(r),
 		)
 	}))
-	mux.HandleFunc("/api/release/logs", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/release/logs", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
 			return nil, nil, fmt.Errorf("release services are not configured")
 		}
@@ -85,14 +85,14 @@ func registerReleaseRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promRe
 			intQueryAliases(r, []string{"tail_lines", "tail"}, 200),
 		)
 	}))
-	mux.HandleFunc("/api/release/history", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/release/history", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
 			return nil, nil, fmt.Errorf("release services are not configured")
 		}
 		q := r.URL.Query()
 		return releaseRegistry.History(ctx, required(q.Get("service"), "service"), intQuery(r, "limit", 10))
 	}))
-	mux.HandleFunc("/api/release/rollback", wrapPost(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/release/rollback", wrapPost(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		if !releaseRegistry.Configured() {
 			return nil, nil, fmt.Errorf("release services are not configured")
 		}

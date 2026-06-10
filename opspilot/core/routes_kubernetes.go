@@ -12,7 +12,7 @@ import (
 )
 
 func registerKubernetesRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promRegistry *prom.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, errorCollector *errorevidence.Collector) {
-	mux.HandleFunc("/api/errors/recent", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/errors/recent", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
 		if err != nil {
@@ -25,7 +25,7 @@ func registerKubernetesRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, pro
 			Limit:     intQuery(r, "limit", 20),
 		})
 	}))
-	mux.HandleFunc("/api/inventory/overview", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/inventory/overview", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
 		if err != nil {
 			return nil, warnings, err
@@ -35,7 +35,7 @@ func registerKubernetesRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, pro
 		return result, warnings, nil
 	}))
 
-	mux.HandleFunc("/api/context/pod", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/context/pod", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		namespace := required(q.Get("namespace"), "namespace")
 		pod := required(q.Get("pod"), "pod")
@@ -49,7 +49,7 @@ func registerKubernetesRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, pro
 		}
 		return podContext, warnings, err
 	}))
-	mux.HandleFunc("/api/diagnose/pod", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/diagnose/pod", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		namespace := required(q.Get("namespace"), "namespace")
 		pod := required(q.Get("pod"), "pod")
@@ -63,7 +63,7 @@ func registerKubernetesRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, pro
 		}
 		return diagnosis, warnings, err
 	}))
-	mux.HandleFunc("/api/k8s/pods", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/k8s/pods", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
 		if err != nil {
@@ -72,7 +72,7 @@ func registerKubernetesRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, pro
 		result, err := client.ListPods(ctx, q.Get("namespace"), q.Get("status"), q.Get("q"), intQuery(r, "limit", 100))
 		return result, warnings, err
 	}))
-	mux.HandleFunc("/api/k8s/logs/pod", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+	handleAPI(mux, "/api/k8s/logs/pod", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
 		if err != nil {
