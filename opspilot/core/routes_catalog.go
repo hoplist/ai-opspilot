@@ -17,7 +17,7 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 		return catalog, warnings, nil
 	}))
 	mux.HandleFunc("/api/skills/validate", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		return skillregistry.ValidateDirectory(env("OPSPILOT_SKILLS_DIR", "")), nil, nil
+		return skillregistry.ValidateRuntimeFromEnv(), nil, nil
 	}))
 	mux.HandleFunc("/api/skills/sources", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return skillregistry.MirrorFromEnv(), nil, nil
@@ -83,11 +83,25 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 			Cluster:     q.Get("cluster"),
 			Environment: q.Get("environment"),
 			Scope:       q.Get("scope"),
+			Mode:        q.Get("mode"),
+			TTL:         q.Get("ttl"),
 		}), nil, nil
 	}))
 	mux.HandleFunc("/api/clusters/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		clusterCatalog, warnings := catalog.ClustersFromEnv(env("OPSPILOT_CLUSTER_CATALOG", ""))
 		return clusterCatalog, warnings, nil
+	}))
+	mux.HandleFunc("/api/clusters/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		return catalog.ClusterRegistrationPlan(catalog.RegistrationPlanRequest{
+			Type:        "cluster",
+			Kind:        q.Get("kind"),
+			Name:        q.Get("name"),
+			Cluster:     q.Get("cluster"),
+			Environment: q.Get("environment"),
+			Scope:       q.Get("scope"),
+			Mode:        q.Get("mode"),
+		}), nil, nil
 	}))
 	mux.HandleFunc("/api/datasources/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()

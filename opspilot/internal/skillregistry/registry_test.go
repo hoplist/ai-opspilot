@@ -114,6 +114,35 @@ func TestRegistryWithOptionsLoadsGitSyncStyleSkillsSubdir(t *testing.T) {
 	}
 }
 
+func TestRegistryWithOptionsFallsBackToEmbeddedSkills(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing")
+	catalog, warnings := RegistryWithOptions("", true, Options{DynamicEnabled: true, SkillsDir: dir, FallbackEnabled: true})
+	if catalog.Source != "fallback-embedded" || catalog.ItemCount == 0 {
+		t.Fatalf("catalog = %#v", catalog)
+	}
+	if !containsWarning(warnings, "embedded fallback") {
+		t.Fatalf("warnings = %#v", warnings)
+	}
+}
+
+func TestValidateRuntimeFromEnvFallsBackToEmbeddedSkills(t *testing.T) {
+	t.Setenv("OPSPILOT_SKILLS_DIR", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("OPSPILOT_SKILLS_FALLBACK_ENABLED", "true")
+	result := ValidateRuntimeFromEnv()
+	if !result.Ready || !result.Fallback || result.Source != "fallback-embedded" || result.SkillCount == 0 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func containsWarning(warnings []string, want string) bool {
+	for _, warning := range warnings {
+		if strings.Contains(warning, want) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestValidateDirectoryReportsReadySkillRepo(t *testing.T) {
 	dir := t.TempDir()
 	writeTestSkillRepo(t, dir)

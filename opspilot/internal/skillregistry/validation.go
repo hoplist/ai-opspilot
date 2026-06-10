@@ -18,12 +18,49 @@ type ValidationIssue struct {
 type ValidationResult struct {
 	Ready       bool              `json:"ready"`
 	Root        string            `json:"root"`
+	Source      string            `json:"source,omitempty"`
+	Fallback    bool              `json:"fallback,omitempty"`
 	SkillCount  int               `json:"skill_count"`
 	ErrorCount  int               `json:"error_count"`
 	WarnCount   int               `json:"warn_count"`
 	Issues      []ValidationIssue `json:"issues,omitempty"`
 	SkillNames  []string          `json:"skill_names,omitempty"`
 	ExampleGaps []string          `json:"example_gaps,omitempty"`
+}
+
+func ValidateRuntimeFromEnv() ValidationResult {
+	dir := strings.TrimSpace(env("OPSPILOT_SKILLS_DIR", defaultDynamicSkillsDir))
+	if dir == "" {
+		dir = defaultDynamicSkillsDir
+	}
+	result := ValidateDirectory(dir)
+	if result.Ready {
+		result.Source = "gitlab"
+		return result
+	}
+	if boolEnv("OPSPILOT_SKILLS_FALLBACK_ENABLED", true) {
+		catalog := Registry("", true)
+		fallback := ValidationResult{
+			Ready:      len(catalog.Items) > 0,
+			Root:       dir,
+			Source:     "fallback-embedded",
+			Fallback:   true,
+			SkillCount: len(catalog.Items),
+			SkillNames: make([]string, 0, len(catalog.Items)),
+		}
+		for _, skill := range catalog.Items {
+			fallback.SkillNames = append(fallback.SkillNames, skill.Name)
+		}
+		sort.Strings(fallback.SkillNames)
+		for _, issue := range result.Issues {
+			fallback.addIssue("warning", issue.Skill, issue.Path, issue.Field, "runtime skills unavailable: "+issue.Message)
+		}
+		fallback.addIssue("warning", "", dir, "", "using embedded fallback registry because runtime skills directory is not ready")
+		fallback.finish()
+		return fallback
+	}
+	result.Source = "gitlab-unavailable"
+	return result
 }
 
 func ValidateDirectory(root string) ValidationResult {

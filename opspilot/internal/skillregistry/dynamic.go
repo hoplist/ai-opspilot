@@ -12,14 +12,16 @@ import (
 const defaultDynamicSkillsDir = "/opt/opspilot/skills/current"
 
 type Options struct {
-	DynamicEnabled bool
-	SkillsDir      string
+	DynamicEnabled  bool
+	SkillsDir       string
+	FallbackEnabled bool
 }
 
 func RegistryFromEnv(category string, integratedOnly bool) (Catalog, []string) {
 	return RegistryWithOptions(category, integratedOnly, Options{
-		DynamicEnabled: boolEnv("OPSPILOT_SKILLS_DYNAMIC_ENABLED", true),
-		SkillsDir:      env("OPSPILOT_SKILLS_DIR", defaultDynamicSkillsDir),
+		DynamicEnabled:  boolEnv("OPSPILOT_SKILLS_DYNAMIC_ENABLED", true),
+		SkillsDir:       env("OPSPILOT_SKILLS_DIR", defaultDynamicSkillsDir),
+		FallbackEnabled: boolEnv("OPSPILOT_SKILLS_FALLBACK_ENABLED", true),
 	})
 }
 
@@ -36,6 +38,14 @@ func RegistryWithOptions(category string, integratedOnly bool, opts Options) (Ca
 	}
 	dynamic, sourceVersion, warnings := loadDynamicSkills(dir)
 	if len(dynamic) == 0 {
+		if opts.FallbackEnabled {
+			warnings = append(warnings, "skills: using embedded fallback registry because GitLab-backed skills are unavailable")
+			return registryFromItems(allSkills(), category, integratedOnly, Catalog{
+				Version:    Version,
+				Source:     "fallback-embedded",
+				SourcePath: dir,
+			}), warnings
+		}
 		return registryFromItems(nil, category, integratedOnly, Catalog{
 			Version:    Version,
 			Source:     "gitlab-unavailable",

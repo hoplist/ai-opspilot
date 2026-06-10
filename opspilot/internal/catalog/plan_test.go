@@ -31,3 +31,32 @@ func TestDatasourceRegistrationPlan(t *testing.T) {
 		t.Fatal("expected validation commands")
 	}
 }
+
+func TestDebugAccessPlan(t *testing.T) {
+	plan := CredentialRegistrationPlan(RegistrationPlanRequest{
+		Kind:    "mysql",
+		Service: "demo-api",
+		Mode:    "readonly",
+		TTL:     "2h",
+	})
+	if plan.Credential.Class != "debug-temporary" || plan.Mode != "readonly" || plan.TTL != "2h" {
+		t.Fatalf("debug plan = %#v", plan)
+	}
+	if len(plan.Warnings) == 0 {
+		t.Fatal("expected plan-only warnings")
+	}
+}
+
+func TestClusterRegistrationPlan(t *testing.T) {
+	plan := ClusterRegistrationPlan(RegistrationPlanRequest{
+		Name:        "prod-a",
+		Environment: "prod",
+		Mode:        "remote",
+	})
+	if plan.Type != "cluster" || plan.ClusterMetadata.KubeconfigPath == "" {
+		t.Fatalf("cluster plan = %#v", plan)
+	}
+	if len(plan.RequiredKeys) != 1 || plan.RequiredKeys[0] != "kubeconfig" {
+		t.Fatalf("required keys = %v", plan.RequiredKeys)
+	}
+}

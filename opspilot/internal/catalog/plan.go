@@ -10,6 +10,8 @@ type RegistrationPlanRequest struct {
 	Cluster     string `json:"cluster,omitempty"`
 	Environment string `json:"environment,omitempty"`
 	Scope       string `json:"scope,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+	TTL         string `json:"ttl,omitempty"`
 }
 
 type RegistrationPlan struct {
@@ -20,6 +22,8 @@ type RegistrationPlan struct {
 	Cluster         string     `json:"cluster,omitempty"`
 	Environment     string     `json:"environment,omitempty"`
 	Scope           string     `json:"scope,omitempty"`
+	Mode            string     `json:"mode,omitempty"`
+	TTL             string     `json:"ttl,omitempty"`
 	Risk            string     `json:"risk"`
 	Automation      string     `json:"automation"`
 	Summary         string     `json:"summary"`
@@ -34,6 +38,9 @@ type RegistrationPlan struct {
 
 func CredentialRegistrationPlan(req RegistrationPlanRequest) RegistrationPlan {
 	req = normalizePlanRequest(req)
+	if req.TTL != "" || req.Kind == "debug-access" {
+		return DebugAccessPlan(req)
+	}
 	keys := credentialKeys(req.Kind)
 	name := firstNonEmpty(req.Name, plannedCredentialName(req))
 	scope := firstNonEmpty(req.Scope, plannedCredentialScope(req))
@@ -57,6 +64,7 @@ func CredentialRegistrationPlan(req RegistrationPlanRequest) RegistrationPlan {
 		Service:      req.Service,
 		Environment:  req.Environment,
 		Scope:        scope,
+		Mode:         req.Mode,
 		Risk:         "controlled_mutate",
 		Automation:   "plan_first",
 		Summary:      fmt.Sprintf("Plan service-scoped %s credentials without exposing secret values.", req.Kind),
@@ -77,6 +85,62 @@ func CredentialRegistrationPlan(req RegistrationPlanRequest) RegistrationPlan {
 			"opspilot credentials catalog --output human",
 			"opspilot inspect service " + req.Service + " --output human",
 			"opspilot fix service " + req.Service + " --dry-run --output evidence",
+		},
+	}
+}
+
+func DebugAccessPlan(req RegistrationPlanRequest) RegistrationPlan {
+	req = normalizePlanRequest(req)
+	kind := firstNonEmpty(req.Kind, "mysql")
+	if kind == "debug-access" {
+		kind = "mysql"
+	}
+	ttl := firstNonEmpty(req.TTL, "2h")
+	mode := firstNonEmpty(req.Mode, "readonly")
+	name := firstNonEmpty(req.Name, "debug-"+firstNonEmpty(req.Service, "service")+"-"+kind)
+	scope := firstNonEmpty(req.Scope, req.Environment+"/"+firstNonEmpty(req.Service, "service")+"/"+kind+"/debug")
+	credential := Credential{
+		Name:        name,
+		Class:       "debug-temporary",
+		Environment: req.Environment,
+		Scope:       scope,
+		Storage:     "temporary-account-ledger",
+		Namespace:   serviceNamespace(req.Service),
+		UsedBy:      nonEmptyList(req.Service),
+		Permissions: []string{mode + " " + kind + " access", "time-limited access"},
+		Owner:       "platform",
+		Rotation:    "ttl:" + ttl,
+		Source:      "plan",
+	}
+	return RegistrationPlan{
+		Type:        "credential",
+		Kind:        kind,
+		Name:        name,
+		Service:     req.Service,
+		Cluster:     req.Cluster,
+		Environment: req.Environment,
+		Scope:       scope,
+		Mode:        mode,
+		TTL:         ttl,
+		Risk:        "controlled_mutate",
+		Automation:  "plan_first",
+		Summary:     fmt.Sprintf("Plan temporary %s debug access for %s without exposing the password in persistent logs.", mode, firstNonEmpty(req.Service, "a service")),
+		Credential:  credential,
+		Steps: []string{
+			"Resolve the service-owned datasource and database or namespace from the credential ledger.",
+			"Create a temporary account with the requested mode and TTL.",
+			"Return the secret through an ephemeral channel; do not store it in Git, GitOps, or persistent logs.",
+			"Record created, expires, revoked, and last-used metadata in the credential ledger.",
+			"Automatically revoke the temporary account after TTL.",
+		},
+		Validation: []string{
+			"opspilot credentials catalog --output human",
+			"opspilot errors recent --source middleware --service " + req.Service,
+			"opspilot credentials plan debug-access --service " + req.Service + " --kind " + kind + " --ttl " + ttl + " --output human",
+		},
+		Warnings: []string{
+			"This command only produces a plan in this phase; it does not create real accounts.",
+			"Use readonly mode by default. Write-capable debug access needs a separate explicit plan.",
 		},
 	}
 }
@@ -138,6 +202,59 @@ func DatasourceRegistrationPlan(req RegistrationPlanRequest) RegistrationPlan {
 			"opspilot clusters catalog --output human",
 			"opspilot capabilities --output human",
 			"opspilot doctor --output human",
+		},
+	}
+}
+
+func ClusterRegistrationPlan(req RegistrationPlanRequest) RegistrationPlan {
+	req = normalizePlanRequest(req)
+	name := firstNonEmpty(req.Name, req.Cluster)
+	if name == "" || name == "node200-test" {
+		name = "new-cluster"
+	}
+	mode := firstNonEmpty(req.Mode, "remote")
+	cluster := Cluster{
+		Name:           name,
+		Environment:    req.Environment,
+		KubernetesMode: mode,
+		KubernetesRef:  name + "-kubeconfig",
+		KubeconfigPath: "/var/run/opspilot/clusters/" + name + "-kubeconfig/kubeconfig",
+		KubeContext:    name,
+		Source:         "plan",
+	}
+	return RegistrationPlan{
+		Type:            "cluster",
+		Kind:            mode,
+		Name:            name,
+		Cluster:         name,
+		Environment:     req.Environment,
+		Scope:           firstNonEmpty(req.Scope, req.Environment+"/"+name),
+		Mode:            mode,
+		Risk:            "controlled_mutate",
+		Automation:      "plan_first",
+		Summary:         "Plan server-side cluster registration without giving kubeconfig to CLI clients.",
+		ClusterMetadata: cluster,
+		RequiredKeys:    []string{"kubeconfig"},
+		Steps: []string{
+			"Create an OpsPilot-owned Kubernetes Secret or external secret containing the target kubeconfig.",
+			"Mount the secret into opspilot-core at the planned kubeconfig path.",
+			"Add metadata to OPSPILOT_CLUSTER_CATALOG without embedding kubeconfig contents.",
+			"Map optional Prometheus, logs, GitOps, Argo CD, and registry names only after each datasource is verified.",
+			"Publish through the standard OpsPilot release flow and verify clusters catalog.",
+		},
+		GitOpsPaths: []string{
+			"clusters/<management-cluster>/apps/opspilot-core/deployment.yaml",
+			"clusters/<management-cluster>/apps/opspilot-core/configmap.yaml",
+			"clusters/<management-cluster>/apps/opspilot-core/external-secret.yaml or sealed-secret.yaml",
+		},
+		Validation: []string{
+			"opspilot clusters catalog --output human",
+			"opspilot inspect cluster --cluster " + name + " --output human",
+			"opspilot capabilities --cluster " + name + " --output human",
+		},
+		Warnings: []string{
+			"This phase does not register the remote cluster; it only records the plan.",
+			"CLI clients should pass --cluster only. They should not store kubeconfig files.",
 		},
 	}
 }

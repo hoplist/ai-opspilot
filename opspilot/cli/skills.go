@@ -303,8 +303,12 @@ func writeSkillsRegistryHuman(result skillsRegistryResult) func(io.Writer) error
 
 func writeSkillsValidationHuman(result skillregistry.ValidationResult) func(io.Writer) error {
 	return func(w io.Writer) error {
-		fmt.Fprintf(w, "Skills validation: ready=%t root=%s skills=%d errors=%d warnings=%d\n",
-			result.Ready, result.Root, result.SkillCount, result.ErrorCount, result.WarnCount)
+		source := result.Source
+		if source == "" {
+			source = "local"
+		}
+		fmt.Fprintf(w, "Skills validation: ready=%t source=%s fallback=%t root=%s skills=%d errors=%d warnings=%d\n",
+			result.Ready, source, result.Fallback, result.Root, result.SkillCount, result.ErrorCount, result.WarnCount)
 		if len(result.SkillNames) > 0 {
 			fmt.Fprintf(w, "Skills: %s\n", strings.Join(result.SkillNames, ", "))
 		}
