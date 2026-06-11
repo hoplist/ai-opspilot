@@ -83,6 +83,8 @@ func run(args []string, out io.Writer) error {
 		endpoint, values = k8sCommand(args[1:])
 	case "docker":
 		endpoint, values = dockerCommand(args[1:])
+	case "host":
+		return runHostCommand(opts, args[1:], out)
 	case "logs":
 		endpoint, values = logsCommand(args[1:])
 	case "evidence":

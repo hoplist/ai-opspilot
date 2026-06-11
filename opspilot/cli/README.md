@@ -38,6 +38,8 @@ go run ./opspilot/cli docker agents
 go run ./opspilot/cli docker containers --host node206
 go run ./opspilot/cli docker logs --host node206 --container gitlab --tail 300
 go run ./opspilot/cli diagnose docker --host node206 --container gitlab
+go run ./opspilot/cli host disk --host node206 --limit 20 --output human
+go run ./opspilot/cli host cleanup plan --host node206 --output human
 go run ./opspilot/cli logs search -n ai-dev --pod deer-flow-provisioner-8b47f95bf-t8rbt --query error --limit 10
 go run ./opspilot/cli evidence request --host workflow.tpo.xzoa.com --uri /api/hr/queryUserScheduleList --service-index workflow-server* --service-uri-field msg --since 900
 go run ./opspilot/cli evidence request --uri /api/hr/queryUserScheduleList --service-index workflow-server* --service-uri-field msg --service-only
@@ -69,6 +71,17 @@ does not block Kubernetes-first troubleshooting or normal release status.
 ones are missing. `inspect pod`, `inspect service`, `inspect cluster`, and
 natural-language inspect output include the same available/missing evidence
 summary so missing integrations do not block Kubernetes-first troubleshooting.
+
+Cluster nodes are monitored through Prometheus plus node-exporter:
+
+```powershell
+.\opspilot\scripts\opspilot.ps1 metrics nodes --source node200-k8s --output human
+.\opspilot\scripts\opspilot.ps1 metrics filesystems --source node200-k8s --output table
+```
+
+Use `host disk` only when mountpoint-level metrics are not enough and you need
+host directory attribution, Docker reclaimable bytes, or container json log
+sizes from a configured read-only node agent.
 
 Build a local binary:
 

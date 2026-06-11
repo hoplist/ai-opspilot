@@ -40,6 +40,9 @@ spec:
             - secretRef:
                 name: opspilot-skills-secrets
                 optional: true
+            - secretRef:
+                name: opspilot-node-agent-secrets
+                optional: true
           ports:
             - name: http
               containerPort: 18080

@@ -39,6 +39,14 @@ func registerLogAndNodeRoutes(mux *http.ServeMux, agentRegistry *nodeagent.Regis
 		result, err := agentRegistry.Stats(ctx, hostQuery(r), required(q.Get("container"), "container"))
 		return result, nil, err
 	}))
+	handleAPI(mux, "/api/host/disk", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		result, warnings, err := agentRegistry.HostDisk(ctx, nodeagent.HostDiskRequest{
+			Host:  hostQuery(r),
+			Limit: intQuery(r, "limit", nodeagent.DefaultDiskTopLimit),
+			Depth: intQuery(r, "depth", nodeagent.DefaultDiskMaxDepth),
+		})
+		return result, warnings, err
+	}))
 	handleAPI(mux, "/api/logs/search", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		result, err := logClient.Search(ctx, logsearch.SearchRequest{

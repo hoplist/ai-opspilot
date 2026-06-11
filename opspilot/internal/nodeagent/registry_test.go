@@ -54,3 +54,34 @@ func TestBoundedLogRequest(t *testing.T) {
 		t.Fatalf("limit bytes not clamped: %d", req.LimitBytes)
 	}
 }
+
+func TestBoundedHostDiskRequest(t *testing.T) {
+	req := BoundedHostDiskRequest(HostDiskRequest{Limit: 999, Depth: 99})
+	if req.Limit != MaxDiskTopLimit {
+		t.Fatalf("limit not clamped: %d", req.Limit)
+	}
+	if req.Depth != MaxDiskMaxDepth {
+		t.Fatalf("depth not clamped: %d", req.Depth)
+	}
+}
+
+func TestClientHostDiskPassesQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/host/disk" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("limit"); got != "7" {
+			t.Fatalf("limit = %s", got)
+		}
+		if got := r.URL.Query().Get("depth"); got != "3" {
+			t.Fatalf("depth = %s", got)
+		}
+		_, _ = w.Write([]byte(`{"filesystems":[],"top_paths":[]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	if _, err := client.HostDisk(context.Background(), HostDiskRequest{Limit: 7, Depth: 3}); err != nil {
+		t.Fatal(err)
+	}
+}
