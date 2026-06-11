@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/errorevidence"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
@@ -65,7 +66,15 @@ func main() {
 	registerRoutes(mux, k8sRegistry, promRegistry, agentRegistry, logClient, releaseRegistry, errorCollector, qualitySettings)
 	addr := *host + ":" + *port
 	fmt.Printf("opspilot-core %s listening on http://%s\n", version.Version, addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      35 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

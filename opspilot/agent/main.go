@@ -45,7 +45,15 @@ func main() {
 	registerRoutes(mux, docker, cfg)
 	addr := cfg.host + ":" + cfg.port
 	fmt.Printf("opspilot-agent %s listening on http://%s\n", version.Version, addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      35 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

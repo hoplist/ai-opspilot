@@ -11,7 +11,10 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 )
+
+const gitLabHTTPTimeout = 30 * time.Second
 
 type Datasources struct {
 	GitLabURL     string
@@ -30,7 +33,7 @@ func newGitLabClient(baseURL, token string) *gitLabClient {
 	return &gitLabClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		token:   token,
-		http:    &http.Client{},
+		http:    &http.Client{Timeout: gitLabHTTPTimeout},
 	}
 }
 
