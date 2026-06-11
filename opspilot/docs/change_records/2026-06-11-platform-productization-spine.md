@@ -41,7 +41,8 @@ Devtron, KubeVela, or a custom log/APM store are explicitly deferred.
 | Release mapping | `release.Registry` now exposes release service items and can fall back to service catalog entries when `OPSPILOT_RELEASE_SERVICES` is empty. |
 | CLI schema | Added audit, service catalog, and Evidence Pack commands. |
 | API request handling | API requests now emit audit records with actor, action, target, risk, outcome, and sanitized query metadata. |
-| Deployment config | The live GitOps config should mount writable local paths for audit and Evidence Pack files because the core container uses a read-only root filesystem. |
+| Deployment config | The source deploy template now mounts writable local paths for audit, Evidence Pack, and file-event data because the core container uses a read-only root filesystem. |
+| Release mapping hygiene | Removed stale demo release mappings from the OpsPilot core deploy template so GitOps updates do not reintroduce old demo services. |
 
 ## Deleted Or Deferred
 

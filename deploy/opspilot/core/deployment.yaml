@@ -13,6 +13,8 @@ spec:
       app.kubernetes.io/name: opspilot-core
   template:
     metadata:
+      annotations:
+        opspilot.io/config-revision: "2026-06-11-platform-spine"
       labels:
         app.kubernetes.io/name: opspilot-core
         app.kubernetes.io/part-of: opspilot
@@ -45,6 +47,12 @@ spec:
             - name: opspilot-skills
               mountPath: /opt/opspilot/skills
               readOnly: true
+            - name: opspilot-audit
+              mountPath: /var/lib/opspilot/audit
+            - name: opspilot-evidence-packs
+              mountPath: /var/lib/opspilot/evidence-packs
+            - name: opspilot-error-events
+              mountPath: /var/lib/opspilot/error-events
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -139,5 +147,14 @@ spec:
           emptyDir:
             sizeLimit: 256Mi
         - name: skills-sync-tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: opspilot-audit
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: opspilot-evidence-packs
+          emptyDir:
+            sizeLimit: 128Mi
+        - name: opspilot-error-events
           emptyDir:
             sizeLimit: 64Mi
