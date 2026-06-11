@@ -32,6 +32,7 @@ Devtron, KubeVela, or a custom log/APM store are explicitly deferred.
 | Evidence Pack store | Added `GET /api/evidence/packs/recent` for persisted packs. |
 | Event-driven packs | Added a lightweight in-process scanner that periodically converts recent Kubernetes/Argo/release/file events into persisted Evidence Packs. |
 | Event target naming | Pod-driven event packs use the concrete Pod name as the target while keeping service metadata in the event evidence. |
+| Runtime retention | Added lightweight cleanup for audit JSONL, persisted Evidence Packs, and file-based error events. |
 | CLI | Added `audit recent`, `audit policy`, `services catalog`, `evidence pack`, and `evidence packs`. |
 
 ## Modified
@@ -60,9 +61,18 @@ New environment variables:
 
 ```text
 OPSPILOT_AUDIT_LOG_PATH=/var/lib/opspilot/audit/audit.jsonl
+OPSPILOT_AUDIT_MAX_BYTES=33554432
+OPSPILOT_AUDIT_RETENTION_DAYS=7
 OPSPILOT_EVIDENCE_PACK_DIR=/var/lib/opspilot/evidence-packs
+OPSPILOT_EVIDENCE_PACK_MAX_BYTES=100663296
+OPSPILOT_EVIDENCE_PACK_MAX_ITEMS=200
+OPSPILOT_EVIDENCE_PACK_RETENTION_DAYS=3
+OPSPILOT_ERROR_EVENT_MAX_BYTES=33554432
+OPSPILOT_ERROR_EVENT_MAX_ITEMS=100
+OPSPILOT_ERROR_EVENT_RETENTION_DAYS=3
 OPSPILOT_EVENT_PACK_ENABLED=true
 OPSPILOT_EVENT_PACK_INTERVAL_SECONDS=300
+OPSPILOT_RETENTION_CLEANUP_INTERVAL_SECONDS=300
 OPSPILOT_SERVICE_CATALOG="opspilot-core=environment:test,group:platform,project:opspilot,owner:platform,repo:platform/opspilot,namespace:opspilot,deployment:opspilot-core,container:core,source:node200-k8s,image:192.168.48.206:5050/platform/opspilot/opspilot-core,gitlab:platform/opspilot,gitops:clusters/test/apps/opspilot-core/deployment.yaml,argocd:opspilot-core"
 ```
 
@@ -114,3 +124,26 @@ service catalog -> evidence pack -> audit trail -> safe action boundary
 
 Missing ELK/APISIX/service-log evidence remains an explicit adapter gap, not a
 failure of Kubernetes or release inspection.
+
+## EmptyDir Boundary
+
+The deployment keeps `emptyDir.sizeLimit` as the hard Kubernetes safety net:
+
+| Volume | sizeLimit |
+| --- | --- |
+| audit | 64Mi |
+| evidence-packs | 128Mi |
+| error-events | 64Mi |
+
+This prevents unbounded node disk growth from these mounted paths, but it is
+not a business retention policy. OpsPilot now cleans up before reaching that
+limit:
+
+| Data | Retention |
+| --- | --- |
+| audit JSONL | 7 days or 32Mi |
+| Evidence Packs | 3 days, 200 files, or 96Mi |
+| error-events files | 3 days, 100 files, or 32Mi |
+
+If cleanup fails, core inspect/release/metrics commands should still work; only
+audit writes or evidence persistence may report a warning/error.

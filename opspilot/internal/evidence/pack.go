@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/retention"
 )
 
 type Target struct {
@@ -55,15 +57,31 @@ type Pack struct {
 }
 
 type Store struct {
-	dir string
+	dir       string
+	retention retention.Policy
 }
 
 func NewStore(dir string) *Store {
 	return &Store{dir: strings.TrimSpace(dir)}
 }
 
+func NewStoreWithRetention(dir string, policy retention.Policy) *Store {
+	return &Store{dir: strings.TrimSpace(dir), retention: policy}
+}
+
 func (s *Store) Enabled() bool {
 	return s != nil && s.dir != ""
+}
+
+func (s *Store) Cleanup() error {
+	if !s.Enabled() {
+		return nil
+	}
+	policy := s.retention
+	if len(policy.Extension) == 0 {
+		policy.Extension = []string{".json"}
+	}
+	return retention.CleanupDir(s.dir, policy)
 }
 
 func (s *Store) Write(pack Pack) (string, error) {
@@ -80,6 +98,9 @@ func (s *Store) Write(pack Pack) (string, error) {
 		return "", err
 	}
 	if err := os.WriteFile(path, append(body, '\n'), 0o600); err != nil {
+		return "", err
+	}
+	if err := s.Cleanup(); err != nil {
 		return "", err
 	}
 	return path, nil

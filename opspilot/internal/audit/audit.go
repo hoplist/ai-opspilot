@@ -50,13 +50,23 @@ type Result struct {
 	Truncated bool     `json:"truncated"`
 }
 
+type RetentionPolicy struct {
+	MaxBytes int64
+	MaxAge   time.Duration
+}
+
 type Recorder struct {
-	path string
-	mu   sync.Mutex
+	path      string
+	retention RetentionPolicy
+	mu        sync.Mutex
 }
 
 func NewRecorder(path string) *Recorder {
 	return &Recorder{path: strings.TrimSpace(path)}
+}
+
+func NewRecorderWithRetention(path string, retention RetentionPolicy) *Recorder {
+	return &Recorder{path: strings.TrimSpace(path), retention: retention}
 }
 
 func (r *Recorder) Enabled() bool {
@@ -88,8 +98,14 @@ func (r *Recorder) Record(record Record) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 	if _, err := file.Write(append(line, '\n')); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := r.applyRetentionLocked(); err != nil {
 		return err
 	}
 	return nil
@@ -228,6 +244,74 @@ func match(record Record, query Query) bool {
 		return false
 	}
 	return true
+}
+
+func (r *Recorder) applyRetentionLocked() error {
+	if r.retention.MaxBytes <= 0 && r.retention.MaxAge <= 0 {
+		return nil
+	}
+	body, err := os.ReadFile(r.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	lines := splitJSONLines(string(body))
+	if len(lines) == 0 {
+		return nil
+	}
+	lines = keepRecentLines(lines, r.retention.MaxAge)
+	lines = keepLinesWithinBytes(lines, r.retention.MaxBytes)
+	return os.WriteFile(r.path, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
+}
+
+func splitJSONLines(body string) []string {
+	out := []string{}
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func keepRecentLines(lines []string, maxAge time.Duration) []string {
+	if maxAge <= 0 {
+		return lines
+	}
+	cutoff := time.Now().UTC().Add(-maxAge)
+	out := lines[:0]
+	for _, line := range lines {
+		var record Record
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			out = append(out, line)
+			continue
+		}
+		ts, err := time.Parse(time.RFC3339, record.Time)
+		if err != nil || ts.After(cutoff) || ts.Equal(cutoff) {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func keepLinesWithinBytes(lines []string, maxBytes int64) []string {
+	if maxBytes <= 0 {
+		return lines
+	}
+	var total int64
+	start := len(lines)
+	for i := len(lines) - 1; i >= 0; i-- {
+		next := int64(len(lines[i]) + 1)
+		if total+next > maxBytes {
+			break
+		}
+		total += next
+		start = i
+	}
+	return lines[start:]
 }
 
 func stableID(parts ...string) string {

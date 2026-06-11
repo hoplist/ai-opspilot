@@ -15,6 +15,7 @@ import (
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/nodeagent"
 	prom "github.com/dualistpeng-netizen/ai-observability/opspilot/internal/prometheus"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/release"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/retention"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/version"
 )
 
@@ -64,11 +65,26 @@ func main() {
 		DeadlineSeconds: intEnv("OPSPILOT_QUALITY_DEADLINE_SECONDS", 120),
 	}
 	errorCollector := errorevidence.NewCollector(env("OPSPILOT_ERROR_EVENT_DIR", "/var/lib/opspilot/error-events"))
-	auditRecorder := audit.NewRecorder(env("OPSPILOT_AUDIT_LOG_PATH", "/var/lib/opspilot/audit/audit.jsonl"))
-	evidenceStore := evidence.NewStore(env("OPSPILOT_EVIDENCE_PACK_DIR", "/var/lib/opspilot/evidence-packs"))
+	auditRecorder := audit.NewRecorderWithRetention(env("OPSPILOT_AUDIT_LOG_PATH", "/var/lib/opspilot/audit/audit.jsonl"), audit.RetentionPolicy{
+		MaxBytes: int64(intEnv("OPSPILOT_AUDIT_MAX_BYTES", 33554432)),
+		MaxAge:   time.Duration(intEnv("OPSPILOT_AUDIT_RETENTION_DAYS", 7)) * 24 * time.Hour,
+	})
+	evidenceStore := evidence.NewStoreWithRetention(env("OPSPILOT_EVIDENCE_PACK_DIR", "/var/lib/opspilot/evidence-packs"), retention.Policy{
+		MaxItems:  intEnv("OPSPILOT_EVIDENCE_PACK_MAX_ITEMS", 200),
+		MaxAge:    time.Duration(intEnv("OPSPILOT_EVIDENCE_PACK_RETENTION_DAYS", 3)) * 24 * time.Hour,
+		MaxBytes:  int64(intEnv("OPSPILOT_EVIDENCE_PACK_MAX_BYTES", 100663296)),
+		Extension: []string{".json"},
+	})
+	errorEventRetention := retention.Policy{
+		MaxItems:  intEnv("OPSPILOT_ERROR_EVENT_MAX_ITEMS", 100),
+		MaxAge:    time.Duration(intEnv("OPSPILOT_ERROR_EVENT_RETENTION_DAYS", 3)) * 24 * time.Hour,
+		MaxBytes:  int64(intEnv("OPSPILOT_ERROR_EVENT_MAX_BYTES", 33554432)),
+		Extension: []string{".json", ".jsonl"},
+	}
 	if boolEnv("OPSPILOT_EVENT_PACK_ENABLED", true) {
 		startEventPackLoop(k8sRegistry, promRegistry, logClient, releaseRegistry, errorCollector, evidenceStore, time.Duration(intEnv("OPSPILOT_EVENT_PACK_INTERVAL_SECONDS", 300))*time.Second)
 	}
+	startRetentionCleanupLoop(evidenceStore, errorCollector, errorEventRetention, time.Duration(intEnv("OPSPILOT_RETENTION_CLEANUP_INTERVAL_SECONDS", 300))*time.Second)
 	mux := http.NewServeMux()
 	registerRoutes(mux, k8sRegistry, promRegistry, agentRegistry, logClient, releaseRegistry, errorCollector, qualitySettings, auditRecorder, evidenceStore)
 	addr := *host + ":" + *port

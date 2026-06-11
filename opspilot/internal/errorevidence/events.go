@@ -17,6 +17,7 @@ import (
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/logsearch"
 	prom "github.com/dualistpeng-netizen/ai-observability/opspilot/internal/prometheus"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/release"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/retention"
 )
 
 type Event struct {
@@ -56,6 +57,16 @@ type Collector struct {
 
 func NewCollector(eventDir string) *Collector {
 	return &Collector{eventDir: eventDir}
+}
+
+func (c *Collector) Cleanup(policy retention.Policy) error {
+	if c == nil || strings.TrimSpace(c.eventDir) == "" {
+		return nil
+	}
+	if len(policy.Extension) == 0 {
+		policy.Extension = []string{".json", ".jsonl"}
+	}
+	return retention.CleanupDir(c.eventDir, policy)
 }
 
 func (c *Collector) Recent(ctx context.Context, client *k8s.Client, releases *release.Registry, promRegistry *prom.Registry, logClient *logsearch.Client, req Request) (Result, []string, error) {

@@ -14,7 +14,7 @@ spec:
   template:
     metadata:
       annotations:
-        opspilot.io/config-revision: "2026-06-11-platform-spine"
+        opspilot.io/config-revision: "2026-06-11-retention"
       labels:
         app.kubernetes.io/name: opspilot-core
         app.kubernetes.io/part-of: opspilot
