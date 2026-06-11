@@ -22,6 +22,13 @@ Ports:
 - cAdvisor: `8080`
 - OpsPilot Agent: `19080`
 
+OpsPilot Agent token:
+
+- Store `OPSPILOT_AGENT_TOKEN=<token>` in `/opt/opspilot-agent/.env` on node206.
+- Store the matching `OPSPILOT_NODE_AGENT_TOKENS=node206=<token>` in the
+  node200 Kubernetes Secret `opspilot/opspilot-node-agent-secrets`.
+- Do not commit either token value to Git.
+
 Start order:
 
 ```bash

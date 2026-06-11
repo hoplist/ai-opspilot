@@ -13,6 +13,7 @@ evidence:
   - Prometheus node metrics
   - Pod metrics
   - filesystem metrics
+  - host disk attribution
   - ELK or OpenSearch readiness
   - capability gaps
 commands:
@@ -20,6 +21,7 @@ commands:
   - metrics nodes --source all
   - metrics pods --source all
   - metrics filesystems --source all
+  - host disk --host node206
   - logs search
 boundaries:
   - metrics enrich Kubernetes evidence but do not block Pod-first checks

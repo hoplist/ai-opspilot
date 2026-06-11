@@ -171,6 +171,16 @@
       "description": "Return one-shot Docker container stats through a node agent."
     },
     {
+      "name": "host disk",
+      "readonly": true,
+      "description": "Return read-only host disk evidence from a node agent: filesystem capacity, allowed path usage, Docker reclaimable bytes, container log sizes, and cleanup recommendations. Supports --host, --limit, and --depth."
+    },
+    {
+      "name": "host cleanup plan",
+      "readonly": true,
+      "description": "Return plan-only disk cleanup recommendations from host disk evidence. OpsPilot does not truncate logs, prune Docker, edit daemon config, or delete files."
+    },
+    {
       "name": "logs search",
       "readonly": true,
       "description": "Search collected Kubernetes logs from the configured OpenSearch/Elasticsearch backend. Supports -q and --query."

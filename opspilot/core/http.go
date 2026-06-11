@@ -148,6 +148,8 @@ func targetTypeFromRequest(r *http.Request) string {
 	}
 	path := strings.ToLower(r.URL.Path)
 	switch {
+	case strings.Contains(path, "host"):
+		return "host"
 	case strings.Contains(path, "pod"):
 		return "pod"
 	case strings.Contains(path, "release") || strings.Contains(path, "service"):
@@ -160,7 +162,7 @@ func targetTypeFromRequest(r *http.Request) string {
 }
 
 func targetFromRequest(r *http.Request) string {
-	return firstQueryValue(r, "service", "pod", "name", "target")
+	return firstQueryValue(r, "service", "pod", "host", "name", "target")
 }
 
 func firstQueryValue(r *http.Request, names ...string) string {

@@ -391,6 +391,30 @@ paths:
       responses:
         "200":
           description: Docker container stats
+  /api/host/disk:
+    get:
+      summary: Return read-only host disk evidence from a node agent
+      parameters:
+        - name: host
+          in: query
+          schema:
+            type: string
+            description: Node agent host, or all
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: depth
+          in: query
+          schema:
+            type: integer
+            default: 2
+            maximum: 4
+      responses:
+        "200":
+          description: Filesystem capacity, allowed path usage, Docker disk summary, container log sizes, and plan-only cleanup recommendations
   /api/logs/search:
     get:
       summary: Search collected Kubernetes logs

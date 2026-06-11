@@ -27,6 +27,10 @@ type config struct {
 	dockerSocket      string
 	allowedContainers map[string]bool
 	token             string
+	hostRoot          string
+	diskAllowedPaths  []string
+	diskMaxDepth      int
+	diskTopLimit      int
 }
 
 type dockerClient struct {
@@ -81,6 +85,10 @@ func loadConfig() config {
 	socket := flag.String("docker-socket", env("OPSPILOT_AGENT_DOCKER_SOCKET", "/var/run/docker.sock"), "docker socket path")
 	allowed := flag.String("allowed-containers", env("OPSPILOT_AGENT_ALLOWED_CONTAINERS", ""), "comma separated allowed container names or ids")
 	token := flag.String("token", env("OPSPILOT_AGENT_TOKEN", ""), "optional bearer token")
+	hostRoot := flag.String("host-root", env("OPSPILOT_AGENT_HOST_ROOT", ""), "host root prefix mounted inside the agent, for example /host")
+	diskAllowedPaths := flag.String("disk-allowed-paths", env("OPSPILOT_AGENT_DISK_ALLOWED_PATHS", "/var/lib/docker,/var/log,/opt,/data"), "comma separated host paths allowed for read-only disk attribution")
+	diskMaxDepth := flag.Int("disk-max-depth", intEnv("OPSPILOT_AGENT_DISK_MAX_DEPTH", nodeagent.DefaultDiskMaxDepth), "maximum directory depth for disk attribution")
+	diskTopLimit := flag.Int("disk-top-limit", intEnv("OPSPILOT_AGENT_DISK_TOP_LIMIT", nodeagent.DefaultDiskTopLimit), "maximum disk attribution rows")
 	flag.Parse()
 	return config{
 		host:              *host,
@@ -88,6 +96,10 @@ func loadConfig() config {
 		dockerSocket:      *socket,
 		allowedContainers: parseAllowList(*allowed),
 		token:             *token,
+		hostRoot:          strings.TrimRight(*hostRoot, "/"),
+		diskAllowedPaths:  parseDiskPaths(*diskAllowedPaths),
+		diskMaxDepth:      *diskMaxDepth,
+		diskTopLimit:      *diskTopLimit,
 	}
 }
 
@@ -183,6 +195,20 @@ func registerRoutes(mux *http.ServeMux, docker *dockerClient, cfg config) {
 			http.NotFound(w, r)
 		}
 	})
+	mux.HandleFunc("/api/host/disk", func(w http.ResponseWriter, r *http.Request) {
+		if !authorize(w, r, cfg) || !onlyGET(w, r) {
+			return
+		}
+		result, err := collectHostDisk(r.Context(), docker, cfg, nodeagent.HostDiskRequest{
+			Limit: intQuery(r, "limit", cfg.diskTopLimit),
+			Depth: intQuery(r, "depth", cfg.diskMaxDepth),
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
 }
 
 func newDockerClient(socket string) *dockerClient {
@@ -228,6 +254,12 @@ func (d *dockerClient) logs(ctx context.Context, req nodeagent.LogRequest) (stri
 func (d *dockerClient) stats(ctx context.Context, container string) (map[string]any, error) {
 	var out map[string]any
 	err := d.getJSON(ctx, "/containers/"+url.PathEscape(container)+"/stats?stream=false", &out)
+	return out, err
+}
+
+func (d *dockerClient) systemDF(ctx context.Context) (map[string]any, error) {
+	var out map[string]any
+	err := d.getJSON(ctx, "/system/df", &out)
 	return out, err
 }
 
@@ -527,4 +559,16 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func intEnv(key string, fallback int) int {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
 }

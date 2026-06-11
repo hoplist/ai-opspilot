@@ -83,9 +83,9 @@ func buildCapabilities(ctx context.Context, client *k8s.Client, promRegistry *pr
 		warnings = append(warnings, "node agent: configured but not ready")
 	}
 	add(capabilityItem("docker_agent", "Docker Node Agent", "host", boolMapValue(agentHealth, "configured"), agentReady,
-		[]string{"node206 Docker 容器状态", "Docker inspect/stats/logs"},
-		[]string{"Docker node-agent 未接入或不可达，无法查询宿主机 Docker 容器。"},
-		"Docker agent is only needed for non-Kubernetes containers or host-side checks.", agentHealth))
+		[]string{"Docker container state", "Docker inspect/stats/logs", "host disk attribution", "container json log size"},
+		[]string{"Docker node-agent is not configured or not ready; host-side Docker containers and disk attribution are unavailable."},
+		"Docker agent is only needed for non-Kubernetes containers or host-side disk checks.", agentHealth))
 
 	releaseHealth := releaseRegistry.Health()
 	add(capabilityItem("release_mapping", "Release Service Mapping", "release", boolMapValue(releaseHealth, "configured"), boolMapValue(releaseHealth, "configured"),
