@@ -109,6 +109,7 @@ platform can see without exposing secret values:
 ```text
 GET /api/credentials/catalog
 GET /api/clusters/catalog
+GET /api/services/catalog
 ```
 
 CLI wrappers:
@@ -116,6 +117,7 @@ CLI wrappers:
 ```text
 opspilot credentials catalog --output human
 opspilot clusters catalog --output human
+opspilot services catalog --output human
 ```
 
 Initial configuration can come from environment variables:
@@ -134,6 +136,47 @@ OPSPILOT_CLUSTER_CATALOG="node200-test=environment:test,kubernetes:in-cluster,pr
 
 The catalog stores metadata only. It must not include token values, passwords,
 kubeconfig contents, or database passwords.
+
+## Productization Spine
+
+The current platform spine is:
+
+```text
+service catalog
+-> evidence pack
+-> audit trail
+-> risk boundary
+-> plan-first or read-only action
+```
+
+The first version intentionally avoids new middleware:
+
+- audit records are JSONL files;
+- recent Evidence Packs are JSON files;
+- service catalog metadata comes from runtime configuration/GitOps;
+- event-driven packs use a lightweight in-process scanner;
+- observability integrations stay as adapters.
+
+New API surfaces:
+
+```text
+GET /api/audit/recent
+GET /api/audit/policy
+GET /api/evidence/pack
+GET /api/evidence/packs/recent
+```
+
+CLI wrappers:
+
+```text
+opspilot audit recent --output human
+opspilot audit policy --output human
+opspilot evidence pack --target-type service --service opspilot-core --output human
+opspilot evidence packs --output human
+```
+
+High-risk operations remain plan-only until the platform has explicit
+authorization, audit retention, and before/after validation evidence.
 
 ## Next Refactor Steps
 

@@ -37,3 +37,27 @@ func TestCatalogWarnsForMissingName(t *testing.T) {
 		t.Fatal("expected warning")
 	}
 }
+
+func TestServicesFromEnvMergesReleaseSeeds(t *testing.T) {
+	got, warnings := ServicesFromEnv(
+		"opspilot-core=repo:platform/opspilot,owner:platform,namespace:opspilot,deployment:opspilot-core,config:apollo|env,middleware:mysql|redis",
+		[]ServiceSeed{{
+			Name:       "opspilot-core",
+			Namespace:  "opspilot",
+			Deployment: "opspilot-core",
+			Image:      "192.168.48.206:5050/platform/opspilot/opspilot-core",
+			GitLab:     "platform/opspilot",
+			GitOps:     "clusters/test/apps/opspilot-core/deployment.yaml",
+			ArgoCD:     "opspilot-core",
+		}},
+	)
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	if got.Count != 1 || got.Items[0].Source != "env+release" || !got.Items[0].ReleaseMapped {
+		t.Fatalf("catalog = %#v", got)
+	}
+	if len(got.Items[0].Middleware) != 2 || len(got.Items[0].ConfigSources) != 2 {
+		t.Fatalf("service lists not parsed: %#v", got.Items[0])
+	}
+}

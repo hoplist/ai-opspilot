@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/errorevidence"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/evidence"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/logsearch"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/nodeagent"
@@ -268,6 +269,35 @@ func TestCredentialPlanEndpoint(t *testing.T) {
 	}
 }
 
+func TestServicesCatalogEndpoint(t *testing.T) {
+	t.Setenv("OPSPILOT_SERVICE_CATALOG", "opspilot-core=repo:platform/opspilot,owner:platform,namespace:opspilot,deployment:opspilot-core,middleware:mysql,config:apollo")
+	mux := http.NewServeMux()
+	registerTestRoutes(t, mux, "opspilot-core=namespace:opspilot,deployment:opspilot-core,gitlab:platform/opspilot")
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/services/catalog", nil)
+	mux.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"release_mapped":true`) || !strings.Contains(recorder.Body.String(), "apollo") {
+		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}
+
+func TestAuditPolicyEndpoint(t *testing.T) {
+	mux := http.NewServeMux()
+	registerTestRoutes(t, mux, "")
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/audit/policy", nil)
+	mux.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "high_risk") {
+		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}
+
 func registerTestRoutes(t *testing.T, mux *http.ServeMux, services string) {
 	t.Helper()
 	registerRoutes(
@@ -279,5 +309,7 @@ func registerTestRoutes(t *testing.T, mux *http.ServeMux, services string) {
 		release.NewRegistry(services),
 		errorevidence.NewCollector(t.TempDir()),
 		release.QualitySettings{},
+		nil,
+		evidence.NewStore(t.TempDir()),
 	)
 }

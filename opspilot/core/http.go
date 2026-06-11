@@ -6,15 +6,27 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/audit"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/response"
 )
 
 type handlerFunc func(context.Context, *http.Request) (any, []string, error)
+
+var httpAuditRecorder = audit.NewRecorder("")
+
+func setAuditRecorder(recorder *audit.Recorder) {
+	if recorder == nil {
+		httpAuditRecorder = audit.NewRecorder("")
+		return
+	}
+	httpAuditRecorder = recorder
+}
 
 func handleAPI(mux *http.ServeMux, path string, handler http.HandlerFunc) {
 	mux.HandleFunc(path, handler)
@@ -64,9 +76,11 @@ func wrapMethod(method string, fn handlerFunc) http.HandlerFunc {
 				code = "BAD_REQUEST"
 			}
 			writeJSON(w, status, response.Error(code, err.Error()))
+			recordHTTPAudit(r, status, "error", err.Error(), nil)
 		}()
 		if r.Method != method {
 			writeJSON(w, http.StatusMethodNotAllowed, response.Error("METHOD_NOT_ALLOWED", "only "+method+" is supported"))
+			recordHTTPAudit(r, http.StatusMethodNotAllowed, "error", "method not allowed", nil)
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -80,10 +94,100 @@ func wrapMethod(method string, fn handlerFunc) http.HandlerFunc {
 				code = "BAD_REQUEST"
 			}
 			writeJSON(w, status, response.Error(code, err.Error()))
+			recordHTTPAudit(r, status, "error", err.Error(), warnings)
 			return
 		}
 		writeJSON(w, http.StatusOK, response.OK(data, warnings))
+		recordHTTPAudit(r, http.StatusOK, "success", "", warnings)
 	}
+}
+
+func recordHTTPAudit(r *http.Request, status int, outcome, errMessage string, warnings []string) {
+	if httpAuditRecorder == nil || !httpAuditRecorder.Enabled() {
+		return
+	}
+	record := audit.Record{
+		Actor:      actorFromRequest(r),
+		Method:     r.Method,
+		Path:       r.URL.Path,
+		Action:     actionFromPath(r.URL.Path),
+		TargetType: targetTypeFromRequest(r),
+		Target:     targetFromRequest(r),
+		Namespace:  firstQueryValue(r, "namespace", "n"),
+		Cluster:    firstQueryValue(r, "cluster"),
+		Risk:       audit.RiskFor(r.Method, r.URL.Path),
+		Outcome:    outcome,
+		StatusCode: status,
+		Error:      errMessage,
+		Warnings:   warnings,
+		Query:      safeQuery(r),
+	}
+	if err := httpAuditRecorder.Record(record); err != nil {
+		fmt.Fprintf(os.Stderr, "audit_write_failed path=%s error=%v\n", r.URL.Path, err)
+	}
+}
+
+func actorFromRequest(r *http.Request) string {
+	for _, name := range []string{"X-OpsPilot-Actor", "X-Forwarded-User", "X-Remote-User"} {
+		if value := strings.TrimSpace(r.Header.Get(name)); value != "" {
+			return value
+		}
+	}
+	return "anonymous"
+}
+
+func actionFromPath(path string) string {
+	path = strings.TrimPrefix(path, "/api/v1/")
+	path = strings.TrimPrefix(path, "/api/")
+	return strings.ReplaceAll(path, "/", " ")
+}
+
+func targetTypeFromRequest(r *http.Request) string {
+	if value := firstQueryValue(r, "target_type"); value != "" {
+		return value
+	}
+	path := strings.ToLower(r.URL.Path)
+	switch {
+	case strings.Contains(path, "pod"):
+		return "pod"
+	case strings.Contains(path, "release") || strings.Contains(path, "service"):
+		return "service"
+	case strings.Contains(path, "cluster"):
+		return "cluster"
+	default:
+		return ""
+	}
+}
+
+func targetFromRequest(r *http.Request) string {
+	return firstQueryValue(r, "service", "pod", "name", "target")
+}
+
+func firstQueryValue(r *http.Request, names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(r.URL.Query().Get(name)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func safeQuery(r *http.Request) map[string]string {
+	out := map[string]string{}
+	for key, values := range r.URL.Query() {
+		lower := strings.ToLower(key)
+		if strings.Contains(lower, "token") || strings.Contains(lower, "secret") || strings.Contains(lower, "password") {
+			out[key] = "[redacted]"
+			continue
+		}
+		if len(values) > 0 {
+			out[key] = values[len(values)-1]
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func writeJSON(w http.ResponseWriter, status int, body response.Envelope) {

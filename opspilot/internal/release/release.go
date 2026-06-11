@@ -52,39 +52,8 @@ func NewRegistryWithDatasources(raw string, datasources Datasources) *Registry {
 		if item == "" {
 			continue
 		}
-		name, attrs, ok := strings.Cut(item, "=")
+		service, ok := parseServiceEntry(item)
 		if !ok {
-			continue
-		}
-		service := Service{Name: strings.TrimSpace(name)}
-		for _, pair := range strings.Split(attrs, ",") {
-			key, value, ok := strings.Cut(strings.TrimSpace(pair), ":")
-			if !ok {
-				key, value, ok = strings.Cut(strings.TrimSpace(pair), "=")
-			}
-			if !ok {
-				continue
-			}
-			switch strings.TrimSpace(key) {
-			case "namespace", "ns":
-				service.Namespace = strings.TrimSpace(value)
-			case "deployment", "deploy":
-				service.Deployment = strings.TrimSpace(value)
-			case "container":
-				service.Container = strings.TrimSpace(value)
-			case "source":
-				service.Source = strings.TrimSpace(value)
-			case "image":
-				service.Image = strings.TrimSpace(value)
-			case "gitlab", "gitlab_project":
-				service.GitLab = strings.TrimSpace(value)
-			case "gitops", "gitops_path":
-				service.GitOps = strings.TrimSpace(value)
-			case "argocd", "argocd_app":
-				service.ArgoCD = strings.TrimSpace(value)
-			}
-		}
-		if service.Name == "" || service.Namespace == "" || service.Deployment == "" {
 			continue
 		}
 		services[service.Name] = service
@@ -93,12 +62,31 @@ func NewRegistryWithDatasources(raw string, datasources Datasources) *Registry {
 	return &Registry{services: services, order: order, datasources: datasources}
 }
 
+func NewRegistryWithCatalog(raw, serviceCatalogRaw string, datasources Datasources) *Registry {
+	registry := NewRegistryWithDatasources(raw, datasources)
+	if registry.Configured() {
+		return registry
+	}
+	return NewRegistryWithDatasources(releaseMappingsFromServiceCatalog(serviceCatalogRaw), datasources)
+}
+
 func (r *Registry) Configured() bool {
 	return len(r.services) > 0
 }
 
 func (r *Registry) Services() []string {
 	return append([]string{}, r.order...)
+}
+
+func (r *Registry) ServiceItems() []Service {
+	if r == nil {
+		return nil
+	}
+	items := make([]Service, 0, len(r.order))
+	for _, name := range r.order {
+		items = append(items, r.services[name])
+	}
+	return items
 }
 
 func (r *Registry) Health() map[string]any {
@@ -144,6 +132,80 @@ func (r *Registry) Health() map[string]any {
 			"registry": imageMapped,
 		},
 	}
+}
+
+func parseServiceEntry(item string) (Service, bool) {
+	name, attrs, ok := strings.Cut(item, "=")
+	if !ok {
+		return Service{}, false
+	}
+	service := Service{Name: strings.TrimSpace(name)}
+	for _, pair := range strings.Split(attrs, ",") {
+		key, value, ok := strings.Cut(strings.TrimSpace(pair), ":")
+		if !ok {
+			key, value, ok = strings.Cut(strings.TrimSpace(pair), "=")
+		}
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(key) {
+		case "namespace", "ns":
+			service.Namespace = strings.TrimSpace(value)
+		case "deployment", "deploy":
+			service.Deployment = strings.TrimSpace(value)
+		case "container":
+			service.Container = strings.TrimSpace(value)
+		case "source":
+			service.Source = strings.TrimSpace(value)
+		case "image":
+			service.Image = strings.TrimSpace(value)
+		case "gitlab", "gitlab_project", "repo":
+			service.GitLab = strings.TrimSpace(value)
+		case "gitops", "gitops_path":
+			service.GitOps = strings.TrimSpace(value)
+		case "argocd", "argocd_app":
+			service.ArgoCD = strings.TrimSpace(value)
+		}
+	}
+	return service, service.Name != "" && service.Namespace != "" && service.Deployment != ""
+}
+
+func releaseMappingsFromServiceCatalog(raw string) string {
+	mappings := []string{}
+	for _, item := range strings.Split(raw, ";") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		service, ok := parseServiceEntry(item)
+		if !ok {
+			continue
+		}
+		attrs := []string{
+			"namespace:" + service.Namespace,
+			"deployment:" + service.Deployment,
+		}
+		if service.Container != "" {
+			attrs = append(attrs, "container:"+service.Container)
+		}
+		if service.Source != "" {
+			attrs = append(attrs, "source:"+service.Source)
+		}
+		if service.Image != "" {
+			attrs = append(attrs, "image:"+service.Image)
+		}
+		if service.GitLab != "" {
+			attrs = append(attrs, "gitlab:"+service.GitLab)
+		}
+		if service.GitOps != "" {
+			attrs = append(attrs, "gitops:"+service.GitOps)
+		}
+		if service.ArgoCD != "" {
+			attrs = append(attrs, "argocd:"+service.ArgoCD)
+		}
+		mappings = append(mappings, service.Name+"="+strings.Join(attrs, ","))
+	}
+	return strings.Join(mappings, ";")
 }
 
 func (r *Registry) Status(ctx context.Context, serviceName string, client *k8s.Client, promRegistry *prom.Registry, logClient *logsearch.Client, qualitySettings QualitySettings) (map[string]any, []string, error) {

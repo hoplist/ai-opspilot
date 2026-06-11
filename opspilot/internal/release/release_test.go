@@ -27,6 +27,17 @@ func TestNewRegistryParsesServices(t *testing.T) {
 	}
 }
 
+func TestRegistryCanFallbackToServiceCatalog(t *testing.T) {
+	registry := NewRegistryWithCatalog("", "demo=namespace:apps,deployment:demo,container:api,source:node200-k8s,image:registry/demo,gitlab:platform/demo,gitops:apps/demo/deployment.yaml,argocd:demo", Datasources{})
+	if !registry.Configured() {
+		t.Fatal("registry should be configured from service catalog")
+	}
+	items := registry.ServiceItems()
+	if len(items) != 1 || items[0].Name != "demo" || items[0].GitOps == "" {
+		t.Fatalf("items = %#v", items)
+	}
+}
+
 func TestTriggerCreatesGitLabPipeline(t *testing.T) {
 	var seenPath string
 	var seenRef string

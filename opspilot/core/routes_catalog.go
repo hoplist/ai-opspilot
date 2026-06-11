@@ -129,6 +129,10 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 		clusterCatalog, warnings := catalog.ClustersFromEnv(env("OPSPILOT_CLUSTER_CATALOG", ""))
 		return clusterCatalog, warnings, nil
 	}))
+	handleAPI(mux, "/api/services/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		serviceCatalog, warnings := catalog.ServicesFromEnv(env("OPSPILOT_SERVICE_CATALOG", ""), serviceSeedsFromRelease(releaseRegistry))
+		return serviceCatalog, warnings, nil
+	}))
 	handleAPI(mux, "/api/clusters/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		return catalog.ClusterRegistrationPlan(catalog.RegistrationPlanRequest{
@@ -153,4 +157,25 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 			Scope:       q.Get("scope"),
 		}), nil, nil
 	}))
+}
+
+func serviceSeedsFromRelease(registry *release.Registry) []catalog.ServiceSeed {
+	seeds := []catalog.ServiceSeed{}
+	if registry == nil {
+		return seeds
+	}
+	for _, item := range registry.ServiceItems() {
+		seeds = append(seeds, catalog.ServiceSeed{
+			Name:       item.Name,
+			Namespace:  item.Namespace,
+			Deployment: item.Deployment,
+			Container:  item.Container,
+			Source:     item.Source,
+			Image:      item.Image,
+			GitLab:     item.GitLab,
+			GitOps:     item.GitOps,
+			ArgoCD:     item.ArgoCD,
+		})
+	}
+	return seeds
 }

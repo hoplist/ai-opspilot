@@ -48,6 +48,48 @@ type ClusterCatalog struct {
 	Items   []Cluster `json:"items"`
 }
 
+type Service struct {
+	Name          string   `json:"name"`
+	Environment   string   `json:"environment,omitempty"`
+	Group         string   `json:"group,omitempty"`
+	Project       string   `json:"project,omitempty"`
+	Owner         string   `json:"owner,omitempty"`
+	Repo          string   `json:"repo,omitempty"`
+	Namespace     string   `json:"namespace,omitempty"`
+	Deployment    string   `json:"deployment,omitempty"`
+	Container     string   `json:"container,omitempty"`
+	Image         string   `json:"image,omitempty"`
+	GitLab        string   `json:"gitlab_project,omitempty"`
+	GitOps        string   `json:"gitops_path,omitempty"`
+	ArgoCD        string   `json:"argocd_app,omitempty"`
+	Port          string   `json:"port,omitempty"`
+	ConfigSources []string `json:"config_sources,omitempty"`
+	Middleware    []string `json:"middleware,omitempty"`
+	Dependencies  []string `json:"dependencies,omitempty"`
+	Storage       []string `json:"storage,omitempty"`
+	ReleaseMapped bool     `json:"release_mapped"`
+	Source        string   `json:"source"`
+}
+
+type ServiceSeed struct {
+	Name       string
+	Namespace  string
+	Deployment string
+	Container  string
+	Source     string
+	Image      string
+	GitLab     string
+	GitOps     string
+	ArgoCD     string
+}
+
+type ServiceCatalog struct {
+	Version string    `json:"version"`
+	Source  string    `json:"source"`
+	Count   int       `json:"count"`
+	Items   []Service `json:"items"`
+}
+
 func CredentialsFromEnv(raw string) (CredentialCatalog, []string) {
 	items, warnings := parseCredentials(raw)
 	return CredentialCatalog{
@@ -63,6 +105,30 @@ func ClustersFromEnv(raw string) (ClusterCatalog, []string) {
 	return ClusterCatalog{
 		Version: "v1",
 		Source:  sourceName(raw),
+		Count:   len(items),
+		Items:   items,
+	}, warnings
+}
+
+func ServicesFromEnv(raw string, seeds []ServiceSeed) (ServiceCatalog, []string) {
+	items, warnings := parseServices(raw)
+	byName := map[string]int{}
+	for idx, item := range items {
+		byName[item.Name] = idx
+	}
+	for _, seed := range seeds {
+		if seed.Name == "" {
+			continue
+		}
+		if idx, ok := byName[seed.Name]; ok {
+			items[idx] = mergeSeed(items[idx], seed)
+			continue
+		}
+		items = append(items, serviceFromSeed(seed))
+	}
+	return ServiceCatalog{
+		Version: "v1",
+		Source:  serviceSource(raw, seeds),
 		Count:   len(items),
 		Items:   items,
 	}, warnings
@@ -131,6 +197,82 @@ func parseClusters(raw string) ([]Cluster, []string) {
 	return out, warnings
 }
 
+func parseServices(raw string) ([]Service, []string) {
+	out := []Service{}
+	warnings := []string{}
+	for _, entry := range splitEntries(raw) {
+		name, attrsRaw, ok := strings.Cut(entry, "=")
+		attrs := map[string]string{}
+		if ok {
+			attrs = parseAttrs(attrsRaw)
+			name = strings.TrimSpace(name)
+		} else {
+			attrs = parseAttrs(entry)
+			name = attrs["name"]
+		}
+		name = firstNonEmpty(name, attrs["service"])
+		if name == "" {
+			warnings = append(warnings, "service catalog entry skipped: missing name")
+			continue
+		}
+		out = append(out, Service{
+			Name:          name,
+			Environment:   attrs["environment"],
+			Group:         attrs["group"],
+			Project:       attrs["project"],
+			Owner:         attrs["owner"],
+			Repo:          firstNonEmpty(attrs["repo"], attrs["repository"]),
+			Namespace:     firstNonEmpty(attrs["namespace"], attrs["ns"]),
+			Deployment:    firstNonEmpty(attrs["deployment"], attrs["deploy"]),
+			Container:     attrs["container"],
+			Image:         attrs["image"],
+			GitLab:        firstNonEmpty(attrs["gitlab"], attrs["gitlab_project"]),
+			GitOps:        firstNonEmpty(attrs["gitops"], attrs["gitops_path"]),
+			ArgoCD:        firstNonEmpty(attrs["argocd"], attrs["argocd_app"]),
+			Port:          attrs["port"],
+			ConfigSources: splitList(firstNonEmpty(attrs["config_sources"], attrs["config"], attrs["apollo"])),
+			Middleware:    splitList(attrs["middleware"]),
+			Dependencies:  splitList(firstNonEmpty(attrs["dependencies"], attrs["depends_on"])),
+			Storage:       splitList(attrs["storage"]),
+			Source:        "env",
+		})
+	}
+	return out, warnings
+}
+
+func mergeSeed(item Service, seed ServiceSeed) Service {
+	item.Namespace = firstNonEmpty(item.Namespace, seed.Namespace)
+	item.Deployment = firstNonEmpty(item.Deployment, seed.Deployment)
+	item.Container = firstNonEmpty(item.Container, seed.Container)
+	item.Image = firstNonEmpty(item.Image, seed.Image)
+	item.GitLab = firstNonEmpty(item.GitLab, seed.GitLab)
+	item.GitOps = firstNonEmpty(item.GitOps, seed.GitOps)
+	item.ArgoCD = firstNonEmpty(item.ArgoCD, seed.ArgoCD)
+	item.ReleaseMapped = true
+	if item.Source == "" {
+		item.Source = "release"
+	}
+	if item.Source == "env" {
+		item.Source = "env+release"
+	}
+	return item
+}
+
+func serviceFromSeed(seed ServiceSeed) Service {
+	return Service{
+		Name:          seed.Name,
+		Namespace:     seed.Namespace,
+		Deployment:    seed.Deployment,
+		Container:     seed.Container,
+		Image:         seed.Image,
+		GitLab:        seed.GitLab,
+		GitOps:        seed.GitOps,
+		ArgoCD:        seed.ArgoCD,
+		ReleaseMapped: true,
+		Source:        "release",
+	}
+}
+
 func splitEntries(raw string) []string {
 	out := []string{}
 	for _, entry := range strings.Split(raw, ";") {
@@ -179,6 +321,21 @@ func sourceName(raw string) string {
 		return "empty"
 	}
 	return "env"
+}
+
+func serviceSource(raw string, seeds []ServiceSeed) string {
+	hasRaw := strings.TrimSpace(raw) != ""
+	hasSeeds := len(seeds) > 0
+	switch {
+	case hasRaw && hasSeeds:
+		return "env+release"
+	case hasRaw:
+		return "env"
+	case hasSeeds:
+		return "release"
+	default:
+		return "empty"
+	}
 }
 
 func firstNonEmpty(values ...string) string {

@@ -64,6 +64,10 @@ func run(args []string, out io.Writer) error {
 		return runSkillsRegistry(opts, args[1:], out)
 	case "credentials", "credential":
 		return runCredentialsCatalog(opts, args[1:], out)
+	case "audit":
+		return runAudit(opts, args[1:], out)
+	case "services", "service":
+		return runServicesCatalog(opts, args[1:], out)
 	case "datasources", "datasource":
 		return runDatasourcePlan(opts, args[1:], out)
 	case "clusters", "cluster":
@@ -82,6 +86,9 @@ func run(args []string, out io.Writer) error {
 	case "logs":
 		endpoint, values = logsCommand(args[1:])
 	case "evidence":
+		if handled, err := runEvidenceCommand(opts, args[1:], out); handled {
+			return err
+		}
 		endpoint, values = evidenceCommand(args[1:])
 	case "errors":
 		endpoint, values = errorsCommand(args[1:])

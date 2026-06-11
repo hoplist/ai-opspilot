@@ -7,7 +7,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/audit"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/errorevidence"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/evidence"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/logsearch"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/nodeagent"
@@ -47,7 +49,7 @@ func main() {
 			Routes:          logsearch.ParseCorrelationRoutes(env("OPSPILOT_LOG_CORRELATION_ROUTES", "")),
 		},
 	)
-	releaseRegistry := release.NewRegistryWithDatasources(env("OPSPILOT_RELEASE_SERVICES", ""), release.Datasources{
+	releaseRegistry := release.NewRegistryWithCatalog(env("OPSPILOT_RELEASE_SERVICES", ""), env("OPSPILOT_SERVICE_CATALOG", ""), release.Datasources{
 		GitLabURL:     env("OPSPILOT_GITLAB_URL", ""),
 		GitLabToken:   env("OPSPILOT_GITLAB_TOKEN", ""),
 		GitOpsProject: env("OPSPILOT_GITOPS_PROJECT", ""),
@@ -62,8 +64,13 @@ func main() {
 		DeadlineSeconds: intEnv("OPSPILOT_QUALITY_DEADLINE_SECONDS", 120),
 	}
 	errorCollector := errorevidence.NewCollector(env("OPSPILOT_ERROR_EVENT_DIR", "/var/lib/opspilot/error-events"))
+	auditRecorder := audit.NewRecorder(env("OPSPILOT_AUDIT_LOG_PATH", "/var/lib/opspilot/audit/audit.jsonl"))
+	evidenceStore := evidence.NewStore(env("OPSPILOT_EVIDENCE_PACK_DIR", "/var/lib/opspilot/evidence-packs"))
+	if boolEnv("OPSPILOT_EVENT_PACK_ENABLED", true) {
+		startEventPackLoop(k8sRegistry, promRegistry, logClient, releaseRegistry, errorCollector, evidenceStore, time.Duration(intEnv("OPSPILOT_EVENT_PACK_INTERVAL_SECONDS", 300))*time.Second)
+	}
 	mux := http.NewServeMux()
-	registerRoutes(mux, k8sRegistry, promRegistry, agentRegistry, logClient, releaseRegistry, errorCollector, qualitySettings)
+	registerRoutes(mux, k8sRegistry, promRegistry, agentRegistry, logClient, releaseRegistry, errorCollector, qualitySettings, auditRecorder, evidenceStore)
 	addr := *host + ":" + *port
 	fmt.Printf("opspilot-core %s listening on http://%s\n", version.Version, addr)
 	server := &http.Server{
