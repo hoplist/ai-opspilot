@@ -23,6 +23,11 @@ func onboardFiles(cfg onboardServiceConfig) []generatedFile {
 		generatedFile{path: filepath.Join("deploy", "k8s", "limitrange.yaml"), body: limitRangeTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "resourcequota.yaml"), body: resourceQuotaTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "serviceaccount.yaml"), body: serviceAccountTemplate(cfg)},
+	)
+	if len(cfg.ConfigSources) > 0 {
+		files = append(files, generatedFile{path: filepath.Join("deploy", "k8s", "configmap.yaml"), body: configSourcesConfigMapTemplate(cfg)})
+	}
+	files = append(files,
 		generatedFile{path: filepath.Join("deploy", "k8s", "deployment.yaml"), body: deploymentTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "service.yaml"), body: serviceTemplate(cfg)},
 		generatedFile{path: filepath.Join("deploy", "k8s", "kustomization.yaml"), body: kustomizationTemplate(cfg)},

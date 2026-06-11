@@ -567,6 +567,140 @@ func TestOnboardGenerateWritesStorageVolumes(t *testing.T) {
 	}
 }
 
+func TestOnboardServiceGeneratesApolloConfigSource(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	config := `name: task-server
+gitlabProject: tpo/devex/gos/task-server
+language: go
+build:
+  output: build/task-server
+deploy:
+  namespace: gos
+dockerfile:
+  mode: generate
+ci:
+  mode: include
+configSources:
+  apollo:
+    type: apollo
+    required: true
+    appId: task-server
+    env: prod
+    cluster: default
+    namespaces: application,gms
+    meta: http://apolloconfig-server-inner.tpo.xzoa.com
+    tokenSecret: task-server-apollo-token
+    inject: args
+`
+	if err := os.WriteFile("opspilot.service.yaml", []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"onboard", "service", "--write"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	configMap, err := os.ReadFile(filepath.Join("deploy", "k8s", "configmap.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range [][]byte{
+		[]byte("name: task-server-apollo-config"),
+		[]byte(`APOLLO_APP_ID: "task-server"`),
+		[]byte(`APOLLO_ENV: "prod"`),
+		[]byte(`APOLLO_META: "http://apolloconfig-server-inner.tpo.xzoa.com"`),
+	} {
+		if !bytes.Contains(configMap, expected) {
+			t.Fatalf("generated configmap missing %s:\n%s", expected, string(configMap))
+		}
+	}
+	deployment, err := os.ReadFile(filepath.Join("deploy", "k8s", "deployment.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range [][]byte{
+		[]byte(`- "--env=$(APOLLO_ENV)"`),
+		[]byte(`- "--cfg=$(APOLLO_META)"`),
+		[]byte("name: APOLLO_APP_ID"),
+		[]byte("configMapKeyRef:"),
+		[]byte("name: task-server-apollo-config"),
+		[]byte("name: APOLLO_TOKEN"),
+		[]byte("secretKeyRef:"),
+		[]byte("name: task-server-apollo-token"),
+	} {
+		if !bytes.Contains(deployment, expected) {
+			t.Fatalf("generated deployment missing %s:\n%s", expected, string(deployment))
+		}
+	}
+	kustomization, err := os.ReadFile(filepath.Join("deploy", "k8s", "kustomization.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(kustomization, []byte("configmap.yaml")) {
+		t.Fatalf("kustomization missing configmap.yaml: %s", string(kustomization))
+	}
+	out.Reset()
+	if err := run([]string{"onboard", "check"}, &out); err != nil {
+		t.Fatalf("onboard check failed: %v\n%s", err, out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("config_source_apollo")) {
+		t.Fatalf("onboard check did not report Apollo config source: %s", out.String())
+	}
+}
+
+func TestOnboardDetectsApolloConfigSource(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("go.mod", []byte("module example.com/task-server\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	main := `package main
+
+func main() {
+	_ = "/go/bin/task --env=prod --cfg=http://apolloconfig-server-inner.tpo.xzoa.com"
+}
+`
+	if err := os.WriteFile("main.go", []byte(main), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"onboard", "detect", "--project", "tpo/devex/gos/task-server"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload onboardDetectResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Config.ConfigSources) != 1 {
+		t.Fatalf("config sources = %#v", payload.Config.ConfigSources)
+	}
+	source := payload.Config.ConfigSources[0]
+	if source.Type != "apollo" || source.InjectMode != "args" || source.Env != "prod" || source.Meta != "http://apolloconfig-server-inner.tpo.xzoa.com" {
+		t.Fatalf("apollo source = %#v", source)
+	}
+	if !containsString(payload.Gaps, "configmap_missing") {
+		t.Fatalf("expected configmap_missing gap: %#v", payload.Gaps)
+	}
+}
+
 func TestOnboardGenerateWritesDetectedFiles(t *testing.T) {
 	dir := t.TempDir()
 	wd, err := os.Getwd()

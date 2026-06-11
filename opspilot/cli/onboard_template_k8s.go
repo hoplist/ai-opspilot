@@ -89,6 +89,7 @@ spec:
         - name: %s
           image: placeholder
           imagePullPolicy: IfNotPresent
+%s%s
           ports:
             - name: http
               containerPort: %d
@@ -111,7 +112,7 @@ spec:
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20
-%s%s%s`, c.Name, c.Namespace, c.Name, c.Replicas, c.Name, c.Name, storagePodAnnotationsTemplate(c), serviceAccountName(c), c.Container, c.Port, c.Resources.RequestCPU, c.Resources.RequestMemory, c.Resources.LimitCPU, c.Resources.LimitMemory, c.HealthPath, c.HealthPath, middlewareEnvFromTemplate(c.Middleware), storageVolumeMountsTemplate(c.Storage), storageVolumesTemplate(c.Storage))
+%s%s%s`, c.Name, c.Namespace, c.Name, c.Replicas, c.Name, c.Name, storagePodAnnotationsTemplate(c), serviceAccountName(c), c.Container, configArgsTemplate(c.ConfigSources), configEnvTemplate(c.ConfigSources), c.Port, c.Resources.RequestCPU, c.Resources.RequestMemory, c.Resources.LimitCPU, c.Resources.LimitMemory, c.HealthPath, c.HealthPath, middlewareEnvFromTemplate(c.Middleware), containerVolumeMountsTemplate(c), podVolumesTemplate(c))
 }
 
 func serviceAccountName(c onboardServiceConfig) string {
@@ -163,6 +164,142 @@ func middlewareEnvFromTemplate(items []onboardMiddlewareConfig) string {
 	return b.String()
 }
 
+func configArgsTemplate(items []onboardConfigSourceConfig) string {
+	for _, item := range items {
+		if item.Type != "apollo" || item.InjectMode != "args" {
+			continue
+		}
+		var b strings.Builder
+		b.WriteString("          args:\n")
+		if item.EnvFlag != "" && item.Env != "" {
+			b.WriteString(fmt.Sprintf("            - %q\n", item.EnvFlag+"=$(APOLLO_ENV)"))
+		}
+		if item.MetaFlag != "" && item.Meta != "" {
+			b.WriteString(fmt.Sprintf("            - %q\n", item.MetaFlag+"=$(APOLLO_META)"))
+		}
+		return b.String()
+	}
+	return ""
+}
+
+func configEnvTemplate(items []onboardConfigSourceConfig) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	wroteHeader := false
+	for _, item := range items {
+		if item.Type != "apollo" || item.InjectMode == "file" {
+			continue
+		}
+		if !wroteHeader {
+			b.WriteString("          env:\n")
+			wroteHeader = true
+		}
+		writeConfigMapEnv := func(envName, key string) {
+			b.WriteString(fmt.Sprintf("            - name: %s\n", envName))
+			b.WriteString("              valueFrom:\n")
+			b.WriteString("                configMapKeyRef:\n")
+			b.WriteString(fmt.Sprintf("                  name: %s\n", item.ConfigMap))
+			b.WriteString(fmt.Sprintf("                  key: %s\n", key))
+		}
+		writeConfigMapEnv("APOLLO_APP_ID", "APOLLO_APP_ID")
+		writeConfigMapEnv("APOLLO_CLUSTER", "APOLLO_CLUSTER")
+		writeConfigMapEnv("APOLLO_NAMESPACES", "APOLLO_NAMESPACES")
+		if item.Env != "" {
+			writeConfigMapEnv("APOLLO_ENV", "APOLLO_ENV")
+		}
+		if item.Meta != "" {
+			writeConfigMapEnv("APOLLO_META", "APOLLO_META")
+		}
+		if item.TokenSecret != "" {
+			b.WriteString("            - name: APOLLO_TOKEN\n")
+			b.WriteString("              valueFrom:\n")
+			b.WriteString("                secretKeyRef:\n")
+			b.WriteString(fmt.Sprintf("                  name: %s\n", item.TokenSecret))
+			b.WriteString("                  key: token\n")
+			if !item.Required {
+				b.WriteString("                  optional: true\n")
+			}
+		}
+	}
+	return b.String()
+}
+
+func configSourcesConfigMapTemplate(c onboardServiceConfig) string {
+	if len(c.ConfigSources) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, item := range c.ConfigSources {
+		if item.Type != "apollo" {
+			continue
+		}
+		if i > 0 && b.Len() > 0 {
+			b.WriteString("---\n")
+		}
+		b.WriteString(fmt.Sprintf(`apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    opspilot.io/config-source: %s
+data:
+  APOLLO_APP_ID: %s
+  APOLLO_CLUSTER: %s
+  APOLLO_NAMESPACES: %s
+`, item.ConfigMap, c.Namespace, c.Name, item.Type, yamlQuote(item.AppID), yamlQuote(item.Cluster), yamlQuote(strings.Join(item.Namespaces, ","))))
+		if item.Env != "" {
+			b.WriteString(fmt.Sprintf("  APOLLO_ENV: %s\n", yamlQuote(item.Env)))
+		}
+		if item.Meta != "" {
+			b.WriteString(fmt.Sprintf("  APOLLO_META: %s\n", yamlQuote(item.Meta)))
+		}
+		if item.InjectMode == "file" {
+			b.WriteString("  apollo.yaml: |\n")
+			b.WriteString(fmt.Sprintf("    apollo:\n      appId: %s\n      cluster: %s\n      namespaces: %s\n", item.AppID, item.Cluster, strings.Join(item.Namespaces, ",")))
+			if item.Env != "" {
+				b.WriteString(fmt.Sprintf("      env: %s\n", item.Env))
+			}
+			if item.Meta != "" {
+				b.WriteString(fmt.Sprintf("      meta: %s\n", item.Meta))
+			}
+		}
+	}
+	return b.String()
+}
+
+func yamlQuote(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+}
+
+func containerVolumeMountsTemplate(c onboardServiceConfig) string {
+	if len(c.Storage) == 0 && !hasFileConfigSource(c.ConfigSources) {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("          volumeMounts:\n")
+	for _, item := range c.ConfigSources {
+		if item.InjectMode != "file" {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("            - name: %s\n", configSourceVolumeName(item)))
+		b.WriteString(fmt.Sprintf("              mountPath: %s\n", item.MountPath))
+		b.WriteString("              subPath: apollo.yaml\n")
+		b.WriteString("              readOnly: true\n")
+	}
+	for _, item := range c.Storage {
+		b.WriteString(fmt.Sprintf("            - name: %s\n", item.Name))
+		b.WriteString(fmt.Sprintf("              mountPath: %s\n", item.MountPath))
+		if item.ReadOnly {
+			b.WriteString("              readOnly: true\n")
+		}
+	}
+	return b.String()
+}
+
 func storageVolumeMountsTemplate(items []onboardStorageConfig) string {
 	if len(items) == 0 {
 		return ""
@@ -174,6 +311,35 @@ func storageVolumeMountsTemplate(items []onboardStorageConfig) string {
 		b.WriteString(fmt.Sprintf("              mountPath: %s\n", item.MountPath))
 		if item.ReadOnly {
 			b.WriteString("              readOnly: true\n")
+		}
+	}
+	return b.String()
+}
+
+func podVolumesTemplate(c onboardServiceConfig) string {
+	if len(c.Storage) == 0 && !hasFileConfigSource(c.ConfigSources) {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("      volumes:\n")
+	for _, item := range c.ConfigSources {
+		if item.InjectMode != "file" {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("        - name: %s\n", configSourceVolumeName(item)))
+		b.WriteString("          configMap:\n")
+		b.WriteString(fmt.Sprintf("            name: %s\n", item.ConfigMap))
+	}
+	for _, item := range c.Storage {
+		b.WriteString(fmt.Sprintf("        - name: %s\n", item.Name))
+		switch item.Mode {
+		case "emptyDir":
+			b.WriteString("          emptyDir:\n")
+			b.WriteString(fmt.Sprintf("            sizeLimit: %s\n", firstNonEmpty(item.SizeLimit, defaultStorageSizeLimit(item.Purpose))))
+		default:
+			b.WriteString("          hostPath:\n")
+			b.WriteString(fmt.Sprintf("            path: %s\n", item.HostPath))
+			b.WriteString("            type: DirectoryOrCreate\n")
 		}
 	}
 	return b.String()
@@ -198,6 +364,19 @@ func storageVolumesTemplate(items []onboardStorageConfig) string {
 		}
 	}
 	return b.String()
+}
+
+func hasFileConfigSource(items []onboardConfigSourceConfig) bool {
+	for _, item := range items {
+		if item.InjectMode == "file" {
+			return true
+		}
+	}
+	return false
+}
+
+func configSourceVolumeName(item onboardConfigSourceConfig) string {
+	return sanitizeDNSLabel(item.Name + "-config")
 }
 
 func serviceTemplate(c onboardServiceConfig) string {
@@ -239,7 +418,11 @@ func kustomizationTemplate(c onboardServiceConfig) string {
   - limitrange.yaml
   - resourcequota.yaml
   - serviceaccount.yaml
-  - deployment.yaml
+`)
+	if len(c.ConfigSources) > 0 {
+		b.WriteString("  - configmap.yaml\n")
+	}
+	b.WriteString(`  - deployment.yaml
   - service.yaml
 `)
 	for _, item := range c.Middleware {

@@ -59,6 +59,10 @@ func repoPreflight(project, catalogPath string, layout repoLayoutOptions) (repoP
 		checkRepoQuality(layout.QualityPath),
 		checkRepoHealth(cfg),
 	}
+	if len(cfg.ConfigSources) > 0 {
+		items = append(items, checkRepoFile("configmap", filepath.Join(layout.DeployPath, "configmap.yaml"), "generate deploy/k8s/configmap.yaml for Apollo/config source metadata"))
+	}
+	items = append(items, checkRepoConfigSources(cfg)...)
 	items = append(items, checkRepoMiddleware(cfg)...)
 	items = append(items, checkRepoStorage(cfg)...)
 	result := repoPreflightResult{
@@ -363,6 +367,51 @@ func checkRepoMiddleware(cfg onboardServiceConfig) []repoPolicyItem {
 		}
 		items = append(items, repoPolicyItem{
 			Name:    "middleware_" + item.Name,
+			Status:  "pass",
+			Level:   "info",
+			Message: message,
+		})
+	}
+	return items
+}
+
+func checkRepoConfigSources(cfg onboardServiceConfig) []repoPolicyItem {
+	if len(cfg.ConfigSources) == 0 {
+		return []repoPolicyItem{{
+			Name:    "config_sources",
+			Status:  "pass",
+			Level:   "info",
+			Message: "none detected",
+		}}
+	}
+	items := make([]repoPolicyItem, 0, len(cfg.ConfigSources))
+	for _, item := range cfg.ConfigSources {
+		message := fmt.Sprintf("%s -> inject=%s configmap=%s", item.Type, item.InjectMode, item.ConfigMap)
+		if item.Type == "apollo" {
+			message += fmt.Sprintf(" appId=%s cluster=%s namespaces=%s", item.AppID, item.Cluster, strings.Join(item.Namespaces, ","))
+			if item.Meta != "" {
+				message += " meta=" + item.Meta
+			}
+			if item.TokenSecret != "" {
+				message += " tokenSecret=" + item.TokenSecret
+			}
+			if len(item.Evidence) > 0 {
+				message += "; evidence: " + strings.Join(item.Evidence, "; ")
+			}
+			if item.Required && item.Meta == "" {
+				items = append(items, repoPolicyItem{
+					Name:    "config_source_" + item.Name,
+					Status:  "fail",
+					Level:   "blocker",
+					Message: "required Apollo config source is missing meta",
+					Fixable: true,
+					Action:  "set configSources.apollo.meta or mark the config source optional",
+				})
+				continue
+			}
+		}
+		items = append(items, repoPolicyItem{
+			Name:    "config_source_" + item.Name,
 			Status:  "pass",
 			Level:   "info",
 			Message: message,

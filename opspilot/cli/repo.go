@@ -133,7 +133,7 @@ func repoAutofixCommand(opts globalOptions, args []string, out io.Writer) error 
 			Files:           results,
 			ReleaseMapping:  releaseMapping(cfg),
 			GitOpsPlan:      gitOpsPlan(cfg),
-			CredentialPlans: middlewareCredentialPlans(cfg),
+			CredentialPlans: append(middlewareCredentialPlans(cfg), configSourceCredentialPlans(cfg)...),
 			Preflight:       preflight,
 		}, nil
 	})

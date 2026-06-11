@@ -23,6 +23,7 @@ type onboardServiceConfig struct {
 	NamespaceGuard onboardNamespaceGuardConfig `json:"namespace_guard"`
 	Middleware     []onboardMiddlewareConfig   `json:"middleware,omitempty"`
 	Storage        []onboardStorageConfig      `json:"storage,omitempty"`
+	ConfigSources  []onboardConfigSourceConfig `json:"config_sources,omitempty"`
 }
 
 type onboardResourcesConfig struct {
@@ -69,6 +70,25 @@ type onboardStorageConfig struct {
 	ReadOnly      bool     `json:"read_only,omitempty"`
 	Reason        string   `json:"reason,omitempty"`
 	Evidence      []string `json:"evidence,omitempty"`
+}
+
+type onboardConfigSourceConfig struct {
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Required    bool     `json:"required,omitempty"`
+	AppID       string   `json:"app_id,omitempty"`
+	Env         string   `json:"env,omitempty"`
+	Cluster     string   `json:"cluster,omitempty"`
+	Namespaces  []string `json:"namespaces,omitempty"`
+	Meta        string   `json:"meta,omitempty"`
+	ConfigMap   string   `json:"config_map,omitempty"`
+	TokenSecret string   `json:"token_secret,omitempty"`
+	InjectMode  string   `json:"inject_mode,omitempty"`
+	EnvFlag     string   `json:"env_flag,omitempty"`
+	MetaFlag    string   `json:"meta_flag,omitempty"`
+	MountPath   string   `json:"mount_path,omitempty"`
+	Reason      string   `json:"reason,omitempty"`
+	Evidence    []string `json:"evidence,omitempty"`
 }
 
 type middlewareCatalogEntry struct {

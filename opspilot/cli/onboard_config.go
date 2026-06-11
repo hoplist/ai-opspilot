@@ -52,6 +52,7 @@ func readOnboardServiceConfig(path string) (onboardServiceConfig, error) {
 	}
 	cfg.Middleware = middlewareFromValues(values)
 	cfg.Storage = storageFromValues(values)
+	cfg.ConfigSources = configSourcesFromValues(values)
 	return cfg, nil
 }
 
@@ -117,6 +118,7 @@ func (c *onboardServiceConfig) defaults() error {
 	c.NamespaceGuard = defaultNamespaceGuardConfig(c.NamespaceGuard)
 	c.Middleware = normalizeMiddlewareRequirements(*c, c.Middleware)
 	c.Storage = normalizeStorageRequirements(*c, c.Storage)
+	c.ConfigSources = normalizeConfigSources(*c, c.ConfigSources)
 	return nil
 }
 
@@ -224,6 +226,47 @@ func storageFromValues(values map[string]string) []onboardStorageConfig {
 			RetentionDays: intFromString(values[prefix+"retentionDays"], 0),
 			ReadOnly:      boolFromString(values[prefix+"readOnly"], false),
 			Reason:        values[prefix+"reason"],
+		})
+	}
+	return items
+}
+
+func configSourcesFromValues(values map[string]string) []onboardConfigSourceConfig {
+	names := map[string]bool{}
+	for key := range values {
+		if !strings.HasPrefix(key, "configSources.") {
+			continue
+		}
+		rest := strings.TrimPrefix(key, "configSources.")
+		name, _, ok := strings.Cut(rest, ".")
+		if ok && name != "" {
+			names[name] = true
+		}
+	}
+	ordered := make([]string, 0, len(names))
+	for name := range names {
+		ordered = append(ordered, name)
+	}
+	sort.Strings(ordered)
+	items := []onboardConfigSourceConfig{}
+	for _, name := range ordered {
+		prefix := "configSources." + name + "."
+		items = append(items, onboardConfigSourceConfig{
+			Name:        name,
+			Type:        values[prefix+"type"],
+			Required:    boolFromString(values[prefix+"required"], false),
+			AppID:       values[prefix+"appId"],
+			Env:         values[prefix+"env"],
+			Cluster:     values[prefix+"cluster"],
+			Namespaces:  splitCSV(values[prefix+"namespaces"]),
+			Meta:        values[prefix+"meta"],
+			ConfigMap:   values[prefix+"configMap"],
+			TokenSecret: values[prefix+"tokenSecret"],
+			InjectMode:  values[prefix+"inject"],
+			EnvFlag:     values[prefix+"envFlag"],
+			MetaFlag:    values[prefix+"metaFlag"],
+			MountPath:   values[prefix+"mountPath"],
+			Reason:      values[prefix+"reason"],
 		})
 	}
 	return items

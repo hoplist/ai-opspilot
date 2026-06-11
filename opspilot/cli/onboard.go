@@ -108,7 +108,7 @@ func onboardRepoCommand(opts globalOptions, args []string, out io.Writer) error 
 			Next:            uniqueStrings(next),
 			ReleaseMapping:  releaseMapping(cfg),
 			GitOpsPlan:      gitOpsPlan(cfg),
-			CredentialPlans: middlewareCredentialPlans(cfg),
+			CredentialPlans: append(middlewareCredentialPlans(cfg), configSourceCredentialPlans(cfg)...),
 		}, nil
 	})
 	if err != nil {

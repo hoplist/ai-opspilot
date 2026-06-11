@@ -56,6 +56,7 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 	}
 	cfg.Middleware = detectMiddlewareRequirements(cfg)
 	cfg.Storage = detectStorageRequirements(cfg)
+	cfg.ConfigSources = detectConfigSources(cfg)
 	files := map[string]bool{
 		"dockerfile":     fileExists(cfg.DockerPath),
 		"gitlab_ci":      fileExists(".gitlab-ci.yml"),
@@ -65,6 +66,7 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 		"deployment":     fileExists(filepath.Join("deploy", "k8s", "deployment.yaml")),
 		"service":        fileExists(filepath.Join("deploy", "k8s", "service.yaml")),
 		"kustomization":  fileExists(filepath.Join("deploy", "k8s", "kustomization.yaml")),
+		"configmap":      fileExists(filepath.Join("deploy", "k8s", "configmap.yaml")),
 		"qualityConfig":  fileExists(filepath.Join(".opspilot", "quality.yaml")),
 		"releaseMapping": fileExists("opspilot.release-service.txt"),
 	}
@@ -88,6 +90,11 @@ func detectOnboardRepository(project, catalogPath string) (onboardDetectResult, 
 		result.Ready = false
 		result.Gaps = append(result.Gaps, "namespace_guardrails_missing")
 		result.Next = append(result.Next, "generate LimitRange and ResourceQuota manifests")
+	}
+	if len(cfg.ConfigSources) > 0 && !files["configmap"] {
+		result.Ready = false
+		result.Gaps = append(result.Gaps, "configmap_missing")
+		result.Next = append(result.Next, "generate ConfigMap for Apollo/config sources")
 	}
 	return result, nil
 }

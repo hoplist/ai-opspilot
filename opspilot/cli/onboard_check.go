@@ -179,7 +179,11 @@ func checkOnboardRepository(cfg onboardServiceConfig) onboardCheckResult {
 		checkFile("quality_config", filepath.Join(".opspilot", "quality.yaml"), false, "optional OpsPilot API quality checks"),
 		checkFile("release_mapping", "opspilot.release-service.txt", false, "OpsPilot release service mapping"),
 	}
+	if len(cfg.ConfigSources) > 0 {
+		items = append(items, checkFile("configmap", filepath.Join("deploy", "k8s", "configmap.yaml"), true, "Kubernetes ConfigMap for external config sources"))
+	}
 	items = append(items, checkOnboardDeploymentGuardrails(cfg)...)
+	items = append(items, checkOnboardConfigSources(cfg)...)
 	items = append(items, checkOnboardMiddleware(cfg)...)
 	items = append(items, checkOnboardStorage(cfg)...)
 	result := onboardCheckResult{Service: cfg.Name, Ready: true, Items: items}
@@ -194,6 +198,44 @@ func checkOnboardRepository(cfg onboardServiceConfig) onboardCheckResult {
 		result.Next = append(result.Next, nextOnboardAction(item))
 	}
 	return result
+}
+
+func checkOnboardConfigSources(cfg onboardServiceConfig) []onboardCheckItem {
+	if len(cfg.ConfigSources) == 0 {
+		return []onboardCheckItem{{
+			Name:     "config_sources",
+			OK:       true,
+			Required: false,
+			Message:  "none configured",
+		}}
+	}
+	items := make([]onboardCheckItem, 0, len(cfg.ConfigSources))
+	for _, item := range cfg.ConfigSources {
+		ok := true
+		required := false
+		message := fmt.Sprintf("%s inject=%s configmap=%s", item.Type, item.InjectMode, item.ConfigMap)
+		if item.Type == "apollo" {
+			message += fmt.Sprintf(" appId=%s cluster=%s namespaces=%s", item.AppID, item.Cluster, strings.Join(item.Namespaces, ","))
+			if item.Meta != "" {
+				message += " meta=" + item.Meta
+			}
+			if item.TokenSecret != "" {
+				message += " tokenSecret=" + item.TokenSecret
+			}
+			if item.Required && item.Meta == "" {
+				ok = false
+				required = true
+				message = "required Apollo config source is missing meta"
+			}
+		}
+		items = append(items, onboardCheckItem{
+			Name:     "config_source_" + item.Name,
+			OK:       ok,
+			Required: required,
+			Message:  message,
+		})
+	}
+	return items
 }
 
 func checkOnboardMiddleware(cfg onboardServiceConfig) []onboardCheckItem {
@@ -312,8 +354,10 @@ func nextOnboardAction(item onboardCheckItem) string {
 		return "create Dockerfile or set dockerfile.mode: generate then run opspilot onboard service --write"
 	case "buildkit_ci":
 		return "generate .gitlab-ci.yml with opspilot onboard service --write or include /ci/templates/buildkit-gitops.<language>.yml"
-	case "namespace", "limitrange", "resourcequota", "deployment", "service", "kustomization", "deployment_resources", "deployment_probes", "deployment_storage":
+	case "namespace", "limitrange", "resourcequota", "deployment", "service", "kustomization", "deployment_resources", "deployment_probes", "deployment_storage", "configmap":
 		return "generate deploy/k8s manifests with opspilot onboard service --write"
+	case "config_source_apollo":
+		return "set configSources.apollo.meta or mark the config source optional"
 	case "release_mapping":
 		return "copy opspilot.release-service.txt into OpsPilot release service config"
 	case "quality_config":

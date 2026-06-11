@@ -75,6 +75,8 @@ Detection infers:
 - middleware intent from dependency and config signals such as MySQL, Redis,
   RabbitMQ, MinIO/S3, OpenSearch/Elasticsearch, and Kafka clients.
 - storage intent from logs, runtime/upload, and cache/temp path signals.
+- config source intent from Apollo-style flags or config keys such as
+  `--cfg=`, `--env=`, `APOLLO_META`, `apollo.meta`, and `apolloconfig`.
 
 ## Auto Generate
 
@@ -115,6 +117,8 @@ The check verifies:
 - `deploy/k8s/kustomization.yaml`.
 - optional `.opspilot/quality.yaml`.
 - optional `opspilot.release-service.txt`.
+- `deploy/k8s/configmap.yaml` when `configSources` such as Apollo are
+  configured.
 
 This command is intended for local onboarding and as a future GitLab CI
 preflight job before BuildKit runs.
@@ -149,6 +153,8 @@ opspilot repo autofix --repo . --project tpo/devex/skillshub/skillshub-api --wri
 - health path defaults.
 - middleware detection and generated lightweight middleware manifests where
   policy allows automatic provisioning.
+- Apollo/config source detection and generated ConfigMap plus Deployment
+  references when the application already supports that config source.
 
 `repo precheck` scans repository source code for high-confidence dangerous
 patterns before image packaging:
@@ -242,6 +248,18 @@ storage:
     mountPath: /tmp/cache
     sizeLimit: 1Gi
 
+configSources:
+  apollo:
+    type: apollo
+    required: true
+    appId: skillshub-api
+    env: prod
+    cluster: default
+    namespaces: application
+    meta: http://apolloconfig-server-inner.tpo.xzoa.com
+    tokenSecret: skillshub-api-apollo-token
+    inject: env
+
 release:
   prometheusSource: node200-k8s
 ```
@@ -299,6 +317,56 @@ opspilot errors recent --source middleware --service skillshub-api
 Dedicated middleware instances should be explicit exceptions for load testing,
 version compatibility testing, strong isolation, or middleware-specific
 configuration differences.
+
+## Config Sources
+
+OpsPilot treats external configuration systems as config sources, not
+middleware. The first supported source type is Apollo.
+
+When a repository already has Apollo support, OpsPilot can generate:
+
+- `deploy/k8s/configmap.yaml` with non-secret Apollo metadata such as AppID,
+  cluster, namespaces, environment, and config service URL.
+- Deployment `env` entries from that ConfigMap.
+- Optional Deployment `args` for applications that read flags such as
+  `--env=prod --cfg=http://apollo...`.
+- Optional read-only `apollo.yaml` ConfigMap mount for applications that read a
+  local config file.
+- Optional `Secret` reference for Apollo tokens. OpsPilot references the Secret
+  but does not generate or commit the token value.
+
+Example for command-argument style applications:
+
+```yaml
+configSources:
+  apollo:
+    type: apollo
+    required: true
+    appId: task-server
+    env: prod
+    cluster: default
+    namespaces: application,gms
+    meta: http://apolloconfig-server-inner.tpo.xzoa.com
+    tokenSecret: task-server-apollo-token
+    inject: args
+    envFlag: --env
+    metaFlag: --cfg
+```
+
+This renders Deployment args similar to:
+
+```yaml
+args:
+  - "--env=$(APOLLO_ENV)"
+  - "--cfg=$(APOLLO_META)"
+```
+
+For Spring Boot or other file-based apps, use `inject: file` and optionally set
+`mountPath`; OpsPilot mounts an `apollo.yaml` key from the generated ConfigMap.
+
+If the application code does not support Apollo yet, OpsPilot should report the
+config source as detected/planned evidence and let AI generate a code/config fix
+plan. YAML alone cannot make an application consume Apollo.
 
 ## Storage
 
