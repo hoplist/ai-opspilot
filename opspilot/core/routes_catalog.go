@@ -71,8 +71,12 @@ func registerCatalogRoutes(mux *http.ServeMux, state *runtimeState) {
 		}), nil, nil
 	}))
 	handleAPI(mux, "/api/credentials/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		raw := mergeConfigRaw(env("OPSPILOT_CREDENTIAL_CATALOG", ""), state.snapshot().config.CredentialCatalogRaw(), ";")
+		raw, source := mergedConfigSource(env("OPSPILOT_CREDENTIAL_CATALOG", ""), state.snapshot().config.CredentialCatalogRaw(), ";")
 		credentialCatalog, warnings := catalog.CredentialsFromEnv(raw)
+		credentialCatalog.Source = source
+		for idx := range credentialCatalog.Items {
+			credentialCatalog.Items[idx].Source = source
+		}
 		return credentialCatalog, warnings, nil
 	}))
 	handleAPI(mux, "/api/credentials/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
@@ -128,14 +132,23 @@ func registerCatalogRoutes(mux *http.ServeMux, state *runtimeState) {
 		}), nil, nil
 	}))
 	handleAPI(mux, "/api/clusters/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		raw := mergeConfigRaw(env("OPSPILOT_CLUSTER_CATALOG", ""), state.snapshot().config.ClusterCatalogRaw(), ";")
+		raw, source := mergedConfigSource(env("OPSPILOT_CLUSTER_CATALOG", ""), state.snapshot().config.ClusterCatalogRaw(), ";")
 		clusterCatalog, warnings := catalog.ClustersFromEnv(raw)
+		clusterCatalog.Source = source
+		for idx := range clusterCatalog.Items {
+			clusterCatalog.Items[idx].Source = source
+		}
 		return clusterCatalog, warnings, nil
 	}))
 	handleAPI(mux, "/api/services/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		snap := state.snapshot()
-		raw := mergeConfigRaw(env("OPSPILOT_SERVICE_CATALOG", ""), snap.config.ServiceCatalogRaw(), ";")
-		serviceCatalog, warnings := catalog.ServicesFromEnv(raw, serviceSeedsFromRelease(snap.releaseRegistry))
+		raw, source := mergedConfigSource(env("OPSPILOT_SERVICE_CATALOG", ""), snap.config.ServiceCatalogRaw(), ";")
+		seeds := serviceSeedsFromRelease(snap.releaseRegistry)
+		serviceCatalog, warnings := catalog.ServicesFromEnv(raw, seeds)
+		serviceCatalog.Source = sourceWithRelease(source, len(seeds) > 0)
+		for idx := range serviceCatalog.Items {
+			serviceCatalog.Items[idx].Source = serviceCatalog.Source
+		}
 		return serviceCatalog, warnings, nil
 	}))
 	handleAPI(mux, "/api/clusters/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
@@ -162,6 +175,30 @@ func registerCatalogRoutes(mux *http.ServeMux, state *runtimeState) {
 			Scope:       q.Get("scope"),
 		}), nil, nil
 	}))
+}
+
+func mergedConfigSource(legacy, fileRaw, sep string) (string, string) {
+	raw := mergeConfigRaw(legacy, fileRaw, sep)
+	switch {
+	case legacy != "" && fileRaw != "":
+		return raw, "env+file"
+	case fileRaw != "":
+		return raw, "file"
+	case legacy != "":
+		return raw, "env"
+	default:
+		return raw, "empty"
+	}
+}
+
+func sourceWithRelease(source string, hasRelease bool) string {
+	if !hasRelease {
+		return source
+	}
+	if source == "empty" {
+		return "release"
+	}
+	return source + "+release"
 }
 
 func serviceSeedsFromRelease(registry *release.Registry) []catalog.ServiceSeed {
