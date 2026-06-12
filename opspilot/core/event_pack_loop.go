@@ -34,6 +34,26 @@ func startEventPackLoop(k8sRegistry *k8s.Registry, promRegistry *prom.Registry, 
 	}()
 }
 
+func startEventPackLoopWithState(state *runtimeState, collector *errorevidence.Collector, store *evidence.Store, interval time.Duration) {
+	if state == nil || collector == nil || store == nil || !store.Enabled() || interval <= 0 {
+		return
+	}
+	go func() {
+		timer := time.NewTimer(10 * time.Second)
+		defer timer.Stop()
+		for {
+			<-timer.C
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			snap := state.snapshot()
+			if err := writeRecentEventPacks(ctx, snap.k8sRegistry, snap.promRegistry, snap.logClient, snap.releaseRegistry, collector, store); err != nil {
+				fmt.Fprintf(os.Stderr, "event_pack_scan_failed error=%v\n", err)
+			}
+			cancel()
+			timer.Reset(interval)
+		}
+	}()
+}
+
 func writeRecentEventPacks(ctx context.Context, k8sRegistry *k8s.Registry, promRegistry *prom.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, collector *errorevidence.Collector, store *evidence.Store) error {
 	client, _, err := k8sRegistry.ClientFor("")
 	if err != nil {

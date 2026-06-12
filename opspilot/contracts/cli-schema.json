@@ -76,6 +76,16 @@
       "description": "Show OpsPilot action risk boundaries: read-only, controlled mutation, high-risk plan-only, and forbidden."
     },
     {
+      "name": "config validate",
+      "readonly": true,
+      "description": "Validate a local OpsPilot YAML config directory before committing or syncing it from GitLab."
+    },
+    {
+      "name": "config status",
+      "readonly": true,
+      "description": "Show the OpsPilot backend's currently loaded config source, validity, file list, counts, warnings, and redacted credential state."
+    },
+    {
       "name": "services catalog",
       "readonly": true,
       "description": "Return the service catalog that maps services to repo, namespace, deployment, image, owner, middleware, config sources, and release mapping state."

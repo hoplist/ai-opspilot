@@ -15,13 +15,14 @@ import (
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/release"
 )
 
-func registerEvidencePackRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, errorCollector *errorevidence.Collector, qualitySettings release.QualitySettings, store *evidence.Store) {
+func registerEvidencePackRoutes(mux *http.ServeMux, state *runtimeState, errorCollector *errorevidence.Collector, qualitySettings release.QualitySettings, store *evidence.Store) {
 	handleAPI(mux, "/api/evidence/pack", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		snap := state.snapshot()
+		client, warnings, err := k8sClientForRequest(r, snap.k8sRegistry)
 		if err != nil {
 			return nil, warnings, err
 		}
-		pack, moreWarnings, err := buildEvidencePack(ctx, r, client, promRegistry, agentRegistry, logClient, releaseRegistry, errorCollector, qualitySettings)
+		pack, moreWarnings, err := buildEvidencePack(ctx, r, client, snap.promRegistry, snap.agentRegistry, snap.logClient, snap.releaseRegistry, errorCollector, qualitySettings)
 		warnings = append(warnings, moreWarnings...)
 		if err != nil {
 			return nil, warnings, err

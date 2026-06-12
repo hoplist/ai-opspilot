@@ -1,0 +1,22 @@
+apiVersion: opspilot.io/v1
+kind: Datasource
+metadata:
+  name: guangzhou-inner-es
+spec:
+  kind: elasticsearch
+  environment: test
+  region: guangzhou-inner
+  url: http://elasticsearch.example.internal:9200
+  credential_ref: guangzhou-inner-es
+  indexes:
+    apisix: apisix-*
+    app_default:
+      - "*-server-*"
+  fields:
+    time: "@timestamp"
+    host: host_02
+    uri: uri
+    status: status
+    request_time: request_time
+    upstream_addr: upstream_addr
+    service_uri: msg

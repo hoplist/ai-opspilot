@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpsPilot Service",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "opspilot.io/v1" },
+    "kind": { "const": "Service" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "group": { "type": "string" },
+        "environment": { "type": "string" },
+        "owner": { "type": "string" },
+        "repo": { "type": "string" },
+        "domains": { "type": "array", "items": { "type": "string" } },
+        "runtime": { "type": "object" },
+        "logs": { "type": "object" },
+        "gateway": { "type": "object" },
+        "correlation": { "type": "object" }
+      }
+    }
+  }
+}

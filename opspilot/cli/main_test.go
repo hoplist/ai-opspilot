@@ -33,6 +33,45 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestConfigValidateCommand(t *testing.T) {
+	dir := t.TempDir()
+	serviceDir := filepath.Join(dir, "services", "devex")
+	if err := os.MkdirAll(serviceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(serviceDir, "todo-server.yaml"), []byte(`apiVersion: opspilot.io/v1
+kind: Service
+metadata:
+  name: todo-server
+spec:
+  domains:
+    - todo.tpo.xzoa.com
+  logs:
+    app_indexes:
+      - todo-server-*
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"--output", "human", "config", "validate", "--dir", dir}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "services") {
+		t.Fatalf("output = %s", out.String())
+	}
+}
+
+func TestConfigValidateCommandFailsInvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "bad.yaml"), []byte("kind: ["), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"config", "validate", "--dir", dir}, &out); err == nil {
+		t.Fatal("expected invalid config to fail")
+	}
+}
+
 func TestConsumeGlobalFlags(t *testing.T) {
 	opts := globalOptions{backendURL: "default", output: "json"}
 	args := consumeGlobalFlags([]string{"--backend-url", "http://x", "--output", "table", "schema"}, &opts)
@@ -90,6 +129,22 @@ func TestCLISchemaIncludesLifecyclePlanningCommands(t *testing.T) {
 		var out bytes.Buffer
 		if err := run(args, &out); err == nil {
 			t.Fatalf("expected %v to be disabled in v1", args)
+		}
+	}
+}
+
+func TestCLISchemaIncludesConfigCommands(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "contracts", "cli-schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range [][]byte{
+		[]byte(`"name": "config validate"`),
+		[]byte(`"name": "config status"`),
+		[]byte("currently loaded config source"),
+	} {
+		if !bytes.Contains(body, expected) {
+			t.Fatalf("cli schema missing %s", expected)
 		}
 	}
 }

@@ -58,6 +58,31 @@ func TestCorrelationStrengthAllowsServiceOnlyInvestigation(t *testing.T) {
 	}
 }
 
+func TestMatchRouteAllowsHostOnlyWhenPrefixEmpty(t *testing.T) {
+	client := NewClientWithConfig("http://example", "", CorrelationConfig{
+		Routes: []CorrelationRoute{{
+			Name:         "todo",
+			Host:         "todo.tpo.xzoa.com",
+			PathPrefix:   "",
+			ServiceIndex: "todo-server-*",
+		}},
+	})
+	route := client.matchRoute("todo.tpo.xzoa.com", "")
+	if route == nil || route.ServiceIndex != "todo-server-*" {
+		t.Fatalf("route = %#v", route)
+	}
+}
+
+func TestServiceLogQueryDoesNotForceEmptyURI(t *testing.T) {
+	query, mode := serviceLogQuery(&CorrelationRoute{ServiceFallbackQuery: "level:error"}, "msg", "")
+	if mode != "uri" {
+		t.Fatalf("mode = %s", mode)
+	}
+	if query != "(level:error)" {
+		t.Fatalf("query = %q", query)
+	}
+}
+
 func containsAll(value string, needles ...string) bool {
 	for _, needle := range needles {
 		if !strings.Contains(value, needle) {

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpsPilot Datasource",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "opspilot.io/v1" },
+    "kind": { "const": "Datasource" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["elasticsearch", "opensearch", "elk", "kibana", "prometheus"] },
+        "environment": { "type": "string" },
+        "region": { "type": "string" },
+        "url": { "type": "string" },
+        "credential_ref": { "type": "string" },
+        "indexes": { "type": "object" },
+        "fields": { "type": "object" }
+      }
+    }
+  }
+}

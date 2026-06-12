@@ -4,16 +4,11 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
-	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/logsearch"
-	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/nodeagent"
-	prom "github.com/dualistpeng-netizen/ai-observability/opspilot/internal/prometheus"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/release"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/version"
 )
 
-func registerSystemRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, qualitySettings release.QualitySettings) {
-	defaultClient := k8sRegistry.DefaultClient()
+func registerSystemRoutes(mux *http.ServeMux, state *runtimeState, qualitySettings release.QualitySettings) {
 	handleAPI(mux, "/api/live", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return map[string]any{
 			"version": version.Version,
@@ -21,17 +16,19 @@ func registerSystemRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promReg
 		}, nil, nil
 	}))
 	handleAPI(mux, "/api/health", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		snap := state.snapshot()
+		defaultClient := snap.k8sRegistry.DefaultClient()
 		k8sHealth := defaultClient.Health()
-		k8sHealth["registry"] = k8sRegistry.Health()
+		k8sHealth["registry"] = snap.k8sRegistry.Health()
 		return map[string]any{
 			"version":    version.Version,
 			"kubernetes": k8sHealth,
-			"prometheus": promRegistry.Health(ctx),
-			"node_agent": agentRegistry.Health(ctx),
-			"logsearch":  logClient.Health(ctx),
+			"prometheus": snap.promRegistry.Health(ctx),
+			"node_agent": snap.agentRegistry.Health(ctx),
+			"logsearch":  snap.logClient.Health(ctx),
 			"release": map[string]any{
-				"configured": releaseRegistry.Configured(),
-				"services":   releaseRegistry.Services(),
+				"configured": snap.releaseRegistry.Configured(),
+				"services":   snap.releaseRegistry.Services(),
 			},
 			"quality": map[string]any{
 				"enabled":           qualitySettings.Enabled,
@@ -40,12 +37,17 @@ func registerSystemRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promReg
 			},
 		}, nil, nil
 	}))
+	handleAPI(mux, "/api/config/status", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		cfg := state.snapshot().config
+		return cfg.Summary(), cfg.Warnings, nil
+	}))
 	handleAPI(mux, "/api/capabilities", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		client, clusterWarnings, err := k8sClientForRequest(r, k8sRegistry)
+		snap := state.snapshot()
+		client, clusterWarnings, err := k8sClientForRequest(r, snap.k8sRegistry)
 		if err != nil {
 			return nil, clusterWarnings, err
 		}
-		data, warnings, err := buildCapabilities(ctx, client, promRegistry, agentRegistry, logClient, releaseRegistry, qualitySettings)
+		data, warnings, err := buildCapabilities(ctx, client, snap.promRegistry, snap.agentRegistry, snap.logClient, snap.releaseRegistry, qualitySettings)
 		if data != nil {
 			data["cluster"] = client.ClusterName()
 		}

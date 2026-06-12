@@ -33,6 +33,7 @@ func evidenceCommand(args []string) (string, url.Values) {
 	fs := flag.NewFlagSet("evidence request", flag.ExitOnError)
 	host := fs.String("host", "", "gateway host/domain")
 	uri := fs.String("uri", "", "request uri")
+	status := fs.String("status", "", "HTTP status code")
 	at := fs.String("at", "", "center time, RFC3339 or yyyy-mm-dd HH:MM[:SS]")
 	since := fs.Int("since", 900, "look back seconds when --at is empty")
 	window := fs.Int("window", 300, "seconds before and after --at")
@@ -47,6 +48,7 @@ func evidenceCommand(args []string) (string, url.Values) {
 	return "/api/evidence/request", url.Values{
 		"host":              []string{*host},
 		"uri":               []string{*uri},
+		"status":            []string{*status},
 		"at":                []string{*at},
 		"since_seconds":     []string{strconv.Itoa(*since)},
 		"window_seconds":    []string{strconv.Itoa(*window)},

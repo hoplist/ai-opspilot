@@ -62,6 +62,8 @@ func run(args []string, out io.Writer) error {
 		return runDoctor(opts, args[1:], out)
 	case "skills":
 		return runSkillsRegistry(opts, args[1:], out)
+	case "config":
+		return runConfigCommand(opts, args[1:], out)
 	case "credentials", "credential":
 		return runCredentialsCatalog(opts, args[1:], out)
 	case "audit":

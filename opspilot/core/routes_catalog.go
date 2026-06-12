@@ -10,7 +10,7 @@ import (
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/skillregistry"
 )
 
-func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry) {
+func registerCatalogRoutes(mux *http.ServeMux, state *runtimeState) {
 	handleAPI(mux, "/api/skills/registry", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		catalog, warnings := skillregistry.RegistryFromEnv(q.Get("category"), boolQuery(r, "integrated_only"))
@@ -63,14 +63,16 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 	}))
 	handleAPI(mux, "/api/intent/parse", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
+		snap := state.snapshot()
 		return intent.Interpret(intent.Request{
 			Query:           required(q.Get("query"), "query"),
 			ServiceOverride: q.Get("service"),
-			Services:        releaseRegistry.Services(),
+			Services:        snap.releaseRegistry.Services(),
 		}), nil, nil
 	}))
 	handleAPI(mux, "/api/credentials/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		credentialCatalog, warnings := catalog.CredentialsFromEnv(env("OPSPILOT_CREDENTIAL_CATALOG", ""))
+		raw := mergeConfigRaw(env("OPSPILOT_CREDENTIAL_CATALOG", ""), state.snapshot().config.CredentialCatalogRaw(), ";")
+		credentialCatalog, warnings := catalog.CredentialsFromEnv(raw)
 		return credentialCatalog, warnings, nil
 	}))
 	handleAPI(mux, "/api/credentials/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
@@ -126,11 +128,14 @@ func registerCatalogRoutes(mux *http.ServeMux, releaseRegistry *release.Registry
 		}), nil, nil
 	}))
 	handleAPI(mux, "/api/clusters/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		clusterCatalog, warnings := catalog.ClustersFromEnv(env("OPSPILOT_CLUSTER_CATALOG", ""))
+		raw := mergeConfigRaw(env("OPSPILOT_CLUSTER_CATALOG", ""), state.snapshot().config.ClusterCatalogRaw(), ";")
+		clusterCatalog, warnings := catalog.ClustersFromEnv(raw)
 		return clusterCatalog, warnings, nil
 	}))
 	handleAPI(mux, "/api/services/catalog", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		serviceCatalog, warnings := catalog.ServicesFromEnv(env("OPSPILOT_SERVICE_CATALOG", ""), serviceSeedsFromRelease(releaseRegistry))
+		snap := state.snapshot()
+		raw := mergeConfigRaw(env("OPSPILOT_SERVICE_CATALOG", ""), snap.config.ServiceCatalogRaw(), ";")
+		serviceCatalog, warnings := catalog.ServicesFromEnv(raw, serviceSeedsFromRelease(snap.releaseRegistry))
 		return serviceCatalog, warnings, nil
 	}))
 	handleAPI(mux, "/api/clusters/plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {

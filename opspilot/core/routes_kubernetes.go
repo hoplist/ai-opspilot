@@ -6,19 +6,17 @@ import (
 
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/errorevidence"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
-	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/logsearch"
-	prom "github.com/dualistpeng-netizen/ai-observability/opspilot/internal/prometheus"
-	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/release"
 )
 
-func registerKubernetesRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, promRegistry *prom.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, errorCollector *errorevidence.Collector) {
+func registerKubernetesRoutes(mux *http.ServeMux, state *runtimeState, errorCollector *errorevidence.Collector) {
 	handleAPI(mux, "/api/errors/recent", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
-		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		snap := state.snapshot()
+		client, warnings, err := k8sClientForRequest(r, snap.k8sRegistry)
 		if err != nil {
 			return nil, warnings, err
 		}
-		return errorCollector.Recent(ctx, client, releaseRegistry, promRegistry, logClient, errorevidence.Request{
+		return errorCollector.Recent(ctx, client, snap.releaseRegistry, snap.promRegistry, snap.logClient, errorevidence.Request{
 			Source:    q.Get("source"),
 			Service:   q.Get("service"),
 			Namespace: q.Get("namespace"),
@@ -26,7 +24,8 @@ func registerKubernetesRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, pro
 		})
 	}))
 	handleAPI(mux, "/api/inventory/overview", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		snap := state.snapshot()
+		client, warnings, err := k8sClientForRequest(r, snap.k8sRegistry)
 		if err != nil {
 			return nil, warnings, err
 		}
@@ -39,13 +38,14 @@ func registerKubernetesRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, pro
 		q := r.URL.Query()
 		namespace := required(q.Get("namespace"), "namespace")
 		pod := required(q.Get("pod"), "pod")
-		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		snap := state.snapshot()
+		client, warnings, err := k8sClientForRequest(r, snap.k8sRegistry)
 		if err != nil {
 			return nil, warnings, err
 		}
 		podContext, err := client.PodContext(ctx, namespace, pod)
 		if err == nil {
-			addPodMetrics(ctx, promRegistry, sourceQuery(r), podContext, namespace, pod)
+			addPodMetrics(ctx, snap.promRegistry, sourceQuery(r), podContext, namespace, pod)
 		}
 		return podContext, warnings, err
 	}))
@@ -53,19 +53,21 @@ func registerKubernetesRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, pro
 		q := r.URL.Query()
 		namespace := required(q.Get("namespace"), "namespace")
 		pod := required(q.Get("pod"), "pod")
-		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		snap := state.snapshot()
+		client, warnings, err := k8sClientForRequest(r, snap.k8sRegistry)
 		if err != nil {
 			return nil, warnings, err
 		}
 		diagnosis, err := client.DiagnosePod(ctx, namespace, pod)
 		if err == nil {
-			addPodMetrics(ctx, promRegistry, sourceQuery(r), diagnosis, namespace, pod)
+			addPodMetrics(ctx, snap.promRegistry, sourceQuery(r), diagnosis, namespace, pod)
 		}
 		return diagnosis, warnings, err
 	}))
 	handleAPI(mux, "/api/k8s/pods", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
-		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		snap := state.snapshot()
+		client, warnings, err := k8sClientForRequest(r, snap.k8sRegistry)
 		if err != nil {
 			return nil, warnings, err
 		}
@@ -74,7 +76,8 @@ func registerKubernetesRoutes(mux *http.ServeMux, k8sRegistry *k8s.Registry, pro
 	}))
 	handleAPI(mux, "/api/k8s/logs/pod", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
-		client, warnings, err := k8sClientForRequest(r, k8sRegistry)
+		snap := state.snapshot()
+		client, warnings, err := k8sClientForRequest(r, snap.k8sRegistry)
 		if err != nil {
 			return nil, warnings, err
 		}

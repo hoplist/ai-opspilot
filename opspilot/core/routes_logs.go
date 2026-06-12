@@ -8,17 +8,17 @@ import (
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/nodeagent"
 )
 
-func registerLogAndNodeRoutes(mux *http.ServeMux, agentRegistry *nodeagent.Registry, logClient *logsearch.Client) {
+func registerLogAndNodeRoutes(mux *http.ServeMux, state *runtimeState) {
 	handleAPI(mux, "/api/node-agents", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		return agentRegistry.Health(ctx), nil, nil
+		return state.snapshot().agentRegistry.Health(ctx), nil, nil
 	}))
 	handleAPI(mux, "/api/docker/containers", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		result, warnings, err := agentRegistry.Containers(ctx, hostQuery(r))
+		result, warnings, err := state.snapshot().agentRegistry.Containers(ctx, hostQuery(r))
 		return result, warnings, err
 	}))
 	handleAPI(mux, "/api/docker/inspect", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
-		result, err := agentRegistry.Inspect(ctx, hostQuery(r), required(q.Get("container"), "container"))
+		result, err := state.snapshot().agentRegistry.Inspect(ctx, hostQuery(r), required(q.Get("container"), "container"))
 		return result, nil, err
 	}))
 	handleAPI(mux, "/api/docker/logs", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
@@ -31,16 +31,16 @@ func registerLogAndNodeRoutes(mux *http.ServeMux, agentRegistry *nodeagent.Regis
 			LimitBytes:   intQuery(r, "limit_bytes", 1024*1024),
 			Timestamps:   boolQuery(r, "timestamps"),
 		}
-		log, err := agentRegistry.Logs(ctx, req)
+		log, err := state.snapshot().agentRegistry.Logs(ctx, req)
 		return log, nil, err
 	}))
 	handleAPI(mux, "/api/docker/stats", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
-		result, err := agentRegistry.Stats(ctx, hostQuery(r), required(q.Get("container"), "container"))
+		result, err := state.snapshot().agentRegistry.Stats(ctx, hostQuery(r), required(q.Get("container"), "container"))
 		return result, nil, err
 	}))
 	handleAPI(mux, "/api/host/disk", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
-		result, warnings, err := agentRegistry.HostDisk(ctx, nodeagent.HostDiskRequest{
+		result, warnings, err := state.snapshot().agentRegistry.HostDisk(ctx, nodeagent.HostDiskRequest{
 			Host:  hostQuery(r),
 			Limit: intQuery(r, "limit", nodeagent.DefaultDiskTopLimit),
 			Depth: intQuery(r, "depth", nodeagent.DefaultDiskMaxDepth),
@@ -49,7 +49,7 @@ func registerLogAndNodeRoutes(mux *http.ServeMux, agentRegistry *nodeagent.Regis
 	}))
 	handleAPI(mux, "/api/logs/search", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
-		result, err := logClient.Search(ctx, logsearch.SearchRequest{
+		result, err := state.snapshot().logClient.Search(ctx, logsearch.SearchRequest{
 			Namespace: q.Get("namespace"),
 			Pod:       q.Get("pod"),
 			Container: q.Get("container"),
@@ -60,9 +60,10 @@ func registerLogAndNodeRoutes(mux *http.ServeMux, agentRegistry *nodeagent.Regis
 	}))
 	handleAPI(mux, "/api/evidence/request", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
-		result, err := logClient.CorrelateRequest(ctx, logsearch.CorrelateRequest{
+		result, err := state.snapshot().logClient.CorrelateRequest(ctx, logsearch.CorrelateRequest{
 			Host:            q.Get("host"),
-			URI:             required(q.Get("uri"), "uri"),
+			URI:             q.Get("uri"),
+			Status:          q.Get("status"),
 			At:              q.Get("at"),
 			SinceSeconds:    intQueryAliases(r, []string{"since_seconds", "since"}, 900),
 			WindowSeconds:   intQueryAliases(r, []string{"window_seconds", "window"}, 300),
@@ -85,6 +86,6 @@ func registerLogAndNodeRoutes(mux *http.ServeMux, agentRegistry *nodeagent.Regis
 			LimitBytes:   intQuery(r, "limit_bytes", 1024*1024),
 			Timestamps:   boolQuery(r, "timestamps"),
 		}
-		return agentRegistry.Diagnose(ctx, req)
+		return state.snapshot().agentRegistry.Diagnose(ctx, req)
 	}))
 }

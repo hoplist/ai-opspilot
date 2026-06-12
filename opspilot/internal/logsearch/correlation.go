@@ -28,9 +28,10 @@ type CorrelationConfig struct {
 	DisableAPISIX bool
 	TimeField     string
 
-	APISIXHostField string
-	APISIXURIField  string
-	APISIXReqField  string
+	APISIXHostField   string
+	APISIXURIField    string
+	APISIXReqField    string
+	APISIXStatusField string
 
 	ServiceIndex    string
 	ServiceURIField string
@@ -53,6 +54,7 @@ type CorrelationRoute struct {
 type CorrelateRequest struct {
 	Host            string
 	URI             string
+	Status          string
 	At              string
 	SinceSeconds    int
 	WindowSeconds   int
@@ -79,6 +81,9 @@ func (c CorrelationConfig) withDefaults() CorrelationConfig {
 	}
 	if c.APISIXReqField == "" {
 		c.APISIXReqField = defaultAPISIXReqField
+	}
+	if c.APISIXStatusField == "" {
+		c.APISIXStatusField = "status"
 	}
 	if c.ServiceURIField == "" {
 		c.ServiceURIField = defaultServiceURIField
@@ -128,8 +133,8 @@ func (c *Client) CorrelateRequest(ctx context.Context, req CorrelateRequest) (ma
 	if !c.Configured() {
 		return nil, fmt.Errorf("log search is not configured")
 	}
-	if strings.TrimSpace(req.URI) == "" {
-		return nil, fmt.Errorf("uri is required")
+	if strings.TrimSpace(req.URI) == "" && strings.TrimSpace(req.Host) == "" && strings.TrimSpace(req.ServiceIndex) == "" {
+		return nil, fmt.Errorf("host, uri, or service_index is required")
 	}
 	limit := clampLimit(req.Limit)
 	start, end, mode, err := correlationRange(req)
@@ -176,7 +181,7 @@ func (c *Client) CorrelateRequest(ctx context.Context, req CorrelateRequest) (ma
 		"reason": "service_index is not configured or provided",
 	}
 	if serviceIndex != "" {
-		serviceResult, err = c.searchServiceLogs(ctx, config, route, serviceIndex, serviceURIField, req.URI, start, end, limit)
+		serviceResult, err = c.searchServiceLogs(ctx, config, route, serviceIndex, serviceURIField, req.URI, req.Status, start, end, limit)
 		if err != nil {
 			serviceResult = map[string]any{
 				"status": "error",
@@ -192,6 +197,7 @@ func (c *Client) CorrelateRequest(ctx context.Context, req CorrelateRequest) (ma
 		"input": map[string]any{
 			"host":            req.Host,
 			"uri":             req.URI,
+			"status":          req.Status,
 			"range_start":     start.Format(time.RFC3339Nano),
 			"range_end":       end.Format(time.RFC3339Nano),
 			"range_mode":      mode,
@@ -214,7 +220,7 @@ func (c *Client) matchRoute(host, uri string) *CorrelationRoute {
 		if !strings.EqualFold(route.Host, host) {
 			continue
 		}
-		if strings.HasPrefix(uri, route.PathPrefix) {
+		if route.PathPrefix == "" || uri == "" || strings.HasPrefix(uri, route.PathPrefix) {
 			matched := route
 			return &matched
 		}
@@ -225,8 +231,13 @@ func (c *Client) matchRoute(host, uri string) *CorrelationRoute {
 func (c *Client) searchAPISIX(ctx context.Context, config CorrelationConfig, index string, req CorrelateRequest, start, end time.Time, limit int) (map[string]any, error) {
 	filters := []any{
 		matchPhrase(config.APISIXHostField, req.Host),
-		matchPhrase(config.APISIXURIField, req.URI),
 		rangeFilter(config.TimeField, start, end),
+	}
+	if strings.TrimSpace(req.URI) != "" {
+		filters = append(filters, matchPhrase(config.APISIXURIField, req.URI))
+	}
+	if strings.TrimSpace(req.Status) != "" {
+		filters = append(filters, matchPhrase(config.APISIXStatusField, req.Status))
 	}
 	boolQuery := map[string]any{"filter": filters}
 	if !req.IncludeOptions {
@@ -283,13 +294,21 @@ func (c *Client) searchAPISIX(ctx context.Context, config CorrelationConfig, ind
 	}, nil
 }
 
-func (c *Client) searchServiceLogs(ctx context.Context, config CorrelationConfig, route *CorrelationRoute, index, serviceURIField, uri string, start, end time.Time, limit int) (map[string]any, error) {
+func (c *Client) searchServiceLogs(ctx context.Context, config CorrelationConfig, route *CorrelationRoute, index, serviceURIField, uri, status string, start, end time.Time, limit int) (map[string]any, error) {
 	must := []any{}
 	query, exact := serviceLogQuery(route, serviceURIField, uri)
 	if query != "" {
 		must = append(must, map[string]any{
 			"query_string": map[string]any{
 				"query":            query,
+				"analyze_wildcard": true,
+			},
+		})
+	}
+	if strings.TrimSpace(status) != "" {
+		must = append(must, map[string]any{
+			"query_string": map[string]any{
+				"query":            "status:" + quoteQuery(status) + " OR " + quoteQuery(status),
 				"analyze_wildcard": true,
 			},
 		})
@@ -318,12 +337,12 @@ func (c *Client) searchServiceLogs(ctx context.Context, config CorrelationConfig
 		items = append(items, serviceItem(hit, source))
 	}
 	total := totalHits(hits)
-	status := "available"
+	resultStatus := "available"
 	if total == 0 {
-		status = "empty"
+		resultStatus = "empty"
 	}
 	return map[string]any{
-		"status":       status,
+		"status":       resultStatus,
 		"index":        index,
 		"query":        query,
 		"query_mode":   exact,

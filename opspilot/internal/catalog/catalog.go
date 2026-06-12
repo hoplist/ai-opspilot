@@ -5,11 +5,14 @@ import "strings"
 // Credential records metadata about a secret without exposing the secret value.
 type Credential struct {
 	Name        string   `json:"name"`
+	Type        string   `json:"type,omitempty"`
 	Class       string   `json:"class,omitempty"`
 	Environment string   `json:"environment,omitempty"`
 	Scope       string   `json:"scope,omitempty"`
 	Storage     string   `json:"storage,omitempty"`
 	Namespace   string   `json:"namespace,omitempty"`
+	Username    string   `json:"username,omitempty"`
+	PasswordSet bool     `json:"password_set,omitempty"`
 	UsedBy      []string `json:"used_by,omitempty"`
 	Permissions []string `json:"permissions,omitempty"`
 	Owner       string   `json:"owner,omitempty"`
@@ -55,10 +58,15 @@ type Service struct {
 	Project       string   `json:"project,omitempty"`
 	Owner         string   `json:"owner,omitempty"`
 	Repo          string   `json:"repo,omitempty"`
+	Domains       []string `json:"domains,omitempty"`
 	Namespace     string   `json:"namespace,omitempty"`
 	Deployment    string   `json:"deployment,omitempty"`
 	Container     string   `json:"container,omitempty"`
 	Image         string   `json:"image,omitempty"`
+	AppIndexes    []string `json:"app_indexes,omitempty"`
+	MessageFields []string `json:"message_fields,omitempty"`
+	Gateway       string   `json:"gateway,omitempty"`
+	APISIXIndex   string   `json:"apisix_index,omitempty"`
 	GitLab        string   `json:"gitlab_project,omitempty"`
 	GitOps        string   `json:"gitops_path,omitempty"`
 	ArgoCD        string   `json:"argocd_app,omitempty"`
@@ -146,11 +154,14 @@ func parseCredentials(raw string) ([]Credential, []string) {
 		}
 		out = append(out, Credential{
 			Name:        name,
+			Type:        attrs["type"],
 			Class:       attrs["class"],
 			Environment: attrs["environment"],
 			Scope:       attrs["scope"],
 			Storage:     attrs["storage"],
 			Namespace:   attrs["namespace"],
+			Username:    attrs["username"],
+			PasswordSet: truthy(attrs["password_set"]),
 			UsedBy:      splitList(attrs["used_by"]),
 			Permissions: splitList(attrs["permissions"]),
 			Owner:       attrs["owner"],
@@ -222,10 +233,15 @@ func parseServices(raw string) ([]Service, []string) {
 			Project:       attrs["project"],
 			Owner:         attrs["owner"],
 			Repo:          firstNonEmpty(attrs["repo"], attrs["repository"]),
+			Domains:       splitList(firstNonEmpty(attrs["domains"], attrs["domain"], attrs["hosts"], attrs["host"])),
 			Namespace:     firstNonEmpty(attrs["namespace"], attrs["ns"]),
 			Deployment:    firstNonEmpty(attrs["deployment"], attrs["deploy"]),
 			Container:     attrs["container"],
 			Image:         attrs["image"],
+			AppIndexes:    splitList(firstNonEmpty(attrs["app_indexes"], attrs["app_index"], attrs["service_index"], attrs["logs"])),
+			MessageFields: splitList(firstNonEmpty(attrs["message_fields"], attrs["message_field"], attrs["service_uri_field"])),
+			Gateway:       firstNonEmpty(attrs["gateway"], attrs["gateway_datasource"]),
+			APISIXIndex:   attrs["apisix_index"],
 			GitLab:        firstNonEmpty(attrs["gitlab"], attrs["gitlab_project"]),
 			GitOps:        firstNonEmpty(attrs["gitops"], attrs["gitops_path"]),
 			ArgoCD:        firstNonEmpty(attrs["argocd"], attrs["argocd_app"]),
@@ -237,7 +253,28 @@ func parseServices(raw string) ([]Service, []string) {
 			Source:        "env",
 		})
 	}
-	return out, warnings
+	return dedupeServices(out), warnings
+}
+
+func dedupeServices(items []Service) []Service {
+	order := []string{}
+	byName := map[string]Service{}
+	unnamed := []Service{}
+	for _, item := range items {
+		if item.Name == "" {
+			unnamed = append(unnamed, item)
+			continue
+		}
+		if _, exists := byName[item.Name]; !exists {
+			order = append(order, item.Name)
+		}
+		byName[item.Name] = item
+	}
+	out := append([]Service{}, unnamed...)
+	for _, name := range order {
+		out = append(out, byName[name])
+	}
+	return out
 }
 
 func mergeSeed(item Service, seed ServiceSeed) Service {
@@ -314,6 +351,15 @@ func splitList(raw string) []string {
 		}
 	}
 	return out
+}
+
+func truthy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func sourceName(raw string) string {

@@ -15,6 +15,8 @@ type Client struct {
 	baseURL     string
 	index       string
 	correlation CorrelationConfig
+	username    string
+	password    string
 	http        *http.Client
 }
 
@@ -31,6 +33,10 @@ func NewClient(baseURL, index string) *Client {
 }
 
 func NewClientWithConfig(baseURL, index string, correlation CorrelationConfig) *Client {
+	return NewClientWithConfigAndAuth(baseURL, index, correlation, "", "")
+}
+
+func NewClientWithConfigAndAuth(baseURL, index string, correlation CorrelationConfig, username, password string) *Client {
 	if index == "" {
 		index = "opspilot-k8s-*"
 	}
@@ -39,6 +45,8 @@ func NewClientWithConfig(baseURL, index string, correlation CorrelationConfig) *
 		baseURL:     strings.TrimRight(baseURL, "/"),
 		index:       index,
 		correlation: correlation,
+		username:    username,
+		password:    password,
 		http:        &http.Client{Timeout: 20 * time.Second},
 	}
 }
@@ -171,6 +179,7 @@ func (c *Client) getStatus(ctx context.Context, path string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	c.setAuth(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return 0, err
@@ -187,6 +196,7 @@ func (c *Client) postJSON(ctx context.Context, path string, body any) (map[strin
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	c.setAuth(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
@@ -201,6 +211,12 @@ func (c *Client) postJSON(ctx context.Context, path string, body any) (map[strin
 		return nil, err
 	}
 	return out, nil
+}
+
+func (c *Client) setAuth(req *http.Request) {
+	if c != nil && c.username != "" {
+		req.SetBasicAuth(c.username, c.password)
+	}
 }
 
 func mapValue(value any) map[string]any {

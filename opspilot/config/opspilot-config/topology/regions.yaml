@@ -1,0 +1,20 @@
+topology:
+  - name: chengdu-inner
+    zone: chengdu
+    neighbors:
+      - chengdu-ab
+      - cloud-inner
+  - name: chengdu-ab
+    zone: chengdu
+    neighbors:
+      - chengdu-inner
+      - chengdu-outer
+  - name: cloud-inner
+    zone: cloud
+    neighbors:
+      - chengdu-inner
+      - cloud-ab
+  - name: guangzhou-inner
+    zone: guangzhou
+    neighbors:
+      - guangzhou-ab

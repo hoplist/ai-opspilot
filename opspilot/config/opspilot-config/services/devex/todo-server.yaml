@@ -1,0 +1,29 @@
+apiVersion: opspilot.io/v1
+kind: Service
+metadata:
+  name: todo-server
+spec:
+  group: devex
+  environment: test
+  owner: ops
+  repo: tpo/devex/todo-server
+  domains:
+    - todo.tpo.xzoa.com
+  runtime:
+    cluster: guangzhou-inner
+    namespace: todo
+    deployment: todo-server
+    container: server
+  logs:
+    app_indexes:
+      - todo-server-*
+    message_fields:
+      - msg
+      - message
+  gateway:
+    datasource: guangzhou-inner-es
+  correlation:
+    require_uri: false
+    path_prefixes:
+      - /api/im/
+    default_window_seconds: 300

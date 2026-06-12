@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/configloader"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/errorevidence"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/evidence"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
@@ -284,6 +285,28 @@ func TestServicesCatalogEndpoint(t *testing.T) {
 	}
 }
 
+func TestConfigStatusEndpoint(t *testing.T) {
+	mux := http.NewServeMux()
+	state := testRuntimeState("", configloader.Config{
+		Version: "v1",
+		Source:  "file",
+		Valid:   true,
+		Services: []configloader.Service{{
+			Name: "todo-server",
+		}},
+	})
+	registerRoutes(mux, state, errorevidence.NewCollector(t.TempDir()), release.QualitySettings{}, nil, evidence.NewStore(t.TempDir()))
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/config/status", nil)
+	mux.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"services":1`) {
+		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}
+
 func TestAuditPolicyEndpoint(t *testing.T) {
 	mux := http.NewServeMux()
 	registerTestRoutes(t, mux, "")
@@ -300,16 +323,16 @@ func TestAuditPolicyEndpoint(t *testing.T) {
 
 func registerTestRoutes(t *testing.T, mux *http.ServeMux, services string) {
 	t.Helper()
-	registerRoutes(
-		mux,
-		k8s.NewRegistry(k8s.RegistryConfig{}),
-		prom.NewRegistry("", "", ""),
-		nodeagent.NewRegistry("", ""),
-		logsearch.NewClientWithConfig("", "", logsearch.CorrelationConfig{}),
-		release.NewRegistry(services),
-		errorevidence.NewCollector(t.TempDir()),
-		release.QualitySettings{},
-		nil,
-		evidence.NewStore(t.TempDir()),
-	)
+	registerRoutes(mux, testRuntimeState(services, configloader.Config{Version: "v1", Source: "test", Valid: true}), errorevidence.NewCollector(t.TempDir()), release.QualitySettings{}, nil, evidence.NewStore(t.TempDir()))
+}
+
+func testRuntimeState(services string, cfg configloader.Config) *runtimeState {
+	return &runtimeState{
+		config:          cfg,
+		k8sRegistry:     k8s.NewRegistry(k8s.RegistryConfig{}),
+		promRegistry:    prom.NewRegistry("", "", ""),
+		agentRegistry:   nodeagent.NewRegistry("", ""),
+		logClient:       logsearch.NewClientWithConfig("", "", logsearch.CorrelationConfig{}),
+		releaseRegistry: release.NewRegistry(services),
+	}
 }
