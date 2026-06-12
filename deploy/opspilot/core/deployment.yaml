@@ -53,14 +53,14 @@ spec:
             - name: GITSYNC_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: opspilot-skills-secrets
-                  key: OPSPILOT_SKILLS_GIT_USERNAME
+                  name: opspilot-config-secrets
+                  key: OPSPILOT_CONFIG_GIT_USERNAME
                   optional: true
             - name: GITSYNC_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: opspilot-skills-secrets
-                  key: OPSPILOT_SKILLS_GIT_PASSWORD
+                  name: opspilot-config-secrets
+                  key: OPSPILOT_CONFIG_GIT_PASSWORD
                   optional: true
           securityContext:
             allowPrivilegeEscalation: false
@@ -174,14 +174,14 @@ spec:
             - name: GITSYNC_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: opspilot-skills-secrets
-                  key: OPSPILOT_SKILLS_GIT_USERNAME
+                  name: opspilot-config-secrets
+                  key: OPSPILOT_CONFIG_GIT_USERNAME
                   optional: true
             - name: GITSYNC_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: opspilot-skills-secrets
-                  key: OPSPILOT_SKILLS_GIT_PASSWORD
+                  name: opspilot-config-secrets
+                  key: OPSPILOT_CONFIG_GIT_PASSWORD
                   optional: true
           securityContext:
             allowPrivilegeEscalation: false

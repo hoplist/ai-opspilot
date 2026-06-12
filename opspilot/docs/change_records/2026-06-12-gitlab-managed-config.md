@@ -103,6 +103,12 @@ Implemented in this phase:
   - sidecar keeps `/etc/opspilot/config/current` updated every 60 seconds;
   - `opspilot-core` reads `OPSPILOT_CONFIG_DIR=/etc/opspilot/config/current`
     and hot reloads every 60 seconds.
+- Created `platform/opspilot-config` in GitLab and initialized it with the
+  config tree, README, schemas, and a validate pipeline.
+- Added a dedicated `opspilot-config-secrets` Kubernetes Secret backed by a
+  GitLab project deploy token with `read_repository` scope. Reusing
+  `opspilot-skills-secrets` failed with Git HTTP Basic access denied because
+  the skills credential is not scoped to the new config repository.
 - Added schema files for `Agent`, `Cluster`, and `Settings`.
 
 Boundary:
