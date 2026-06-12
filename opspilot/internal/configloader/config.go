@@ -289,18 +289,24 @@ func Load(dir string) Config {
 	}
 	cfg.Source = "file"
 	cfg.Directory = dir
-	files, err := yamlFiles(dir)
+	walkRoot := resolvedConfigRoot(dir)
+	files, err := yamlFiles(walkRoot)
 	if err != nil {
 		cfg.Valid = false
 		cfg.Errors = append(cfg.Errors, err.Error())
 		return cfg
 	}
-	cfg.Files = relativeFiles(dir, files)
+	cfg.Files = relativeFiles(walkRoot, files)
 	cfg.Commit = readFirstExisting(
-		filepath.Join(dir, ".git", "refs", "heads", "main"),
+		filepath.Join(walkRoot, ".git", "refs", "heads", "main"),
+		filepath.Join(walkRoot, "REVISION"),
+		filepath.Join(walkRoot, "revision"),
 		filepath.Join(dir, "REVISION"),
 		filepath.Join(dir, "revision"),
 	)
+	if cfg.Commit == "" {
+		cfg.Commit = commitFromGitSyncWorktree(walkRoot)
+	}
 	for _, file := range files {
 		loadFile(file, &cfg)
 	}
@@ -311,6 +317,26 @@ func Load(dir string) Config {
 		cfg.Valid = false
 	}
 	return cfg
+}
+
+func resolvedConfigRoot(dir string) string {
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return dir
+	}
+	return resolved
+}
+
+func commitFromGitSyncWorktree(path string) string {
+	parts := strings.Split(filepath.ToSlash(path), "/.worktrees/")
+	if len(parts) < 2 {
+		return ""
+	}
+	commit := strings.Trim(strings.Split(parts[len(parts)-1], "/")[0], " ")
+	if commit == "" || strings.Contains(commit, ".") {
+		return ""
+	}
+	return commit
 }
 
 func (c Config) Summary() Summary {

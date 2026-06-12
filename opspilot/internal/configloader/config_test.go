@@ -143,6 +143,35 @@ func TestLoadConfigDirectoryReportsInvalidYAML(t *testing.T) {
 	}
 }
 
+func TestLoadConfigDirectoryFollowsRootSymlink(t *testing.T) {
+	dir := t.TempDir()
+	realRoot := filepath.Join(dir, "root", ".worktrees", "abc123")
+	writeFile(t, realRoot, "services/demo.yaml", `
+apiVersion: opspilot.io/v1
+kind: Service
+metadata:
+  name: demo
+spec:
+  runtime:
+    namespace: demo
+    deployment: demo
+`)
+	link := filepath.Join(dir, "current")
+	if err := os.Symlink(realRoot, link); err != nil {
+		t.Skipf("symlink not available: %v", err)
+	}
+	cfg := Load(link)
+	if !cfg.Valid {
+		t.Fatalf("config errors = %v", cfg.Errors)
+	}
+	if len(cfg.Services) != 1 || cfg.Services[0].Name != "demo" {
+		t.Fatalf("services = %#v", cfg.Services)
+	}
+	if cfg.Commit != "abc123" {
+		t.Fatalf("commit = %q", cfg.Commit)
+	}
+}
+
 func writeFile(t *testing.T, root, rel, body string) {
 	t.Helper()
 	path := filepath.Join(root, rel)
