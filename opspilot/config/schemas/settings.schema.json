@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpsPilot Platform Settings",
+  "type": "object",
+  "required": ["settings"],
+  "properties": {
+    "settings": {
+      "type": "object",
+      "properties": {
+        "default_cluster": { "type": "string" },
+        "kubeconfig_dir": { "type": "string" },
+        "gitlab_url": { "type": "string" },
+        "gitops_project": { "type": "string" },
+        "gitops_ref": { "type": "string" },
+        "quality": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "runner_image": { "type": "string" },
+            "image_pull_secret": { "type": "string" },
+            "ref": { "type": "string" },
+            "ttl_seconds": { "type": "integer", "minimum": 1 },
+            "deadline_seconds": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    }
+  }
+}

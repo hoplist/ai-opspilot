@@ -1,0 +1,8 @@
+apiVersion: opspilot.io/v1
+kind: Agent
+metadata:
+  name: node206
+spec:
+  environment: test
+  url: http://192.168.48.206:19080
+  default: true

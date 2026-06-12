@@ -13,15 +13,19 @@ Recommended GitLab project:
 platform/opspilot-config
 ```
 
-Directory layout:
+Repository root layout:
 
 ```text
-opspilot-config/
-  credentials/
-  datasources/
-  services/
-  topology/
-  correlation/
+settings/
+credentials/
+clusters/
+datasources/
+agents/
+services/
+topology/
+correlation/
+schemas/
+.gitlab-ci.yml
 ```
 
 The sample structure in this repo is under `config/opspilot-config/`.
@@ -35,11 +39,35 @@ OPSPILOT_CONFIG_DIR=/etc/opspilot/config
 ```
 
 OpsPilot loads all `.yaml` and `.yml` files recursively from that directory.
+In Kubernetes, the recommended mount path is:
+
+```bash
+OPSPILOT_CONFIG_DIR=/etc/opspilot/config/current
+```
+
+`opspilot-config-init` pulls the repository once before startup and
+`config-sync` keeps it updated. OpsPilot can hot reload the directory with:
+
+```bash
+OPSPILOT_CONFIG_RELOAD_SECONDS=60
+```
+
 The config file values are merged with legacy env values:
 
 1. legacy env remains valid for compatibility;
 2. YAML values are appended and can override same-name catalog entries;
 3. missing YAML sections keep using existing env/default behavior.
+
+The current deployment keeps only bootstrap values in the Kubernetes ConfigMap:
+
+- listener port;
+- config Git sync URL/ref/period;
+- retention paths and size limits;
+- skills Git sync URL/ref/period;
+- secret-backed execution tokens.
+
+Service topology, datasources, cluster catalog, node agents, release mappings,
+credential catalog, and quality runner metadata live in the GitLab config repo.
 
 ## Credential Policy
 
@@ -62,6 +90,12 @@ Local validation:
 
 ```powershell
 go run ./opspilot/cli --output human config validate --dir ./opspilot/config/opspilot-config
+```
+
+Runtime status after deployment should show:
+
+```text
+Config: source=file valid=true dir=/etc/opspilot/config/current
 ```
 
 Runtime status:

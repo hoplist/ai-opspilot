@@ -423,6 +423,59 @@ const apiToken = "0123456789abcdef"
 	}
 }
 
+func TestRepoPrecheckSkipsCredentialCatalogMetadata(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	configDir := filepath.Join(dir, "config", "credentials")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := `credentials:
+  - name: opspilot-release-secrets
+    storage: kubernetes-secret
+    permissions:
+      - read_gitlab
+`
+	if err := os.WriteFile(filepath.Join(configDir, "platform.yaml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"repo", "precheck", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out); err != nil {
+		t.Fatalf("expected credential metadata to pass: %v\n%s", err, out.String())
+	}
+}
+
+func TestRepoPrecheckBlocksCredentialPasswordValue(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := `credentials:
+  - name: demo-db
+    password: "0123456789abcdef"
+`
+	if err := os.WriteFile(filepath.Join(dir, "credentials.yaml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := run([]string{"repo", "precheck", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out)
+	if err == nil {
+		t.Fatal("expected hardcoded credential password to fail")
+	}
+	var payload codePrecheckResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Status != "blocker" || payload.Items[0].ID != "secret_leak" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestRepoPrecheckSkipsGeneratedOpsPilotServiceConfig(t *testing.T) {
 	dir := t.TempDir()
 	config := `name: demo-api

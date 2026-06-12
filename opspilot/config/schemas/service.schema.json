@@ -24,6 +24,11 @@
         "runtime": { "type": "object" },
         "logs": { "type": "object" },
         "gateway": { "type": "object" },
+        "release": { "type": "object" },
+        "config_sources": { "type": "array", "items": { "type": "string" } },
+        "middleware": { "type": "array", "items": { "type": "string" } },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "storage": { "type": "array", "items": { "type": "string" } },
         "correlation": { "type": "object" }
       }
     }

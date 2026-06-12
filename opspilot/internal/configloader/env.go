@@ -121,6 +121,40 @@ func (c Config) ClusterCatalogRaw() string {
 	return strings.Join(entries, ";")
 }
 
+func (c Config) NodeAgentsRaw() string {
+	entries := []string{}
+	for _, item := range c.Agents {
+		if item.Name == "" || item.URL == "" {
+			continue
+		}
+		entries = append(entries, item.Name+"="+strings.TrimRight(item.URL, "/"))
+	}
+	return strings.Join(entries, ",")
+}
+
+func (c Config) DefaultNodeAgent() string {
+	for _, item := range c.Agents {
+		if item.Name != "" && item.Default {
+			return item.Name
+		}
+	}
+	if len(c.Agents) > 0 {
+		return c.Agents[0].Name
+	}
+	return ""
+}
+
+func (c Config) NodeAgentTokensRaw() string {
+	entries := []string{}
+	for _, item := range c.Agents {
+		if item.Name == "" || item.Credential == nil || item.Credential.Password == "" {
+			continue
+		}
+		entries = append(entries, item.Name+"="+item.Credential.Password)
+	}
+	return strings.Join(entries, ",")
+}
+
 func (c Config) PrometheusDatasourcesRaw() string {
 	entries := []string{}
 	for _, item := range c.Datasources {

@@ -1,0 +1,17 @@
+clusters:
+  - name: node200-test
+    environment: test
+    kubernetes_mode: in-cluster
+    kubernetes_ref: opspilot-core
+    prometheus: node200-k8s
+    logs: node200-logs
+    gitops_project: platform/gitops-manifests
+    gitops_path: clusters/test
+    argocd_namespace: argocd
+    registry: 192.168.48.206:5050
+  - name: node206-host
+    environment: test
+    kubernetes_mode: host-agent
+    prometheus: node206-host
+    logs: docker-node-agent
+    registry: 192.168.48.206:5050

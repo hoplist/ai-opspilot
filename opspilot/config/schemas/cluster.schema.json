@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpsPilot Cluster Bulk File",
+  "type": "object",
+  "required": ["clusters"],
+  "properties": {
+    "clusters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "environment": { "type": "string" },
+          "kubernetes_mode": { "type": "string" },
+          "kubernetes_ref": { "type": "string" },
+          "kubeconfig_path": { "type": "string" },
+          "kube_context": { "type": "string" },
+          "prometheus": { "type": "string" },
+          "logs": { "type": "string" },
+          "gitops_project": { "type": "string" },
+          "gitops_path": { "type": "string" },
+          "argocd_namespace": { "type": "string" },
+          "registry": { "type": "string" }
+        }
+      }
+    }
+  }
+}

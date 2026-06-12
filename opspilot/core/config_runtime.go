@@ -90,7 +90,7 @@ func buildRuntimeSnapshot(runtimeConfig configloader.Config) runtimeSnapshot {
 		config:          runtimeConfig,
 		k8sRegistry:     buildK8sRegistry(runtimeConfig),
 		promRegistry:    buildPromRegistry(runtimeConfig),
-		agentRegistry:   buildAgentRegistry(),
+		agentRegistry:   buildAgentRegistry(runtimeConfig),
 		logClient:       buildLogClient(runtimeConfig),
 		releaseRegistry: buildReleaseRegistry(runtimeConfig),
 	}
@@ -117,8 +117,8 @@ func buildK8sRegistry(runtimeConfig configloader.Config) *k8s.Registry {
 	clusterCatalogRaw := mergeConfigRaw(env("OPSPILOT_CLUSTER_CATALOG", ""), runtimeConfig.ClusterCatalogRaw(), ";")
 	return k8s.NewRegistry(k8s.RegistryConfig{
 		CatalogRaw:     clusterCatalogRaw,
-		DefaultCluster: env("OPSPILOT_CLUSTER", ""),
-		KubeconfigDir:  env("OPSPILOT_CLUSTER_KUBECONFIG_DIR", ""),
+		DefaultCluster: configValue(runtimeConfig.Settings.DefaultCluster, env("OPSPILOT_CLUSTER", "")),
+		KubeconfigDir:  configValue(runtimeConfig.Settings.KubeconfigDir, env("OPSPILOT_CLUSTER_KUBECONFIG_DIR", "")),
 	})
 }
 
@@ -131,11 +131,13 @@ func buildPromRegistry(runtimeConfig configloader.Config) *prom.Registry {
 	)
 }
 
-func buildAgentRegistry() *nodeagent.Registry {
+func buildAgentRegistry(runtimeConfig configloader.Config) *nodeagent.Registry {
+	agentsRaw := mergeConfigRaw(env("OPSPILOT_NODE_AGENTS", ""), runtimeConfig.NodeAgentsRaw(), ",")
+	tokensRaw := mergeConfigRaw(env("OPSPILOT_NODE_AGENT_TOKENS", ""), runtimeConfig.NodeAgentTokensRaw(), ",")
 	return nodeagent.NewRegistryWithTokens(
-		env("OPSPILOT_NODE_AGENT_DEFAULT_HOST", ""),
-		env("OPSPILOT_NODE_AGENTS", ""),
-		env("OPSPILOT_NODE_AGENT_TOKENS", ""),
+		configValue(runtimeConfig.DefaultNodeAgent(), env("OPSPILOT_NODE_AGENT_DEFAULT_HOST", "")),
+		agentsRaw,
+		tokensRaw,
 	)
 }
 
@@ -147,10 +149,10 @@ func buildLogClient(runtimeConfig configloader.Config) *logsearch.Client {
 func buildReleaseRegistry(runtimeConfig configloader.Config) *release.Registry {
 	serviceCatalogRaw := mergeConfigRaw(env("OPSPILOT_SERVICE_CATALOG", ""), runtimeConfig.ServiceCatalogRaw(), ";")
 	return release.NewRegistryWithCatalog(env("OPSPILOT_RELEASE_SERVICES", ""), serviceCatalogRaw, release.Datasources{
-		GitLabURL:     env("OPSPILOT_GITLAB_URL", ""),
+		GitLabURL:     configValue(runtimeConfig.Settings.GitLabURL, env("OPSPILOT_GITLAB_URL", "")),
 		GitLabToken:   env("OPSPILOT_GITLAB_TOKEN", ""),
-		GitOpsProject: env("OPSPILOT_GITOPS_PROJECT", ""),
-		GitOpsRef:     env("OPSPILOT_GITOPS_REF", "main"),
+		GitOpsProject: configValue(runtimeConfig.Settings.GitOpsProject, env("OPSPILOT_GITOPS_PROJECT", "")),
+		GitOpsRef:     configValue(runtimeConfig.Settings.GitOpsRef, env("OPSPILOT_GITOPS_REF", "main")),
 	})
 }
 

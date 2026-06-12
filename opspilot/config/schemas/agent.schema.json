@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "OpsPilot Datasource",
+  "title": "OpsPilot Node Agent",
   "type": "object",
   "required": ["apiVersion", "kind", "metadata", "spec"],
   "properties": {
     "apiVersion": { "const": "opspilot.io/v1" },
-    "kind": { "const": "Datasource" },
+    "kind": { "const": "Agent" },
     "metadata": {
       "type": "object",
       "required": ["name"],
@@ -15,16 +15,12 @@
     },
     "spec": {
       "type": "object",
-      "required": ["kind"],
+      "required": ["url"],
       "properties": {
-        "kind": { "enum": ["elasticsearch", "opensearch", "elk", "kibana", "prometheus"] },
         "environment": { "type": "string" },
-        "region": { "type": "string" },
-        "url": { "type": "string" },
-        "credential_ref": { "type": "string" },
-        "indexes": { "type": "object" },
-        "fields": { "type": "object" },
-        "options": { "type": "object" }
+        "url": { "type": "string", "minLength": 1 },
+        "default": { "type": "boolean" },
+        "credential_ref": { "type": "string" }
       }
     }
   }

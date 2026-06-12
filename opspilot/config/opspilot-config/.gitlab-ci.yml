@@ -1,0 +1,15 @@
+stages:
+  - validate
+
+validate:opspilot-config:
+  stage: validate
+  image:
+    name: m.daocloud.io/docker.io/library/golang:1.23-alpine
+  script:
+    - apk add --no-cache git
+    - test -n "${OPSPILOT_REPO_TOKEN}"
+    - git clone --depth 1 http://oauth2:${OPSPILOT_REPO_TOKEN}@192.168.48.206:8929/platform/opspilot.git /tmp/opspilot
+    - cd /tmp/opspilot
+    - go run ./opspilot/cli --output human config validate --dir "${CI_PROJECT_DIR}"
+  rules:
+    - if: $CI_COMMIT_BRANCH

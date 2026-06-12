@@ -1,0 +1,12 @@
+settings:
+  default_cluster: node200-test
+  kubeconfig_dir: /var/run/opspilot/clusters
+  gitlab_url: http://192.168.48.206:8929
+  gitops_project: platform/gitops-manifests
+  gitops_ref: main
+  quality:
+    enabled: true
+    runner_image: 192.168.48.206:5050/platform/opspilot/opspilot-core:main
+    image_pull_secret: gitlab-registry-pull
+    ttl_seconds: 3600
+    deadline_seconds: 120

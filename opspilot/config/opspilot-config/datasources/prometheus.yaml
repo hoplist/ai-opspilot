@@ -1,0 +1,11 @@
+datasources:
+  - name: node200-k8s
+    kind: prometheus
+    environment: test
+    region: chengdu-inner
+    url: http://opspilot-prometheus-server.monitoring.svc.cluster.local
+  - name: node206-host
+    kind: prometheus
+    environment: test
+    region: chengdu-inner
+    url: http://192.168.48.206:9090

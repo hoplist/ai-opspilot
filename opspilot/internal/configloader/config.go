@@ -28,10 +28,12 @@ type Config struct {
 	Files       []string     `json:"files,omitempty"`
 	Warnings    []string     `json:"warnings,omitempty"`
 	Errors      []string     `json:"errors,omitempty"`
+	Settings    Settings     `json:"settings,omitempty"`
 	Services    []Service    `json:"services,omitempty"`
 	Datasources []Datasource `json:"datasources,omitempty"`
 	Credentials []Credential `json:"credentials,omitempty"`
 	Clusters    []Cluster    `json:"clusters,omitempty"`
+	Agents      []Agent      `json:"agents,omitempty"`
 	Topology    []Region     `json:"topology,omitempty"`
 	Rules       []Rule       `json:"correlation_rules,omitempty"`
 }
@@ -48,6 +50,24 @@ type Summary struct {
 	Errors      []string       `json:"errors,omitempty"`
 	Counts      map[string]int `json:"counts"`
 	Credentials []Credential   `json:"credentials,omitempty"`
+}
+
+type Settings struct {
+	DefaultCluster string         `json:"default_cluster,omitempty" yaml:"default_cluster"`
+	KubeconfigDir  string         `json:"kubeconfig_dir,omitempty" yaml:"kubeconfig_dir"`
+	GitLabURL      string         `json:"gitlab_url,omitempty" yaml:"gitlab_url"`
+	GitOpsProject  string         `json:"gitops_project,omitempty" yaml:"gitops_project"`
+	GitOpsRef      string         `json:"gitops_ref,omitempty" yaml:"gitops_ref"`
+	Quality        QualitySetting `json:"quality,omitempty" yaml:"quality"`
+}
+
+type QualitySetting struct {
+	Enabled         *bool  `json:"enabled,omitempty" yaml:"enabled"`
+	RunnerImage     string `json:"runner_image,omitempty" yaml:"runner_image"`
+	ImagePullSecret string `json:"image_pull_secret,omitempty" yaml:"image_pull_secret"`
+	Ref             string `json:"ref,omitempty" yaml:"ref"`
+	TTLSeconds      int    `json:"ttl_seconds,omitempty" yaml:"ttl_seconds"`
+	DeadlineSeconds int    `json:"deadline_seconds,omitempty" yaml:"deadline_seconds"`
 }
 
 type Service struct {
@@ -161,6 +181,16 @@ type Cluster struct {
 	Source         string `json:"source,omitempty" yaml:"-"`
 }
 
+type Agent struct {
+	Name          string             `json:"name" yaml:"name"`
+	Environment   string             `json:"environment,omitempty" yaml:"environment"`
+	URL           string             `json:"url,omitempty" yaml:"url"`
+	Default       bool               `json:"default,omitempty" yaml:"default"`
+	CredentialRef string             `json:"credential_ref,omitempty" yaml:"credential_ref"`
+	Source        string             `json:"source,omitempty" yaml:"-"`
+	Credential    *CredentialRuntime `json:"-" yaml:"-"`
+}
+
 type Region struct {
 	Name      string   `json:"name" yaml:"name"`
 	Zone      string   `json:"zone,omitempty" yaml:"zone"`
@@ -224,12 +254,23 @@ type clusterDocument struct {
 
 type ClusterSpec Cluster
 
+type agentDocument struct {
+	APIVersion string    `yaml:"apiVersion"`
+	Kind       string    `yaml:"kind"`
+	Metadata   Metadata  `yaml:"metadata"`
+	Spec       AgentSpec `yaml:"spec"`
+}
+
+type AgentSpec Agent
+
 type bulkDocument struct {
 	Version     string       `yaml:"version"`
+	Settings    Settings     `yaml:"settings"`
 	Services    []Service    `yaml:"services"`
 	Datasources []Datasource `yaml:"datasources"`
 	Credentials []Credential `yaml:"credentials"`
 	Clusters    []Cluster    `yaml:"clusters"`
+	Agents      []Agent      `yaml:"agents"`
 	Topology    []Region     `yaml:"topology"`
 	Rules       []Rule       `yaml:"correlation_rules"`
 }
@@ -288,6 +329,7 @@ func (c Config) Summary() Summary {
 			"datasources":       len(c.Datasources),
 			"credentials":       len(c.Credentials),
 			"clusters":          len(c.Clusters),
+			"agents":            len(c.Agents),
 			"topology_regions":  len(c.Topology),
 			"correlation_rules": len(c.Rules),
 		},
@@ -312,6 +354,9 @@ func yamlFiles(dir string) ([]string, error) {
 			if strings.HasPrefix(entry.Name(), ".git") {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if strings.HasPrefix(entry.Name(), ".") {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
@@ -397,6 +442,16 @@ func parseDocument(path string, node *yaml.Node, cfg *Config) {
 		item.Name = firstNonEmpty(item.Name, doc.Metadata.Name)
 		item.Source = "file:" + filepath.ToSlash(path)
 		cfg.Clusters = append(cfg.Clusters, item)
+	case "agent":
+		var doc agentDocument
+		if err := node.Decode(&doc); err != nil {
+			cfg.Errors = append(cfg.Errors, fmt.Sprintf("%s: %v", path, err))
+			return
+		}
+		item := Agent(doc.Spec)
+		item.Name = firstNonEmpty(item.Name, doc.Metadata.Name)
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.Agents = append(cfg.Agents, item)
 	case "":
 		parseBulkDocument(path, node, cfg)
 	default:
@@ -410,6 +465,7 @@ func parseBulkDocument(path string, node *yaml.Node, cfg *Config) {
 		cfg.Errors = append(cfg.Errors, fmt.Sprintf("%s: %v", path, err))
 		return
 	}
+	cfg.Settings = mergeSettings(cfg.Settings, doc.Settings)
 	for _, item := range doc.Services {
 		item.Source = "file:" + filepath.ToSlash(path)
 		cfg.Services = append(cfg.Services, item)
@@ -426,6 +482,10 @@ func parseBulkDocument(path string, node *yaml.Node, cfg *Config) {
 	for _, item := range doc.Clusters {
 		item.Source = "file:" + filepath.ToSlash(path)
 		cfg.Clusters = append(cfg.Clusters, item)
+	}
+	for _, item := range doc.Agents {
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.Agents = append(cfg.Agents, item)
 	}
 	for _, item := range doc.Topology {
 		item.Source = "file:" + filepath.ToSlash(path)
@@ -473,6 +533,17 @@ func validate(cfg *Config) {
 			cfg.Errors = append(cfg.Errors, "cluster entry missing name")
 		}
 	}
+	for _, item := range cfg.Agents {
+		if item.Name == "" {
+			cfg.Errors = append(cfg.Errors, "agent entry missing name")
+		}
+		if item.URL == "" {
+			cfg.Warnings = append(cfg.Warnings, "agent "+item.Name+" has no URL")
+		}
+		if item.CredentialRef != "" && credentialByName(cfg.Credentials, item.CredentialRef) == nil {
+			cfg.Warnings = append(cfg.Warnings, "agent "+item.Name+" references missing credential "+item.CredentialRef)
+		}
+	}
 }
 
 func attachCredentials(cfg *Config) {
@@ -486,6 +557,20 @@ func attachCredentials(cfg *Config) {
 			continue
 		}
 		cfg.Datasources[idx].Credential = &CredentialRuntime{
+			Username: cred.Username,
+			Password: cred.Password,
+		}
+	}
+	for idx := range cfg.Agents {
+		ref := cfg.Agents[idx].CredentialRef
+		if ref == "" {
+			continue
+		}
+		cred := credentialByName(cfg.Credentials, ref)
+		if cred == nil {
+			continue
+		}
+		cfg.Agents[idx].Credential = &CredentialRuntime{
 			Username: cred.Username,
 			Password: cred.Password,
 		}
@@ -506,8 +591,46 @@ func dedupe(cfg *Config) {
 	cfg.Datasources = dedupeByName(cfg.Datasources, func(item Datasource) string { return item.Name })
 	cfg.Credentials = dedupeByName(cfg.Credentials, func(item Credential) string { return item.Name })
 	cfg.Clusters = dedupeByName(cfg.Clusters, func(item Cluster) string { return item.Name })
+	cfg.Agents = dedupeByName(cfg.Agents, func(item Agent) string { return item.Name })
 	cfg.Topology = dedupeByName(cfg.Topology, func(item Region) string { return item.Name })
 	cfg.Rules = dedupeByName(cfg.Rules, func(item Rule) string { return item.Name })
+}
+
+func mergeSettings(base, next Settings) Settings {
+	if next.DefaultCluster != "" {
+		base.DefaultCluster = next.DefaultCluster
+	}
+	if next.KubeconfigDir != "" {
+		base.KubeconfigDir = next.KubeconfigDir
+	}
+	if next.GitLabURL != "" {
+		base.GitLabURL = next.GitLabURL
+	}
+	if next.GitOpsProject != "" {
+		base.GitOpsProject = next.GitOpsProject
+	}
+	if next.GitOpsRef != "" {
+		base.GitOpsRef = next.GitOpsRef
+	}
+	if next.Quality.Enabled != nil {
+		base.Quality.Enabled = next.Quality.Enabled
+	}
+	if next.Quality.RunnerImage != "" {
+		base.Quality.RunnerImage = next.Quality.RunnerImage
+	}
+	if next.Quality.ImagePullSecret != "" {
+		base.Quality.ImagePullSecret = next.Quality.ImagePullSecret
+	}
+	if next.Quality.Ref != "" {
+		base.Quality.Ref = next.Quality.Ref
+	}
+	if next.Quality.TTLSeconds > 0 {
+		base.Quality.TTLSeconds = next.Quality.TTLSeconds
+	}
+	if next.Quality.DeadlineSeconds > 0 {
+		base.Quality.DeadlineSeconds = next.Quality.DeadlineSeconds
+	}
+	return base
 }
 
 func dedupeByName[T any](items []T, name func(T) string) []T {

@@ -1,17 +1,16 @@
 apiVersion: opspilot.io/v1
 kind: Datasource
 metadata:
-  name: guangzhou-inner-es
+  name: node200-logs
 spec:
   kind: elasticsearch
   environment: test
-  region: guangzhou-inner
-  url: http://elasticsearch.example.internal:9200
-  credential_ref: guangzhou-inner-es
+  region: chengdu-inner
+  url: http://elasticsearch.logging.svc.cluster.local:9200
   indexes:
     apisix: apisix-*
     app_default:
-      - "*-server-*"
+      - opspilot-k8s-*
   fields:
     time: "@timestamp"
     host: host_02

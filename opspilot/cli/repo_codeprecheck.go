@@ -355,6 +355,10 @@ func looksLikeSecretLeak(line string) bool {
 	if !strings.Contains(line, "=") && !strings.Contains(line, ":") {
 		return false
 	}
+	key := strings.ToLower(keyBeforeAssignment(line))
+	if !containsAny(key, []string{"password", "passwd", "token", "access_key", "accesskey", "api_key", "apikey", "private_key"}) {
+		return false
+	}
 	if containsAny(lower, []string{"${", "$env", "env.", "env(", "getenv", "os.getenv", "secretref", "valuefrom", "example", "placeholder", "changeme", "your_", "<", "xxx", "token_or_api", "missing", "source_skill_path", "image_pull_secret", "pull_secret", "settings.", "qualitysettings."}) {
 		return false
 	}
@@ -363,6 +367,19 @@ func looksLikeSecretLeak(line string) bool {
 		return false
 	}
 	return looksLikeSecretLiteral(value) || strings.Contains(lower, "private_key")
+}
+
+func keyBeforeAssignment(line string) string {
+	idx := strings.IndexAny(line, "=:")
+	if idx < 0 {
+		return ""
+	}
+	key := strings.TrimSpace(line[:idx])
+	key = strings.Trim(key, `"', `)
+	if dot := strings.LastIndex(key, "."); dot >= 0 {
+		key = key[dot+1:]
+	}
+	return key
 }
 
 func valueAfterAssignment(line string) string {

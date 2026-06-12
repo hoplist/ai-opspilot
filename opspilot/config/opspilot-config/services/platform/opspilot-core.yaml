@@ -1,0 +1,27 @@
+apiVersion: opspilot.io/v1
+kind: Service
+metadata:
+  name: opspilot-core
+spec:
+  environment: test
+  group: platform
+  project: opspilot
+  owner: platform
+  repo: platform/opspilot
+  runtime:
+    cluster: node200-k8s
+    namespace: opspilot
+    deployment: opspilot-core
+    container: core
+    image: 192.168.48.206:5050/platform/opspilot/opspilot-core
+  release:
+    gitlab_project: platform/opspilot
+    gitops_path: clusters/test/apps/opspilot-core/deployment.yaml
+    argocd_app: opspilot-core
+  config_sources:
+    - gitlab-config
+    - gitlab-skills
+  middleware:
+    - none
+  storage:
+    - emptyDir

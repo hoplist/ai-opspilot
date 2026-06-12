@@ -56,6 +56,65 @@ migration.
 - No Secret/Vault migration. Internal test credentials can remain plaintext in
   the private config repository.
 
+## Phase 2: Runtime Env Migration To GitLab Config
+
+Goal:
+
+- Move mutable OpsPilot runtime mappings out of the `opspilot-core` ConfigMap
+  and into the GitLab-managed `platform/opspilot-config` repository.
+- Keep only bootstrap/runtime-local values in the Kubernetes ConfigMap:
+  listener port, config Git sync URL/ref/period, retention paths/limits, skills
+  Git sync URL/ref/period, and other storage-loop settings that must exist
+  before config loading.
+- Keep sensitive execution tokens in Kubernetes Secret or GitLab CI variables;
+  OpsPilot APIs must continue to return only redacted credential metadata.
+
+Implemented in this phase:
+
+- Added config model support for:
+  - `settings`: default cluster, kubeconfig directory, GitLab URL, GitOps
+    project/ref, optional quality runner settings.
+  - `agents`: read-only node agent endpoints such as node206.
+- Updated runtime wiring so these values are read from config files first and
+  legacy env remains a fallback:
+  - Kubernetes cluster catalog/default.
+  - Prometheus datasources/default.
+  - Elasticsearch/OpenSearch/APISIX/service-log defaults.
+  - Release service mappings through the service catalog.
+  - GitLab/GitOps release datasource metadata.
+  - Node agent endpoints and optional token references.
+- Replaced the local example config with the current node200/node206 test
+  platform configuration:
+  - `settings/platform.yaml`
+  - `credentials/platform.yaml`
+  - `clusters/node200.yaml`
+  - `datasources/prometheus.yaml`
+  - `datasources/elasticsearch.yaml`
+  - `agents/node206.yaml`
+  - `services/platform/opspilot-core.yaml`
+- Slimmed `deploy/opspilot/core/configmap.yaml` by removing long catalog envs:
+  `OPSPILOT_CLUSTER_CATALOG`, `OPSPILOT_PROMETHEUS_DATASOURCES`,
+  `OPSPILOT_NODE_AGENTS`, `OPSPILOT_LOGSEARCH_URL`,
+  `OPSPILOT_APISIX_INDEX`, `OPSPILOT_SERVICE_CATALOG`,
+  `OPSPILOT_RELEASE_SERVICES`, `OPSPILOT_CREDENTIAL_CATALOG`, and quality
+  runner envs.
+- Added `opspilot-config-init` and `config-sync` git-sync containers:
+  - init container pulls config once before `opspilot-core` starts;
+  - sidecar keeps `/etc/opspilot/config/current` updated every 60 seconds;
+  - `opspilot-core` reads `OPSPILOT_CONFIG_DIR=/etc/opspilot/config/current`
+    and hot reloads every 60 seconds.
+- Added schema files for `Agent`, `Cluster`, and `Settings`.
+
+Boundary:
+
+- `OPSPILOT_GITLAB_TOKEN` remains secret-provided env because it is an execution
+  credential for GitLab API calls, not human-maintained topology config.
+- Git sync credentials remain in Kubernetes Secret and are consumed only by
+  git-sync sidecars.
+- Retention paths/limits remain ConfigMap bootstrap settings for now because
+  they are needed before stores are constructed and are local process behavior,
+  not service topology.
+
 ## Minimum Validation
 
 ```powershell

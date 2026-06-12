@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/audit"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/configloader"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/errorevidence"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/evidence"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/release"
@@ -22,14 +23,7 @@ func main() {
 
 	runtimeConfig := loadRuntimeConfig()
 	state := newRuntimeState(runtimeConfig)
-	qualitySettings := release.QualitySettings{
-		Enabled:         boolEnv("OPSPILOT_QUALITY_ENABLED", true),
-		RunnerImage:     env("OPSPILOT_QUALITY_RUNNER_IMAGE", ""),
-		ImagePullSecret: env("OPSPILOT_QUALITY_IMAGE_PULL_SECRET", ""),
-		Ref:             env("OPSPILOT_QUALITY_REF", ""),
-		TTLSeconds:      intEnv("OPSPILOT_QUALITY_JOB_TTL_SECONDS", 3600),
-		DeadlineSeconds: intEnv("OPSPILOT_QUALITY_DEADLINE_SECONDS", 120),
-	}
+	qualitySettings := buildQualitySettings(runtimeConfig)
 	errorCollector := errorevidence.NewCollector(env("OPSPILOT_ERROR_EVENT_DIR", "/var/lib/opspilot/error-events"))
 	auditRecorder := audit.NewRecorderWithRetention(env("OPSPILOT_AUDIT_LOG_PATH", "/var/lib/opspilot/audit/audit.jsonl"), audit.RetentionPolicy{
 		MaxBytes: int64(intEnv("OPSPILOT_AUDIT_MAX_BYTES", 33554432)),
@@ -68,4 +62,26 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func buildQualitySettings(cfg configloader.Config) release.QualitySettings {
+	enabled := boolEnv("OPSPILOT_QUALITY_ENABLED", true)
+	if cfg.Settings.Quality.Enabled != nil {
+		enabled = *cfg.Settings.Quality.Enabled
+	}
+	return release.QualitySettings{
+		Enabled:         enabled,
+		RunnerImage:     configValue(cfg.Settings.Quality.RunnerImage, env("OPSPILOT_QUALITY_RUNNER_IMAGE", "")),
+		ImagePullSecret: configValue(cfg.Settings.Quality.ImagePullSecret, env("OPSPILOT_QUALITY_IMAGE_PULL_SECRET", "")),
+		Ref:             configValue(cfg.Settings.Quality.Ref, env("OPSPILOT_QUALITY_REF", "")),
+		TTLSeconds:      configIntValue(cfg.Settings.Quality.TTLSeconds, intEnv("OPSPILOT_QUALITY_JOB_TTL_SECONDS", 3600)),
+		DeadlineSeconds: configIntValue(cfg.Settings.Quality.DeadlineSeconds, intEnv("OPSPILOT_QUALITY_DEADLINE_SECONDS", 120)),
+	}
+}
+
+func configIntValue(preferred, fallback int) int {
+	if preferred > 0 {
+		return preferred
+	}
+	return fallback
 }
