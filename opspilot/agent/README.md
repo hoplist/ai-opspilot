@@ -11,7 +11,7 @@ OPSPILOT_AGENT_DOCKER_SOCKET=/var/run/docker.sock
 OPSPILOT_AGENT_ALLOWED_CONTAINERS=gitlab,prometheus,cadvisor,node-exporter
 OPSPILOT_AGENT_TOKEN=
 OPSPILOT_AGENT_HOST_ROOT=/host
-OPSPILOT_AGENT_DISK_ALLOWED_PATHS=/var/lib/docker,/var/log,/opt,/data
+OPSPILOT_AGENT_DISK_ALLOWED_PATHS=/var/lib/docker,/var/log,/opt,/data,/data*
 OPSPILOT_AGENT_DISK_MAX_DEPTH=2
 OPSPILOT_AGENT_DISK_TOP_LIMIT=20
 ```
@@ -44,6 +44,7 @@ file and inject the matching `OPSPILOT_NODE_AGENT_TOKENS` into
 - `GET /api/containers/{container}/logs?tail=300&since_seconds=1800`
 - `GET /api/containers/{container}/stats`
 - `GET /api/host/disk?limit=20&depth=2`
+- `GET /api/host/network?limit=20&duration=5`
 
 Limits are enforced in the agent:
 
@@ -52,12 +53,27 @@ Limits are enforced in the agent:
 - `limit_bytes <= 5MiB`
 - `disk depth <= 4`
 - `disk top limit <= 100`
+- `network duration <= 30`
+- `network top limit <= 100`
 
 `/api/host/disk` is read-only. It scans only
 `OPSPILOT_AGENT_DISK_ALLOWED_PATHS`, does not follow symlinks, reports Docker
 `system df` evidence, reports allowed container log file sizes, and returns a
 plan-only cleanup recommendation. It never truncates logs, deletes files,
 runs `docker prune`, edits Docker daemon config, or restarts containers.
+Trailing `*` path patterns are expanded at runtime, so `/data*` includes
+additional mounted directories such as `/data00` and `/data01` when they exist.
+
+Disk attribution walks directory entries up to the configured depth. It is
+bounded by depth, top limit, request timeout, and the allowed path list, but it
+can still add I/O pressure on very large hostPath trees. Prefer Prometheus
+filesystem metrics for frequent checks, and use `/api/host/disk` on demand when
+you need directory-level attribution.
+
+`/api/host/network` is read-only and does not use eBPF. It takes two short
+samples of `/proc/net/dev` plus allowed Docker container stats, then reports
+interface/container RX/TX rates and TCP state counts. It does not capture packet
+payloads and does not persist traffic data.
 
 When the agent runs in Docker and needs host directory attribution, mount the
 host paths read-only under `OPSPILOT_AGENT_HOST_ROOT`, for example:

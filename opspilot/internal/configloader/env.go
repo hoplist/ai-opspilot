@@ -188,7 +188,7 @@ type LogSearchDefaults struct {
 func (c Config) LogSearchDefaults() LogSearchDefaults {
 	for _, item := range c.Datasources {
 		kind := strings.ToLower(item.Kind)
-		if item.Name == "" || item.URL == "" || (kind != "elasticsearch" && kind != "opensearch" && kind != "elk" && kind != "kibana") {
+		if item.Name == "" || item.URL == "" || (kind != "elasticsearch" && kind != "opensearch" && kind != "elk") {
 			continue
 		}
 		out := LogSearchDefaults{
@@ -197,8 +197,10 @@ func (c Config) LogSearchDefaults() LogSearchDefaults {
 		}
 		if len(item.Indexes.AppDefault) > 0 {
 			out.ServiceIndex = item.Indexes.AppDefault[0]
+			out.Index = item.Indexes.AppDefault[0]
 		} else if len(item.Indexes.App) > 0 {
 			out.ServiceIndex = item.Indexes.App[0]
+			out.Index = item.Indexes.App[0]
 		}
 		if item.Fields != nil {
 			out.ServiceURIField = firstNonEmpty(item.Fields["service_uri"], item.Fields["message"], item.Fields["log"])

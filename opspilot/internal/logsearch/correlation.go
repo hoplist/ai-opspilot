@@ -14,13 +14,15 @@ import (
 )
 
 const (
-	defaultAPISIXIndex      = "apisix-*"
-	defaultTimeField        = "@timestamp"
-	defaultAPISIXHostField  = "host_02"
-	defaultAPISIXURIField   = "uri"
-	defaultAPISIXReqField   = "request"
-	defaultServiceURIField  = "msg"
-	defaultCorrelationLimit = 20
+	defaultAPISIXIndex          = "apisix-*"
+	defaultTimeField            = "@timestamp"
+	defaultAPISIXHostField      = "host_02"
+	defaultAPISIXURIField       = "uri"
+	defaultAPISIXReqField       = "request"
+	defaultServiceURIField      = "msg"
+	defaultCorrelationLimit     = 20
+	maxCorrelationSinceSeconds  = 7200
+	maxCorrelationWindowSeconds = 3600
 )
 
 type CorrelationConfig struct {
@@ -246,7 +248,28 @@ func (c *Client) searchAPISIX(ctx context.Context, config CorrelationConfig, ind
 		}
 	}
 	body := map[string]any{
-		"size": limit,
+		"size":             limit,
+		"timeout":          searchTimeout,
+		"track_total_hits": false,
+		"_source": []string{
+			"@timestamp",
+			"@timestamp_02",
+			"host_02",
+			"uri",
+			"request",
+			"status",
+			"request_time",
+			"upstream_response_time",
+			"upstream_addr",
+			"remote_addr",
+			"http_x_forwarded_for",
+			"http_user_agent",
+			"trace_id",
+			"traceId",
+			"request_id",
+			"requestId",
+			"x_request_id",
+		},
 		"sort": []any{map[string]any{
 			config.TimeField: map[string]any{"order": "desc"},
 		}},
@@ -314,7 +337,25 @@ func (c *Client) searchServiceLogs(ctx context.Context, config CorrelationConfig
 		})
 	}
 	body := map[string]any{
-		"size": limit,
+		"size":             limit,
+		"timeout":          searchTimeout,
+		"track_total_hits": false,
+		"_source": []string{
+			"@timestamp",
+			"time",
+			"level",
+			"caller",
+			"msg",
+			"message",
+			"evtName",
+			"timeCost",
+			"traceId",
+			"trace_id",
+			"userID",
+			"user_id",
+			"host",
+			"host.name",
+		},
 		"sort": []any{map[string]any{
 			config.TimeField: map[string]any{"order": "desc"},
 		}},
@@ -419,6 +460,9 @@ func correlationRange(req CorrelateRequest) (time.Time, time.Time, string, error
 	if window <= 0 {
 		window = 300
 	}
+	if window > maxCorrelationWindowSeconds {
+		window = maxCorrelationWindowSeconds
+	}
 	if req.At != "" {
 		at, err := parseAt(req.At)
 		if err != nil {
@@ -429,6 +473,9 @@ func correlationRange(req CorrelateRequest) (time.Time, time.Time, string, error
 	since := req.SinceSeconds
 	if since <= 0 {
 		since = 900
+	}
+	if since > maxCorrelationSinceSeconds {
+		since = maxCorrelationSinceSeconds
 	}
 	end := time.Now()
 	return end.Add(-time.Duration(since) * time.Second), end, "since_now", nil

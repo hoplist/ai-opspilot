@@ -73,13 +73,15 @@ func logsCommand(args []string) (string, url.Values) {
 	query := fs.String("q", "", "query string against log field")
 	fs.StringVar(query, "query", "", "query string against log field")
 	limit := fs.Int("limit", 20, "result limit")
+	since := fs.Int("since", 1800, "look back seconds")
 	_ = fs.Parse(args[1:])
 	return "/api/logs/search", url.Values{
-		"namespace": []string{*namespace},
-		"pod":       []string{*pod},
-		"container": []string{*container},
-		"q":         []string{*query},
-		"limit":     []string{strconv.Itoa(*limit)},
+		"namespace":     []string{*namespace},
+		"pod":           []string{*pod},
+		"container":     []string{*container},
+		"q":             []string{*query},
+		"limit":         []string{strconv.Itoa(*limit)},
+		"since_seconds": []string{strconv.Itoa(*since)},
 	}
 }
 

@@ -65,6 +65,16 @@ func TestBoundedHostDiskRequest(t *testing.T) {
 	}
 }
 
+func TestBoundedHostNetworkRequest(t *testing.T) {
+	req := BoundedHostNetworkRequest(HostNetworkRequest{Limit: 999, DurationSeconds: 999})
+	if req.Limit != MaxNetworkTopLimit {
+		t.Fatalf("limit not clamped: %d", req.Limit)
+	}
+	if req.DurationSeconds != MaxNetworkDurationSeconds {
+		t.Fatalf("duration not clamped: %d", req.DurationSeconds)
+	}
+}
+
 func TestClientHostDiskPassesQuery(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/host/disk" {
@@ -82,6 +92,27 @@ func TestClientHostDiskPassesQuery(t *testing.T) {
 
 	client := NewClient(server.URL)
 	if _, err := client.HostDisk(context.Background(), HostDiskRequest{Limit: 7, Depth: 3}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClientHostNetworkPassesQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/host/network" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("limit"); got != "7" {
+			t.Fatalf("limit = %s", got)
+		}
+		if got := r.URL.Query().Get("duration"); got != "3" {
+			t.Fatalf("duration = %s", got)
+		}
+		_, _ = w.Write([]byte(`{"interfaces":[],"containers":[]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	if _, err := client.HostNetwork(context.Background(), HostNetworkRequest{Limit: 7, DurationSeconds: 3}); err != nil {
 		t.Fatal(err)
 	}
 }

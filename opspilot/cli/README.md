@@ -39,8 +39,9 @@ go run ./opspilot/cli docker containers --host node206
 go run ./opspilot/cli docker logs --host node206 --container gitlab --tail 300
 go run ./opspilot/cli diagnose docker --host node206 --container gitlab
 go run ./opspilot/cli host disk --host node206 --limit 20 --output human
+go run ./opspilot/cli host network --host node206 --duration 5 --limit 20 --output human
 go run ./opspilot/cli host cleanup plan --host node206 --output human
-go run ./opspilot/cli logs search -n ai-dev --pod deer-flow-provisioner-8b47f95bf-t8rbt --query error --limit 10
+go run ./opspilot/cli logs search -n ai-dev --pod deer-flow-provisioner-8b47f95bf-t8rbt --query error --since 1800 --limit 10
 go run ./opspilot/cli evidence request --host workflow.tpo.xzoa.com --uri /api/hr/queryUserScheduleList --service-index workflow-server* --service-uri-field msg --since 900
 go run ./opspilot/cli evidence request --uri /api/hr/queryUserScheduleList --service-index workflow-server* --service-uri-field msg --service-only
 go run ./opspilot/cli inspect pod -n ai-dev --pod sandbox-errno36-test --source node200-k8s --output human
@@ -81,7 +82,19 @@ Cluster nodes are monitored through Prometheus plus node-exporter:
 
 Use `host disk` only when mountpoint-level metrics are not enough and you need
 host directory attribution, Docker reclaimable bytes, or container json log
-sizes from a configured read-only node agent.
+sizes from a configured read-only node agent. The agent supports trailing
+`*` allowed path patterns such as `/data*` for extra mounted directories like
+`/data00`, but directory attribution can add I/O pressure on very large trees;
+keep depth and limit small for routine checks.
+
+Use `host network` for a short, read-only network snapshot from a configured
+node agent. It samples `/proc/net/dev` and allowed Docker container stats for a
+bounded duration, reports RX/TX rates and TCP state counts, and does not require
+OTel or eBPF.
+
+`logs search` defaults to a short Elasticsearch/OpenSearch time window and
+caps large requests before they reach the backend. Use `--since` when you need a
+wider window; OpsPilot still clamps oversized windows and result limits.
 
 Build a local binary:
 

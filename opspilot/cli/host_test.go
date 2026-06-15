@@ -42,3 +42,38 @@ func TestRunHostDiskHuman(t *testing.T) {
 		}
 	}
 }
+
+func TestRunHostNetworkHuman(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/host/network" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("duration"); got != "3" {
+			t.Fatalf("duration = %s", got)
+		}
+		_, _ = w.Write([]byte(`{
+			"ok": true,
+			"data": {
+				"host": "node206",
+				"duration_seconds": 3,
+				"interfaces": [{"name":"eth0","rx_bps":1024,"tx_bps":2048,"rx_bytes":1048576,"tx_bytes":2097152}],
+				"containers": [{"container":"gitlab","rx_bps":512,"tx_bps":256,"rx_bytes":1024,"tx_bytes":2048}],
+				"tcp_states": {"ESTABLISHED": 2}
+			},
+			"warnings": []
+		}`))
+	}))
+	defer server.Close()
+
+	var out strings.Builder
+	err := run([]string{"--backend-url", server.URL, "--output", "human", "host", "network", "--host", "node206", "--duration", "3"}, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, want := range []string{"Host network: host=node206", "Interfaces:", "Containers:", "TCP states:", "eth0", "gitlab"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in output:\n%s", want, text)
+		}
+	}
+}

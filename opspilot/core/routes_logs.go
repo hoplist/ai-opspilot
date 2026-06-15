@@ -47,14 +47,23 @@ func registerLogAndNodeRoutes(mux *http.ServeMux, state *runtimeState) {
 		})
 		return result, warnings, err
 	}))
+	handleAPI(mux, "/api/host/network", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		result, warnings, err := state.snapshot().agentRegistry.HostNetwork(ctx, nodeagent.HostNetworkRequest{
+			Host:            hostQuery(r),
+			Limit:           intQuery(r, "limit", nodeagent.DefaultNetworkTopLimit),
+			DurationSeconds: intQuery(r, "duration", nodeagent.DefaultNetworkDurationSeconds),
+		})
+		return result, warnings, err
+	}))
 	handleAPI(mux, "/api/logs/search", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()
 		result, err := state.snapshot().logClient.Search(ctx, logsearch.SearchRequest{
-			Namespace: q.Get("namespace"),
-			Pod:       q.Get("pod"),
-			Container: q.Get("container"),
-			Query:     q.Get("q"),
-			Limit:     intQuery(r, "limit", 20),
+			Namespace:    q.Get("namespace"),
+			Pod:          q.Get("pod"),
+			Container:    q.Get("container"),
+			Query:        q.Get("q"),
+			Limit:        intQuery(r, "limit", 20),
+			SinceSeconds: intQueryAliases(r, []string{"since_seconds", "since"}, logsearch.DefaultSearchSinceSeconds),
 		})
 		return result, nil, err
 	}))

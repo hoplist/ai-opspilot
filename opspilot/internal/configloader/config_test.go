@@ -129,7 +129,18 @@ spec:
 		t.Fatalf("agent token raw = %s", cfg.NodeAgentTokensRaw())
 	}
 	defaults := cfg.LogSearchDefaults()
-	if defaults.URL != "http://es.example:9200" || defaults.Username != "elastic" || defaults.Password != "secret" {
+	if defaults.URL != "http://es.example:9200" || defaults.Index != "*-server-*" || defaults.Username != "elastic" || defaults.Password != "secret" {
+		t.Fatalf("log defaults = %#v", defaults)
+	}
+}
+
+func TestLogSearchDefaultsSkipsKibanaDatasource(t *testing.T) {
+	cfg := Config{Datasources: []Datasource{
+		{Name: "kibana", Kind: "kibana", URL: "http://kibana.example"},
+		{Name: "logs", Kind: "elasticsearch", URL: "http://es.example:9200", Indexes: DatasourceIndexes{AppDefault: []string{"app-*"}}},
+	}}
+	defaults := cfg.LogSearchDefaults()
+	if defaults.URL != "http://es.example:9200" || defaults.Index != "app-*" {
 		t.Fatalf("log defaults = %#v", defaults)
 	}
 }

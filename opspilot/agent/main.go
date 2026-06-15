@@ -86,7 +86,7 @@ func loadConfig() config {
 	allowed := flag.String("allowed-containers", env("OPSPILOT_AGENT_ALLOWED_CONTAINERS", ""), "comma separated allowed container names or ids")
 	token := flag.String("token", env("OPSPILOT_AGENT_TOKEN", ""), "optional bearer token")
 	hostRoot := flag.String("host-root", env("OPSPILOT_AGENT_HOST_ROOT", ""), "host root prefix mounted inside the agent, for example /host")
-	diskAllowedPaths := flag.String("disk-allowed-paths", env("OPSPILOT_AGENT_DISK_ALLOWED_PATHS", "/var/lib/docker,/var/log,/opt,/data"), "comma separated host paths allowed for read-only disk attribution")
+	diskAllowedPaths := flag.String("disk-allowed-paths", env("OPSPILOT_AGENT_DISK_ALLOWED_PATHS", "/var/lib/docker,/var/log,/opt,/data,/data*"), "comma separated host paths or trailing * patterns allowed for read-only disk attribution")
 	diskMaxDepth := flag.Int("disk-max-depth", intEnv("OPSPILOT_AGENT_DISK_MAX_DEPTH", nodeagent.DefaultDiskMaxDepth), "maximum directory depth for disk attribution")
 	diskTopLimit := flag.Int("disk-top-limit", intEnv("OPSPILOT_AGENT_DISK_TOP_LIMIT", nodeagent.DefaultDiskTopLimit), "maximum disk attribution rows")
 	flag.Parse()
@@ -202,6 +202,20 @@ func registerRoutes(mux *http.ServeMux, docker *dockerClient, cfg config) {
 		result, err := collectHostDisk(r.Context(), docker, cfg, nodeagent.HostDiskRequest{
 			Limit: intQuery(r, "limit", cfg.diskTopLimit),
 			Depth: intQuery(r, "depth", cfg.diskMaxDepth),
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
+	mux.HandleFunc("/api/host/network", func(w http.ResponseWriter, r *http.Request) {
+		if !authorize(w, r, cfg) || !onlyGET(w, r) {
+			return
+		}
+		result, err := collectHostNetwork(r.Context(), docker, cfg, nodeagent.HostNetworkRequest{
+			Limit:           intQuery(r, "limit", nodeagent.DefaultNetworkTopLimit),
+			DurationSeconds: intQuery(r, "duration", nodeagent.DefaultNetworkDurationSeconds),
 		})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)

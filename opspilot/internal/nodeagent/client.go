@@ -90,6 +90,14 @@ func (c *Client) HostDisk(ctx context.Context, req HostDiskRequest) (map[string]
 	})
 }
 
+func (c *Client) HostNetwork(ctx context.Context, req HostNetworkRequest) (map[string]any, error) {
+	req = BoundedHostNetworkRequest(req)
+	return c.getJSON(ctx, "/api/host/network", url.Values{
+		"limit":    []string{strconv.Itoa(req.Limit)},
+		"duration": []string{strconv.Itoa(req.DurationSeconds)},
+	})
+}
+
 func (c *Client) getJSON(ctx context.Context, path string, values url.Values) (map[string]any, error) {
 	body, status, err := c.getRaw(ctx, path, values)
 	if err != nil {

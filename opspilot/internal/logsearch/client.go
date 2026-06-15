@@ -11,6 +11,13 @@ import (
 	"time"
 )
 
+const (
+	DefaultSearchSinceSeconds = 1800
+	MaxSearchSinceSeconds     = 7200
+	MaxSearchLimit            = 100
+	searchTimeout             = "5s"
+)
+
 type Client struct {
 	baseURL     string
 	index       string
@@ -21,11 +28,12 @@ type Client struct {
 }
 
 type SearchRequest struct {
-	Namespace string
-	Pod       string
-	Container string
-	Query     string
-	Limit     int
+	Namespace    string
+	Pod          string
+	Container    string
+	Query        string
+	Limit        int
+	SinceSeconds int
 }
 
 func NewClient(baseURL, index string) *Client {
@@ -100,10 +108,27 @@ func (c *Client) Search(ctx context.Context, req SearchRequest) (map[string]any,
 	if limit <= 0 {
 		limit = 20
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > MaxSearchLimit {
+		limit = MaxSearchLimit
 	}
+	since := req.SinceSeconds
+	if since <= 0 {
+		since = DefaultSearchSinceSeconds
+	}
+	if since > MaxSearchSinceSeconds {
+		since = MaxSearchSinceSeconds
+	}
+	end := time.Now()
+	start := end.Add(-time.Duration(since) * time.Second)
 	filters := []any{}
+	filters = append(filters, map[string]any{
+		"range": map[string]any{
+			"@timestamp": map[string]any{
+				"gte": start.Format(time.RFC3339Nano),
+				"lte": end.Format(time.RFC3339Nano),
+			},
+		},
+	})
 	if req.Namespace != "" {
 		filters = append(filters, matchPhrase("kubernetes.namespace_name", req.Namespace))
 	}
@@ -124,7 +149,18 @@ func (c *Client) Search(ctx context.Context, req SearchRequest) (map[string]any,
 		})
 	}
 	body := map[string]any{
-		"size": limit,
+		"size":             limit,
+		"timeout":          searchTimeout,
+		"track_total_hits": false,
+		"_source": []string{
+			"@timestamp",
+			"kubernetes.namespace_name",
+			"kubernetes.pod_name",
+			"kubernetes.container_name",
+			"kubernetes.host",
+			"stream",
+			"log",
+		},
 		"sort": []any{map[string]any{
 			"@timestamp": map[string]any{"order": "desc"},
 		}},
@@ -158,15 +194,19 @@ func (c *Client) Search(ctx context.Context, req SearchRequest) (map[string]any,
 	}
 	total := mapValue(hits["total"])
 	return map[string]any{
-		"items":        items,
-		"item_count":   len(items),
-		"total":        total["value"],
-		"index":        c.index,
-		"query":        req.Query,
-		"namespace":    req.Namespace,
-		"pod":          req.Pod,
-		"container":    req.Container,
-		"result_order": "timestamp_desc",
+		"items":         items,
+		"item_count":    len(items),
+		"total":         total["value"],
+		"index":         c.index,
+		"query":         req.Query,
+		"namespace":     req.Namespace,
+		"pod":           req.Pod,
+		"container":     req.Container,
+		"range_start":   start.Format(time.RFC3339Nano),
+		"range_end":     end.Format(time.RFC3339Nano),
+		"since_seconds": since,
+		"limit":         limit,
+		"result_order":  "timestamp_desc",
 	}, nil
 }
 

@@ -1,16 +1,20 @@
 package nodeagent
 
 const (
-	DefaultTailLines    = 300
-	DefaultSinceSeconds = 1800
-	DefaultLimitBytes   = 1024 * 1024
-	MaxTailLines        = 1000
-	MaxSinceSeconds     = 86400
-	MaxLimitBytes       = 5 * 1024 * 1024
-	DefaultDiskTopLimit = 20
-	MaxDiskTopLimit     = 100
-	DefaultDiskMaxDepth = 2
-	MaxDiskMaxDepth     = 4
+	DefaultTailLines              = 300
+	DefaultSinceSeconds           = 1800
+	DefaultLimitBytes             = 1024 * 1024
+	MaxTailLines                  = 1000
+	MaxSinceSeconds               = 86400
+	MaxLimitBytes                 = 5 * 1024 * 1024
+	DefaultDiskTopLimit           = 20
+	MaxDiskTopLimit               = 100
+	DefaultDiskMaxDepth           = 2
+	MaxDiskMaxDepth               = 4
+	DefaultNetworkDurationSeconds = 5
+	MaxNetworkDurationSeconds     = 30
+	DefaultNetworkTopLimit        = 20
+	MaxNetworkTopLimit            = 100
 )
 
 type LogRequest struct {
@@ -38,6 +42,12 @@ type HostDiskRequest struct {
 	Depth int
 }
 
+type HostNetworkRequest struct {
+	Host            string
+	Limit           int
+	DurationSeconds int
+}
+
 type HostDiskResponse struct {
 	Host          string                  `json:"host,omitempty"`
 	Filesystems   []HostFilesystem        `json:"filesystems"`
@@ -47,6 +57,33 @@ type HostDiskResponse struct {
 	CleanupPlan   []HostCleanupPlanItem   `json:"cleanup_plan"`
 	Limits        HostDiskLimits          `json:"limits"`
 	Warnings      []string                `json:"warnings,omitempty"`
+}
+
+type HostNetworkResponse struct {
+	Host       string                 `json:"host,omitempty"`
+	Duration   int                    `json:"duration_seconds"`
+	Interfaces []HostNetworkInterface `json:"interfaces"`
+	Containers []HostContainerNetwork `json:"containers"`
+	TCPStates  map[string]int         `json:"tcp_states,omitempty"`
+	Limits     HostNetworkLimits      `json:"limits"`
+	Warnings   []string               `json:"warnings,omitempty"`
+}
+
+type HostNetworkInterface struct {
+	Name    string  `json:"name"`
+	RXBytes uint64  `json:"rx_bytes"`
+	TXBytes uint64  `json:"tx_bytes"`
+	RXBps   float64 `json:"rx_bps"`
+	TXBps   float64 `json:"tx_bps"`
+}
+
+type HostContainerNetwork struct {
+	Container string  `json:"container"`
+	ID        string  `json:"id,omitempty"`
+	RXBytes   uint64  `json:"rx_bytes"`
+	TXBytes   uint64  `json:"tx_bytes"`
+	RXBps     float64 `json:"rx_bps"`
+	TXBps     float64 `json:"tx_bps"`
 }
 
 type HostFilesystem struct {
@@ -109,6 +146,13 @@ type HostDiskLimits struct {
 	ReadOnly     bool     `json:"read_only"`
 }
 
+type HostNetworkLimits struct {
+	DurationSeconds int  `json:"duration_seconds"`
+	TopLimit        int  `json:"top_limit"`
+	ReadOnly        bool `json:"read_only"`
+	EBPFEnabled     bool `json:"ebpf_enabled"`
+}
+
 func BoundedLogRequest(req LogRequest) LogRequest {
 	req.TailLines = clamp(defaultInt(req.TailLines, DefaultTailLines), 1, MaxTailLines)
 	req.SinceSeconds = clamp(defaultInt(req.SinceSeconds, DefaultSinceSeconds), 1, MaxSinceSeconds)
@@ -119,6 +163,12 @@ func BoundedLogRequest(req LogRequest) LogRequest {
 func BoundedHostDiskRequest(req HostDiskRequest) HostDiskRequest {
 	req.Limit = clamp(defaultInt(req.Limit, DefaultDiskTopLimit), 1, MaxDiskTopLimit)
 	req.Depth = clamp(defaultInt(req.Depth, DefaultDiskMaxDepth), 0, MaxDiskMaxDepth)
+	return req
+}
+
+func BoundedHostNetworkRequest(req HostNetworkRequest) HostNetworkRequest {
+	req.Limit = clamp(defaultInt(req.Limit, DefaultNetworkTopLimit), 1, MaxNetworkTopLimit)
+	req.DurationSeconds = clamp(defaultInt(req.DurationSeconds, DefaultNetworkDurationSeconds), 1, MaxNetworkDurationSeconds)
 	return req
 }
 

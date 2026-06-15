@@ -187,7 +187,7 @@ func logSearchConfigFrom(runtime configloader.Config) (string, string, logsearch
 		Routes:          logsearch.ParseCorrelationRoutes(routesRaw),
 	}
 	return configValue(defaults.URL, env("OPSPILOT_LOGSEARCH_URL", "")),
-		env("OPSPILOT_LOGSEARCH_INDEX", ""),
+		configValue(defaults.Index, env("OPSPILOT_LOGSEARCH_INDEX", "")),
 		correlation,
 		defaults.Username,
 		defaults.Password

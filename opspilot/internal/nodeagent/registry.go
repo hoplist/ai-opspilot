@@ -261,6 +261,34 @@ func (r *Registry) HostDisk(ctx context.Context, req HostDiskRequest) (map[strin
 	return result, nil, nil
 }
 
+func (r *Registry) HostNetwork(ctx context.Context, req HostNetworkRequest) (map[string]any, []string, error) {
+	req = BoundedHostNetworkRequest(req)
+	if req.Host == AllHosts {
+		items := []any{}
+		warnings := []string{}
+		for _, name := range r.order {
+			result, err := r.clients[name].HostNetwork(ctx, req)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("%s: %v", name, err))
+				continue
+			}
+			result["host"] = name
+			items = append(items, result)
+		}
+		return map[string]any{"host": AllHosts, "hosts": r.Names(), "items": items, "item_count": len(items)}, warnings, nil
+	}
+	client, resolved, err := r.Client(req.Host)
+	if err != nil {
+		return nil, nil, err
+	}
+	result, err := client.HostNetwork(ctx, req)
+	if err != nil {
+		return nil, nil, err
+	}
+	result["host"] = resolved
+	return result, nil, nil
+}
+
 func (r *Registry) Diagnose(ctx context.Context, req LogRequest) (map[string]any, []string, error) {
 	req = BoundedLogRequest(req)
 	inspect, err := r.Inspect(ctx, req.Host, req.Container)

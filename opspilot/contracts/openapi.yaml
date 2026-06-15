@@ -415,6 +415,31 @@ paths:
       responses:
         "200":
           description: Filesystem capacity, allowed path usage, Docker disk summary, container log sizes, and plan-only cleanup recommendations
+  /api/host/network:
+    get:
+      summary: Return short read-only host network evidence from a node agent
+      parameters:
+        - name: host
+          in: query
+          schema:
+            type: string
+            description: Node agent host, or all
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: duration
+          in: query
+          schema:
+            type: integer
+            default: 5
+            maximum: 30
+            description: Sample duration in seconds
+      responses:
+        "200":
+          description: Interface RX/TX rates, allowed Docker container RX/TX rates, and TCP state counts
   /api/logs/search:
     get:
       summary: Search collected Kubernetes logs
@@ -440,7 +465,14 @@ paths:
           schema:
             type: integer
             default: 20
-            maximum: 200
+            maximum: 100
+        - name: since
+          in: query
+          schema:
+            type: integer
+            default: 1800
+            maximum: 7200
+            description: Look back seconds
       responses:
         "200":
           description: Log search results

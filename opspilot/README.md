@@ -50,7 +50,8 @@ go run ./opspilot/cli docker agents
 go run ./opspilot/cli docker containers --host node206
 go run ./opspilot/cli docker logs --host node206 --container gitlab --tail 300
 go run ./opspilot/cli diagnose docker --host node206 --container gitlab
-go run ./opspilot/cli logs search -n ai-dev --pod deer-flow-provisioner-8b47f95bf-t8rbt --limit 10
+go run ./opspilot/cli host network --host node206 --duration 5 --limit 20 --output human
+go run ./opspilot/cli logs search -n ai-dev --pod deer-flow-provisioner-8b47f95bf-t8rbt --since 1800 --limit 10
 go run ./opspilot/cli evidence request --host workflow.tpo.xzoa.com --uri /api/hr/queryUserScheduleList --service-index workflow-server* --service-uri-field msg --since 900
 go run ./opspilot/cli evidence request --uri /api/hr/queryUserScheduleList --service-index workflow-server* --service-uri-field msg --service-only
 go run ./opspilot/cli context pod -n default --pod example --source node200-k8s
@@ -126,4 +127,7 @@ docker build -f opspilot/Dockerfile.agent -t opspilot-agent:0.1.5-docker-agent .
 - Kubernetes Pod logs are queried on demand through `pods/log`.
 - Prometheus remains the metrics backend.
 - ELK remains the gateway/business/critical-log backend.
+- Elasticsearch/OpenSearch queries are bounded by short time windows, small
+  result limits, source filtering, and request timeouts before being sent to
+  the backend.
 - OpenSearch, MinIO, MySQL, and eBPF are optional modules, not defaults.

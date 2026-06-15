@@ -23,9 +23,10 @@ type mountRecord struct {
 func collectHostDisk(ctx context.Context, docker *dockerClient, cfg config, req nodeagent.HostDiskRequest) (nodeagent.HostDiskResponse, error) {
 	req = nodeagent.BoundedHostDiskRequest(req)
 	warnings := []string{}
-	filesystems, fsWarnings := collectFilesystems(cfg.hostRoot, cfg.diskAllowedPaths)
+	scanPaths := expandHostPathPatterns(cfg.hostRoot, cfg.diskAllowedPaths)
+	filesystems, fsWarnings := collectFilesystems(cfg.hostRoot, scanPaths)
 	warnings = append(warnings, fsWarnings...)
-	topPaths, scanWarnings := collectTopPaths(ctx, cfg.hostRoot, cfg.diskAllowedPaths, req.Depth, req.Limit)
+	topPaths, scanWarnings := collectTopPaths(ctx, cfg.hostRoot, scanPaths, req.Depth, req.Limit)
 	warnings = append(warnings, scanWarnings...)
 	dockerDisk, dockerWarnings := collectDockerDisk(ctx, docker)
 	warnings = append(warnings, dockerWarnings...)
@@ -39,13 +40,42 @@ func collectHostDisk(ctx context.Context, docker *dockerClient, cfg config, req 
 		ContainerLogs: containerLogs,
 		CleanupPlan:   buildHostCleanupPlan(topPaths, dockerDisk, containerLogs),
 		Limits: nodeagent.HostDiskLimits{
-			AllowedPaths: append([]string{}, cfg.diskAllowedPaths...),
+			AllowedPaths: append([]string{}, scanPaths...),
 			MaxDepth:     req.Depth,
 			TopLimit:     req.Limit,
 			ReadOnly:     true,
 		},
 		Warnings: warnings,
 	}, nil
+}
+
+func expandHostPathPatterns(hostRoot string, specs []string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, spec := range specs {
+		if !strings.Contains(spec, "*") {
+			if !seen[spec] {
+				seen[spec] = true
+				out = append(out, spec)
+			}
+			continue
+		}
+		actualPattern := mapHostPath(hostRoot, spec)
+		matches, err := filepath.Glob(actualPattern)
+		if err != nil || len(matches) == 0 {
+			continue
+		}
+		sort.Strings(matches)
+		for _, match := range matches {
+			display := displayHostPath(hostRoot, match)
+			if display == "" || seen[display] {
+				continue
+			}
+			seen[display] = true
+			out = append(out, display)
+		}
+	}
+	return out
 }
 
 func collectFilesystems(hostRoot string, allowedPaths []string) ([]nodeagent.HostFilesystem, []string) {
@@ -350,6 +380,18 @@ func mapHostPath(hostRoot, displayPath string) string {
 	}
 	parts := strings.Split(strings.TrimPrefix(clean, "/"), "/")
 	return filepath.Join(append([]string{hostRoot}, parts...)...)
+}
+
+func displayHostPath(hostRoot, actualPath string) string {
+	hostRoot = strings.TrimRight(strings.TrimSpace(hostRoot), `/\`)
+	if hostRoot == "" {
+		return cleanHostPath(filepath.ToSlash(actualPath))
+	}
+	rel, err := filepath.Rel(hostRoot, actualPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	return cleanHostPath("/" + filepath.ToSlash(rel))
 }
 
 func readMounts(hostRoot string) []mountRecord {

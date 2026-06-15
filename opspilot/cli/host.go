@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"sort"
 	"strconv"
 	"text/tabwriter"
 )
@@ -21,6 +22,12 @@ func runHostCommand(opts globalOptions, args []string, out io.Writer) error {
 			return err
 		}
 		return writeOutput(out, opts.output, data, writeHostDiskHuman(data, warnings, false))
+	case "network", "traffic":
+		data, warnings, err := fetchHostNetwork(opts.backendURL, args[1:])
+		if err != nil {
+			return err
+		}
+		return writeOutput(out, opts.output, data, writeHostNetworkHuman(data, warnings))
 	case "cleanup":
 		if len(args) < 2 || args[1] != "plan" {
 			return fmt.Errorf("expected: host cleanup plan")
@@ -56,6 +63,33 @@ func fetchHostDisk(backendURL string, args []string) (map[string]any, []string, 
 	data := mapValue(envelope, "data")
 	if data == nil {
 		return nil, nil, fmt.Errorf("host disk response missing data")
+	}
+	warnings := stringList(envelope["warnings"])
+	warnings = append(warnings, stringList(data["warnings"])...)
+	return data, warnings, nil
+}
+
+func fetchHostNetwork(backendURL string, args []string) (map[string]any, []string, error) {
+	fs := flag.NewFlagSet("host network", flag.ExitOnError)
+	host := fs.String("host", "", "node agent host, or all")
+	limit := fs.Int("limit", 20, "result limit")
+	duration := fs.Int("duration", 5, "sample duration seconds")
+	_ = fs.Parse(args)
+	body, err := get(backendURL, "/api/host/network", url.Values{
+		"host":     []string{*host},
+		"limit":    []string{strconv.Itoa(*limit)},
+		"duration": []string{strconv.Itoa(*duration)},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, nil, err
+	}
+	data := mapValue(envelope, "data")
+	if data == nil {
+		return nil, nil, fmt.Errorf("host network response missing data")
 	}
 	warnings := stringList(envelope["warnings"])
 	warnings = append(warnings, stringList(data["warnings"])...)
@@ -169,6 +203,92 @@ func writeSingleHostDiskHuman(w io.Writer, data map[string]any, warnings []strin
 		}
 	}
 	return nil
+}
+
+func writeHostNetworkHuman(data map[string]any, warnings []string) func(io.Writer) error {
+	return func(w io.Writer) error {
+		if data["items"] != nil {
+			fmt.Fprintf(w, "Host network: host=all count=%d read_only=true\n", intValue(data["item_count"]))
+			for _, item := range mapsFromItems(data["items"]) {
+				if err := writeSingleHostNetworkHuman(w, item, warnings); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		return writeSingleHostNetworkHuman(w, data, warnings)
+	}
+}
+
+func writeSingleHostNetworkHuman(w io.Writer, data map[string]any, warnings []string) error {
+	fmt.Fprintf(w, "Host network: host=%s duration=%ds read_only=true ebpf=false\n",
+		firstNonEmptyString(stringValue(data["host"]), "default"),
+		intValue(data["duration_seconds"]),
+	)
+	interfaces := mapsFromItems(data["interfaces"])
+	if len(interfaces) > 0 {
+		fmt.Fprintln(w, "\nInterfaces:")
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "IFACE\tRX/s\tTX/s\tRX_TOTAL\tTX_TOTAL")
+		for _, item := range interfaces {
+			fmt.Fprintf(tw, "%s\t%s/s\t%s/s\t%s\t%s\n",
+				stringValue(item["name"]),
+				formatBytes(floatValue(item["rx_bps"])),
+				formatBytes(floatValue(item["tx_bps"])),
+				formatBytes(floatValue(item["rx_bytes"])),
+				formatBytes(floatValue(item["tx_bytes"])),
+			)
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+	}
+	containers := mapsFromItems(data["containers"])
+	if len(containers) > 0 {
+		fmt.Fprintln(w, "\nContainers:")
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "CONTAINER\tRX/s\tTX/s\tRX_TOTAL\tTX_TOTAL")
+		for _, item := range containers {
+			fmt.Fprintf(tw, "%s\t%s/s\t%s/s\t%s\t%s\n",
+				stringValue(item["container"]),
+				formatBytes(floatValue(item["rx_bps"])),
+				formatBytes(floatValue(item["tx_bps"])),
+				formatBytes(floatValue(item["rx_bytes"])),
+				formatBytes(floatValue(item["tx_bytes"])),
+			)
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+	}
+	states := mapValue(data, "tcp_states")
+	if len(states) > 0 {
+		fmt.Fprintln(w, "\nTCP states:")
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "STATE\tCOUNT")
+		for _, state := range sortedMapKeys(states) {
+			fmt.Fprintf(tw, "%s\t%d\n", state, intValue(states[state]))
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+	}
+	if len(warnings) > 0 {
+		fmt.Fprintln(w, "\nWarnings:")
+		for _, warning := range warnings {
+			fmt.Fprintf(w, "- %s\n", warning)
+		}
+	}
+	return nil
+}
+
+func sortedMapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func formatBytes(value float64) string {

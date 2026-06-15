@@ -30,12 +30,31 @@ func TestValidateConfigAllowsLocalOrTokenProtectedAgent(t *testing.T) {
 }
 
 func TestParseDiskPathsKeepsAbsoluteUniquePaths(t *testing.T) {
-	paths := parseDiskPaths("/var/log, relative,/var/log,/opt/../opt")
-	if len(paths) != 2 {
-		t.Fatalf("expected 2 paths, got %#v", paths)
+	paths := parseDiskPaths("/var/log, relative,/var/log,/opt/../opt,/data*")
+	if len(paths) != 3 {
+		t.Fatalf("expected 3 paths, got %#v", paths)
 	}
-	if paths[0] != "/var/log" || paths[1] != "/opt" {
+	if paths[0] != "/var/log" || paths[1] != "/opt" || paths[2] != "/data*" {
 		t.Fatalf("unexpected paths: %#v", paths)
+	}
+}
+
+func TestExpandHostPathPatternsIncludesDataMounts(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"data", "data00", "data01"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths := expandHostPathPatterns(root, []string{"/data*"})
+	if len(paths) != 3 {
+		t.Fatalf("paths = %#v", paths)
+	}
+	want := map[string]bool{"/data": true, "/data00": true, "/data01": true}
+	for _, item := range paths {
+		if !want[item] {
+			t.Fatalf("unexpected path %s in %#v", item, paths)
+		}
 	}
 }
 
