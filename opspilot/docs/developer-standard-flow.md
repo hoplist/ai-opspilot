@@ -14,6 +14,26 @@ For current demos, the temporary location is:
 tpo/sandbox/devex/<service>
 ```
 
+When a user has no identity mapping yet, OpsPilot treats uploads as disposable
+test-only sandbox work. It should first show the plan instead of creating a
+GitLab project:
+
+```powershell
+opspilot repo upload-plan --repo . --name my-demo-api --output human
+```
+
+Default plan:
+
+```text
+GitLab project: tpo/sandbox/devex/<repo>
+Namespace: sandbox
+GitOps path: clusters/test/apps/sandbox/<repo>
+Release scope: test-only
+```
+
+This command is read-only. It does not create a GitLab project, push code, or
+mutate Kubernetes.
+
 Normal workflow:
 
 ```bash
@@ -50,6 +70,20 @@ Developers should not directly modify:
 - Registry tags.
 - Runtime credentials.
 - Cluster-level RBAC, CNI, StorageClass, or ingress controller settings.
+
+## Optional Test Gateway
+
+A future front gateway can route `*.test.tpo.xzoa.com` to the single test entry
+machine, but this is external gateway configuration and must not block the
+standard release path. In the current phase, OpsPilot only documents the
+expected route:
+
+```text
+*.test.tpo.xzoa.com -> test ingress/APISIX/Nginx entry -> sandbox or app namespace Service
+```
+
+Generated applications should still be inspectable by Pod, Service, release,
+and metrics evidence even when this gateway is not connected.
 
 ## When The Repository Is Not Standard
 

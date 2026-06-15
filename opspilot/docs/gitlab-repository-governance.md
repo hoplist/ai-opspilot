@@ -76,6 +76,29 @@ project list shows them before a user opens the repository.
 - `tpo/sandbox/...` repositories are disposable validation assets. They should
   not be used as production examples without being promoted.
 
+## Identity-less Test Upload Default
+
+Before user identity, team ownership, and permissions are fully wired, OpsPilot
+can provide a read-only upload plan for test-only repositories:
+
+```powershell
+opspilot repo upload-plan --repo . --name my-demo-api
+```
+
+Default target:
+
+```text
+GitLab project: tpo/sandbox/devex/<repo>
+Namespace: sandbox
+GitOps path: clusters/test/apps/sandbox/<repo>
+Release scope: test-only
+```
+
+This is a planning contract only. It does not create a GitLab project, push
+code, update GitOps, or change Kubernetes. The target is intentionally
+disposable and should be promoted to `tpo/apps/...` or the agreed application
+layout when identity and ownership are added.
+
 ## Current Inventory And Target Paths
 
 Snapshot date: 2026-05-29.

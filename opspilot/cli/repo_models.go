@@ -34,6 +34,33 @@ type repoAutofixResult struct {
 	Preflight       repoPreflightResult  `json:"preflight"`
 }
 
+type repoUploadPlanResult struct {
+	Mode       string            `json:"mode"`
+	Ready      bool              `json:"ready"`
+	Repo       string            `json:"repo"`
+	RepoName   string            `json:"repo_name"`
+	Language   string            `json:"language"`
+	Target     repoUploadTarget  `json:"target"`
+	Runtime    repoUploadRuntime `json:"runtime"`
+	Boundaries []string          `json:"boundaries"`
+	Next       []string          `json:"next"`
+}
+
+type repoUploadTarget struct {
+	GitLabProject string `json:"gitlab_project"`
+	Base          string `json:"base"`
+	Owner         string `json:"owner"`
+	Group         string `json:"group"`
+	Project       string `json:"project"`
+	Environment   string `json:"environment"`
+}
+
+type repoUploadRuntime struct {
+	Namespace    string `json:"namespace"`
+	GitOpsPath   string `json:"gitops_path"`
+	ReleaseScope string `json:"release_scope"`
+}
+
 type codePrecheckSummary struct {
 	Blockers int `json:"blockers"`
 	Warnings int `json:"warnings"`

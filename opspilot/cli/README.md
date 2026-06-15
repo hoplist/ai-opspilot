@@ -57,6 +57,7 @@ go run ./opspilot/cli quality status service opspilot-core --output evidence
 go run ./opspilot/cli onboard repo tpo/devex/demo/demo-api --write --output human
 go run ./opspilot/cli onboard service --config opspilot.service.yaml --write
 go run ./opspilot/cli repo preflight --repo . --project tpo/devex/demo/demo-api --output human
+go run ./opspilot/cli repo upload-plan --repo . --name demo-api --output human
 go run ./opspilot/cli ask "检查 opspilot-core 是否正常" --output human
 go run ./opspilot/cli ask "发布 opspilot-core" --dry-run --output human
 ```

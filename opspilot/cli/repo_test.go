@@ -40,6 +40,33 @@ func TestRepoPreflightDetectsMissingReleaseFiles(t *testing.T) {
 	}
 }
 
+func TestRepoUploadPlanDefaultsToSandbox(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/my-demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"repo", "upload-plan", "--repo", dir, "--name", "My Demo API"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload repoUploadPlanResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Mode != "plan" || !payload.Ready {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if payload.Target.GitLabProject != "tpo/sandbox/devex/my-demo-api" {
+		t.Fatalf("target project = %s", payload.Target.GitLabProject)
+	}
+	if payload.Runtime.Namespace != "sandbox" || payload.Runtime.GitOpsPath != "clusters/test/apps/sandbox/my-demo-api" {
+		t.Fatalf("runtime = %#v", payload.Runtime)
+	}
+	if payload.Runtime.ReleaseScope != "test-only" || payload.Language != "go" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestRepoPreflightSupportsExplicitMonorepoPaths(t *testing.T) {
 	root := t.TempDir()
 	app := filepath.Join(root, "opspilot")

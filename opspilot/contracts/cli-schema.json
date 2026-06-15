@@ -390,6 +390,11 @@
       "description": "Run automated repository governance checks for Dockerfile, platform GitLab CI include, deploy/k8s manifests, CPU/memory limits, probes, namespace guardrails, namespace ownership, port, health evidence, and shared middleware intent. Intended for CI gating."
     },
     {
+      "name": "repo upload-plan",
+      "readonly": true,
+      "description": "Return a plan-only target for identity-less test repository upload. Defaults to the sandbox GitLab group, sandbox namespace, test-only release scope, and does not create projects, push code, or mutate Kubernetes."
+    },
+    {
       "name": "repo autofix",
       "readonly": false,
       "description": "Generate or replace platform-managed Dockerfile, .gitlab-ci.yml include, deploy/k8s manifests, opspilot.service.yaml, and release mapping. Use --write to mutate files and --force to replace existing generated surfaces."
