@@ -46,6 +46,40 @@ type repoUploadPlanResult struct {
 	Next       []string          `json:"next"`
 }
 
+type repoUploadResult struct {
+	Status   string                 `json:"status"`
+	Ready    bool                   `json:"ready"`
+	Plan     repoUploadPlanResult   `json:"plan"`
+	Precheck repoUploadPrecheck     `json:"precheck"`
+	GitLab   repoUploadGitLabResult `json:"gitlab"`
+	Git      repoUploadGitResult    `json:"git"`
+	Warnings []string               `json:"warnings,omitempty"`
+	Next     []string               `json:"next,omitempty"`
+}
+
+type repoUploadPrecheck struct {
+	Status   string              `json:"status"`
+	Ready    bool                `json:"ready"`
+	Summary  codePrecheckSummary `json:"summary"`
+	Blockers []codePrecheckItem  `json:"blockers,omitempty"`
+}
+
+type repoUploadGitLabResult struct {
+	Action        string `json:"action"`
+	ProjectID     int    `json:"project_id,omitempty"`
+	ProjectPath   string `json:"project_path"`
+	HTTPURLToRepo string `json:"http_url_to_repo,omitempty"`
+	WebURL        string `json:"web_url,omitempty"`
+}
+
+type repoUploadGitResult struct {
+	Commit    string `json:"commit,omitempty"`
+	Dirty     bool   `json:"dirty"`
+	Ref       string `json:"ref"`
+	Push      string `json:"push,omitempty"`
+	RemoteURL string `json:"remote_url,omitempty"`
+}
+
 type repoUploadTarget struct {
 	GitLabProject string `json:"gitlab_project"`
 	Base          string `json:"base"`

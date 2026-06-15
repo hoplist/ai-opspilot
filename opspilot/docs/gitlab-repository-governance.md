@@ -83,6 +83,7 @@ can provide a read-only upload plan for test-only repositories:
 
 ```powershell
 opspilot repo upload-plan --repo . --name my-demo-api
+opspilot repo upload --repo . --name my-demo-api --confirm
 ```
 
 Default target:
@@ -94,10 +95,12 @@ GitOps path: clusters/test/apps/sandbox/<repo>
 Release scope: test-only
 ```
 
-This is a planning contract only. It does not create a GitLab project, push
-code, update GitOps, or change Kubernetes. The target is intentionally
-disposable and should be promoted to `tpo/apps/...` or the agreed application
-layout when identity and ownership are added.
+`repo upload-plan` is a planning contract only. `repo upload --confirm` can
+create or reuse the sandbox GitLab project and push the current committed
+`HEAD`, but it still does not update GitOps, change Kubernetes, configure
+gateway routes, or promote the repository to an application-owned path. The
+target is intentionally disposable and should be promoted to `tpo/apps/...` or
+the agreed application layout when identity and ownership are added.
 
 ## Current Inventory And Target Paths
 

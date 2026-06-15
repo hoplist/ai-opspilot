@@ -20,6 +20,7 @@ GitLab project:
 
 ```powershell
 opspilot repo upload-plan --repo . --name my-demo-api --output human
+opspilot repo upload --repo . --name my-demo-api --confirm --output human
 ```
 
 Default plan:
@@ -31,8 +32,10 @@ GitOps path: clusters/test/apps/sandbox/<repo>
 Release scope: test-only
 ```
 
-This command is read-only. It does not create a GitLab project, push code, or
-mutate Kubernetes.
+`repo upload-plan` is read-only. `repo upload --confirm` runs code precheck,
+creates or reuses the sandbox GitLab project, and pushes the current committed
+HEAD. It does not auto-commit local changes, edit GitOps, mutate Kubernetes, or
+configure gateway routes.
 
 Normal workflow:
 

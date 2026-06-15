@@ -11,7 +11,7 @@ import (
 
 func repoCommand(opts globalOptions, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("expected repo command: preflight, precheck, autofix, or upload-plan")
+		return fmt.Errorf("expected repo command: preflight, precheck, autofix, upload-plan, or upload")
 	}
 	switch args[0] {
 	case "preflight":
@@ -22,6 +22,8 @@ func repoCommand(opts globalOptions, args []string, out io.Writer) error {
 		return repoAutofixCommand(opts, args[1:], out)
 	case "upload-plan":
 		return repoUploadPlanCommand(opts, args[1:], out)
+	case "upload":
+		return repoUploadCommand(opts, args[1:], out)
 	default:
 		return fmt.Errorf("unknown repo command: %s", args[0])
 	}
@@ -158,103 +160,4 @@ func repoAutofixCommand(opts globalOptions, args []string, out io.Writer) error 
 		}
 		return nil
 	})
-}
-
-func repoUploadPlanCommand(opts globalOptions, args []string, out io.Writer) error {
-	fs := flag.NewFlagSet("repo upload-plan", flag.ExitOnError)
-	repo := fs.String("repo", ".", "repository path")
-	name := fs.String("name", "", "repository name override")
-	targetBase := fs.String("target-base", "tpo/sandbox/devex", "default GitLab group for identity-less test uploads")
-	targetProject := fs.String("target-project", "", "full GitLab project path override")
-	namespace := fs.String("namespace", "sandbox", "test namespace for identity-less uploads")
-	environment := fs.String("env", "test", "target environment")
-	owner := fs.String("owner", "sandbox", "owner metadata for identity-less uploads")
-	group := fs.String("group", "devex", "group metadata for identity-less uploads")
-	projectName := fs.String("project-name", "sandbox", "project metadata for identity-less uploads")
-	gitopsRoot := fs.String("gitops-root", "clusters/test/apps/sandbox", "GitOps app root for identity-less uploads")
-	_ = fs.Parse(args)
-	result, err := buildRepoUploadPlan(*repo, *name, repoUploadPlanOptions{
-		TargetBase:    *targetBase,
-		TargetProject: *targetProject,
-		Namespace:     *namespace,
-		Environment:   *environment,
-		Owner:         *owner,
-		Group:         *group,
-		Project:       *projectName,
-		GitOpsRoot:    *gitopsRoot,
-	})
-	if err != nil {
-		return err
-	}
-	return writeRepoUploadPlan(out, opts.output, result)
-}
-
-type repoUploadPlanOptions struct {
-	TargetBase    string
-	TargetProject string
-	Namespace     string
-	Environment   string
-	Owner         string
-	Group         string
-	Project       string
-	GitOpsRoot    string
-}
-
-func buildRepoUploadPlan(repo, name string, opts repoUploadPlanOptions) (repoUploadPlanResult, error) {
-	repoPath, err := filepath.Abs(repo)
-	if err != nil {
-		return repoUploadPlanResult{}, err
-	}
-	repoName := sanitizeDNSLabel(firstNonEmpty(name, filepath.Base(filepath.Clean(repoPath))))
-	if repoName == "" {
-		return repoUploadPlanResult{}, fmt.Errorf("repository name could not be inferred")
-	}
-	opts.TargetBase = strings.Trim(strings.TrimSpace(opts.TargetBase), "/")
-	opts.TargetProject = strings.Trim(strings.TrimSpace(opts.TargetProject), "/")
-	opts.Namespace = firstNonEmpty(opts.Namespace, "sandbox")
-	opts.Environment = firstNonEmpty(opts.Environment, "test")
-	opts.Owner = firstNonEmpty(opts.Owner, "sandbox")
-	opts.Group = firstNonEmpty(opts.Group, defaultGroup)
-	opts.Project = firstNonEmpty(opts.Project, "sandbox")
-	opts.GitOpsRoot = strings.Trim(strings.TrimSpace(firstNonEmpty(opts.GitOpsRoot, "clusters/test/apps/sandbox")), "/")
-	targetProject := opts.TargetProject
-	if targetProject == "" {
-		targetProject = strings.Trim(opts.TargetBase+"/"+repoName, "/")
-	}
-	language, err := withRepo(repoPath, func() (string, error) {
-		return detectLanguage(), nil
-	})
-	if err != nil {
-		return repoUploadPlanResult{}, err
-	}
-	return repoUploadPlanResult{
-		Mode:     "plan",
-		Ready:    true,
-		Repo:     repoPath,
-		RepoName: repoName,
-		Language: language,
-		Target: repoUploadTarget{
-			GitLabProject: targetProject,
-			Base:          opts.TargetBase,
-			Owner:         opts.Owner,
-			Group:         opts.Group,
-			Project:       opts.Project,
-			Environment:   opts.Environment,
-		},
-		Runtime: repoUploadRuntime{
-			Namespace:    opts.Namespace,
-			GitOpsPath:   opts.GitOpsRoot + "/" + repoName,
-			ReleaseScope: "test-only",
-		},
-		Boundaries: []string{
-			"plan-only: does not create GitLab projects, push code, or mutate Kubernetes",
-			"identity-less uploads are test-only and should stay in the sandbox target",
-		},
-		Next: []string{
-			"create or reuse GitLab project " + targetProject,
-			"push the repository to the target project",
-			"run repo autofix or onboard repo to generate platform files",
-			"release through GitLab Runner -> BuildKit -> Registry -> GitOps -> Argo CD",
-		},
-	}, nil
 }

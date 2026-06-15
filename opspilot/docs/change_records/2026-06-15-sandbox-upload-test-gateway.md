@@ -18,6 +18,12 @@ making it part of the current release blocker set.
   - Release scope: `test-only`.
   - The command is plan-only and does not create GitLab projects, push code,
     edit GitOps, or mutate Kubernetes.
+- Added `opspilot repo upload --confirm`.
+  - Runs code precheck first and blocks high-confidence blocker findings.
+  - Creates or reuses the target sandbox GitLab project.
+  - Pushes the current committed `HEAD` to `main`.
+  - Does not auto-commit local changes.
+  - Does not edit GitOps, mutate Kubernetes, or configure gateway routes.
 - Updated CLI schema so AI/skills can discover `repo upload-plan`.
 - Updated developer and onboarding docs with the identity-less sandbox flow.
 - Updated GitLab repository governance docs with the sandbox upload boundary.
@@ -29,6 +35,8 @@ making it part of the current release blocker set.
 - No service metadata model change for the front gateway.
 - No schema change for gateway fields.
 - No APISIX/Nginx/Kubernetes gateway mutation.
+- No automatic GitOps update from `repo upload`.
+- No automatic commit of uncommitted local files.
 - Missing test gateway configuration must not block:
   - `repo preflight`;
   - `repo autofix`;
@@ -38,6 +46,8 @@ making it part of the current release blocker set.
 ## Validation Plan
 
 - Run CLI unit tests for `repo upload-plan`.
+- Run CLI unit tests for `repo upload` confirm guard and GitLab create/reuse
+  API behavior.
 - Run broader CLI tests.
 - Run `go test ./...` and `go vet ./...`.
 - For release, use the standard GitLab Runner -> BuildKit -> Registry ->

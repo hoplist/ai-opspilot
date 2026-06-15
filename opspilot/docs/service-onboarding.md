@@ -134,6 +134,7 @@ by the next automated run.
 opspilot repo preflight --repo . --project tpo/devex/skillshub/skillshub-api
 opspilot repo precheck --repo . --project tpo/devex/skillshub/skillshub-api
 opspilot repo upload-plan --repo . --name skillshub-api
+opspilot repo upload --repo . --name skillshub-api --confirm
 opspilot repo autofix --repo . --project tpo/devex/skillshub/skillshub-api --write
 opspilot repo autofix --repo . --project tpo/devex/skillshub/skillshub-api --write --force
 ```
@@ -186,8 +187,9 @@ not a manual operations approval step. Evidence includes a `policy` block with
 release and include concrete `fix_options`; uncertain findings remain
 `warning` and should be explained by AI without blocking the release.
 
-`repo upload-plan` is for the early test-only stage where the user identity is
-not mapped yet. It returns a read-only target plan:
+`repo upload-plan` and `repo upload` are for the early test-only stage where the
+user identity is not mapped yet. `repo upload-plan` returns a read-only target
+plan:
 
 ```text
 GitLab project: tpo/sandbox/devex/<repo>
@@ -196,9 +198,13 @@ GitOps path: clusters/test/apps/sandbox/<repo>
 Release scope: test-only
 ```
 
-It does not create GitLab projects, push code, edit GitOps, or mutate the
-cluster. Real GitLab creation remains an explicit platform action until the
-identity and permission model is added.
+`repo upload --confirm` executes the safe subset of that plan:
+
+- runs `repo precheck` logic and blocks high-confidence blocker findings;
+- creates or reuses the target GitLab project;
+- pushes the current committed `HEAD` to `main`;
+- does not auto-commit local changes;
+- does not edit GitOps, mutate Kubernetes, or configure gateway routes.
 
 `repo autofix --write` writes missing platform-managed files. Add `--force`
 when the repository already contains a local Dockerfile, local CI, or manifests

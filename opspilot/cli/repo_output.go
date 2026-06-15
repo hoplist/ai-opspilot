@@ -50,6 +50,41 @@ func writeRepoUploadPlan(out io.Writer, output string, result repoUploadPlanResu
 	})
 }
 
+func writeRepoUpload(out io.Writer, output string, result repoUploadResult) error {
+	return writeOutput(out, output, result, func(w io.Writer) error {
+		fmt.Fprintf(w, "Repo upload: %s status=%s ready=%t\n", result.Plan.RepoName, result.Status, result.Ready)
+		fmt.Fprintf(w, "Target: gitlab=%s namespace=%s scope=%s\n",
+			result.Plan.Target.GitLabProject, result.Plan.Runtime.Namespace, result.Plan.Runtime.ReleaseScope)
+		if result.Precheck.Status != "" {
+			fmt.Fprintf(w, "Precheck: status=%s ready=%t blockers=%d warnings=%d\n",
+				result.Precheck.Status, result.Precheck.Ready, result.Precheck.Summary.Blockers, result.Precheck.Summary.Warnings)
+		}
+		if result.Git.Commit != "" {
+			fmt.Fprintf(w, "Git: commit=%s dirty=%t ref=%s push=%s\n",
+				shortCommit(result.Git.Commit), result.Git.Dirty, result.Git.Ref, firstNonEmpty(result.Git.Push, "not_run"))
+		}
+		if result.GitLab.ProjectPath != "" {
+			fmt.Fprintf(w, "GitLab: action=%s project=%s web=%s\n",
+				result.GitLab.Action, result.GitLab.ProjectPath, result.GitLab.WebURL)
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(w, "Warnings: %s\n", strings.Join(result.Warnings, "; "))
+		}
+		if len(result.Next) > 0 {
+			fmt.Fprintf(w, "Next: %s\n", strings.Join(result.Next, "; "))
+		}
+		return nil
+	})
+}
+
+func shortCommit(commit string) string {
+	commit = strings.TrimSpace(commit)
+	if len(commit) <= 8 {
+		return commit
+	}
+	return commit[:8]
+}
+
 func writeCodePrecheck(out io.Writer, output string, result codePrecheckResult) error {
 	return writeOutput(out, output, result, func(w io.Writer) error {
 		fmt.Fprintf(w, "Code precheck: %s status=%s ready=%t blockers=%d warnings=%d\n",
