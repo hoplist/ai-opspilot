@@ -42,3 +42,13 @@ making it part of the current release blocker set.
 - Run `go test ./...` and `go vet ./...`.
 - For release, use the standard GitLab Runner -> BuildKit -> Registry ->
   GitOps -> Argo CD flow if this change is deployed.
+
+## Release Note
+
+Pipeline `144` failed in `code-precheck` before tests/build because the runner
+attempted to download `gopkg.in/yaml.v3` from `proxy.golang.org`, but outbound
+network access from the test runner was refused. This exposed a CI
+reproducibility gap rather than a functional failure in `repo upload-plan`.
+
+Follow-up fix: vendor the single Go dependency so GitLab Runner, BuildKit, and
+test jobs do not require public Go module network access.
