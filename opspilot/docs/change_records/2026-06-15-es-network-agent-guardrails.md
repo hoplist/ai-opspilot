@@ -40,6 +40,9 @@ bounded.
   - `/data*`
 - Added runtime expansion for trailing `*` host path patterns, so `/data*`
   includes mounted paths such as `/data00` and `/data01` when present.
+- Updated the node206 external compose template to pass `/data*` in
+  `OPSPILOT_AGENT_DISK_ALLOWED_PATHS`. Extra host data directories still need
+  matching read-only mounts such as `/data00:/host/data00:ro`.
 
 ## Boundaries
 
@@ -61,4 +64,3 @@ go test ./agent ./internal/nodeagent ./internal/logsearch ./internal/configloade
 ```
 
 Result: passed.
-
