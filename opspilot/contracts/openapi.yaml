@@ -95,6 +95,36 @@ paths:
       responses:
         "200":
           description: Inventory overview
+  /api/assets/zones:
+    get:
+      summary: List advisory-only asset network zones
+      responses:
+        "200":
+          description: Network zones used to classify server IPs
+  /api/assets/catalog:
+    get:
+      summary: Return asset catalog foundation
+      responses:
+        "200":
+          description: Network zones, planned asset sources, manual assets, and counts
+  /api/assets/inspect:
+    get:
+      summary: Classify one IP and report missing asset evidence
+      parameters:
+        - name: ip
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: IP zone match, related sources, findings, and advice
+  /api/assets/diff:
+    get:
+      summary: Return advisory-only asset gaps and removal candidates
+      responses:
+        "200":
+          description: Findings that do not mutate JumpServer or Prometheus
   /api/errors/recent:
     get:
       summary: Return recent AI-readable error events

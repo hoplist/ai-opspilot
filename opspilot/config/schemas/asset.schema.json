@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpsPilot Asset",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "opspilot.io/v1" },
+    "kind": { "const": "Asset" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "hostname": { "type": "string" },
+        "ips": { "type": "array", "items": { "type": "string" } },
+        "asset_type": { "type": "string" },
+        "region": { "type": "string" },
+        "network_zone": { "type": "string" },
+        "status": { "enum": ["active", "stale", "deleted", "unknown"] },
+        "owner": { "type": "string" },
+        "sources": { "type": "array", "items": { "type": "string" } },
+        "expected_sources": { "type": "array", "items": { "type": "string" } },
+        "labels": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpsPilot NetworkZone",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "opspilot.io/v1" },
+    "kind": { "const": "NetworkZone" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "region": { "type": "string" },
+        "zone": { "type": "string" },
+        "cidrs": { "type": "array", "items": { "type": "string" } },
+        "entrypoints": { "type": "array", "items": { "type": "string" } },
+        "coverage": { "enum": ["complete", "partial", "unknown"] },
+        "action_policy": { "enum": ["advisory_only", "plan_only"] },
+        "description": { "type": "string" }
+      }
+    }
+  }
+}

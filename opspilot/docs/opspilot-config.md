@@ -23,6 +23,7 @@ datasources/
 agents/
 services/
 topology/
+assets/
 correlation/
 schemas/
 .gitlab-ci.yml
@@ -68,6 +69,45 @@ The current deployment keeps only bootstrap values in the Kubernetes ConfigMap:
 
 Service topology, datasources, cluster catalog, node agents, release mappings,
 credential catalog, and quality runner metadata live in the GitLab config repo.
+
+## Asset Network Zones
+
+Server asset correlation starts with advisory-only network zones. The first
+stage does not call JumpServer, does not write Prometheus, and does not remove
+targets. It only classifies IPs and reports missing asset evidence.
+
+Example:
+
+```yaml
+network_zones:
+  - name: chengdu-inner
+    region: chengdu
+    zone: inner
+    cidrs:
+      - 10.65.0.0/16
+    coverage: partial
+    action_policy: advisory_only
+
+asset_sources:
+  - name: jumpserver-chengdu-inner
+    kind: jumpserver
+    region: chengdu
+    network_zone: chengdu-inner
+    enabled: false
+    coverage: partial
+```
+
+Commands:
+
+```powershell
+opspilot assets zones --output human
+opspilot assets inspect --ip 10.236.12.19 --output human
+opspilot assets diff --output human
+```
+
+Use `coverage: partial` when JumpServer does not fully cover a network zone.
+`action_policy: advisory_only` means OpsPilot can say "missing" or "candidate
+for removal", but it must not delete JumpServer assets or Prometheus targets.
 
 ## Credential Policy
 

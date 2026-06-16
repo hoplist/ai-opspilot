@@ -1,0 +1,56 @@
+network_zones:
+  - name: chengdu-outer
+    region: chengdu
+    zone: outer
+    cidrs:
+      - 10.234.4.0/24
+    coverage: partial
+    action_policy: advisory_only
+    description: 成都外网固定业务网段。
+  - name: chengdu-inner
+    region: chengdu
+    zone: inner
+    cidrs:
+      - 10.65.0.0/16
+    coverage: partial
+    action_policy: advisory_only
+    description: 成都内网固定业务网段。
+  - name: guangzhou-inner
+    region: guangzhou
+    zone: inner
+    cidrs:
+      - 10.236.21.0/24
+    coverage: partial
+    action_policy: advisory_only
+    description: 广州内网固定业务网段。
+  - name: guangzhou-cloud-entry
+    region: guangzhou
+    zone: entry
+    entrypoints:
+      - 10.236.12.19
+    coverage: partial
+    action_policy: advisory_only
+    description: 广州和云上固定入口/堡垒跳转地址，不按普通业务节点自动处理。
+
+asset_sources:
+  - name: jumpserver-chengdu-inner
+    kind: jumpserver
+    region: chengdu
+    network_zone: chengdu-inner
+    enabled: false
+    coverage: partial
+    note: 预留成都内网 JumpServer 接入；当前只做规划和缺失提示。
+  - name: jumpserver-guangzhou-inner
+    kind: jumpserver
+    region: guangzhou
+    network_zone: guangzhou-inner
+    enabled: false
+    coverage: partial
+    note: 预留广州内网 JumpServer 接入；当前只做规划和缺失提示。
+  - name: prometheus-node200
+    kind: prometheus
+    region: chengdu
+    network_zone: chengdu-inner
+    enabled: false
+    coverage: partial
+    note: 预留 Prometheus 资产目标元数据；当前不会写入或删除 target。

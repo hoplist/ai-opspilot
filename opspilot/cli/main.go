@@ -74,6 +74,8 @@ func run(args []string, out io.Writer) error {
 		return runDatasourcePlan(opts, args[1:], out)
 	case "clusters", "cluster":
 		return runClustersCatalog(opts, args[1:], out)
+	case "assets", "asset":
+		return runAssetsCommand(opts, args[1:], out)
 	case "inventory":
 		endpoint, values = inventoryCommand(args[1:])
 	case "metrics":

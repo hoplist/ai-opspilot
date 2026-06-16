@@ -91,6 +91,26 @@
       "description": "Return the service catalog that maps services to repo, namespace, deployment, image, owner, middleware, config sources, and release mapping state."
     },
     {
+      "name": "assets zones",
+      "readonly": true,
+      "description": "List advisory-only network zones used to classify server IPs before JumpServer, Prometheus, and agent correlation."
+    },
+    {
+      "name": "assets catalog",
+      "readonly": true,
+      "description": "Return the server asset catalog foundation: network zones, planned asset sources, optional manual assets, counts, and warnings."
+    },
+    {
+      "name": "assets inspect",
+      "readonly": true,
+      "description": "Classify one IP into a configured network zone and show missing JumpServer/Prometheus evidence without mutating any source."
+    },
+    {
+      "name": "assets diff",
+      "readonly": true,
+      "description": "Return advisory-only asset gaps and removal candidates. Does not delete JumpServer assets or Prometheus targets."
+    },
+    {
       "name": "inventory overview",
       "readonly": true,
       "description": "Return cluster, server, workload, pod, and container overview."

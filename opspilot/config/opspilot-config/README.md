@@ -14,6 +14,8 @@ directories small and explicit:
 - `datasources/`: Prometheus, Elasticsearch/OpenSearch, APISIX, and app log
   datasource definitions.
 - `agents/`: read-only node agent endpoints.
+- `assets/`: advisory-only network zones, planned JumpServer/Prometheus asset
+  sources, and optional static assets.
 - `services/`: service catalog, runtime mapping, release mapping, and log
   correlation hints.
 - `topology/`: region and network path hints.

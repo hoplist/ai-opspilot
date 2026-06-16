@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpsPilot AssetSource",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "opspilot.io/v1" },
+    "kind": { "const": "AssetSource" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["jumpserver", "prometheus", "agent", "manual", "vm"] },
+        "region": { "type": "string" },
+        "network_zone": { "type": "string" },
+        "url": { "type": "string" },
+        "credential_ref": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "coverage": { "enum": ["complete", "partial", "unknown"] },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

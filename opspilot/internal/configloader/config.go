@@ -3,6 +3,7 @@ package configloader
 import (
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,23 +20,26 @@ type Metadata struct {
 }
 
 type Config struct {
-	Version     string       `json:"version"`
-	Source      string       `json:"source"`
-	Directory   string       `json:"directory,omitempty"`
-	Commit      string       `json:"commit,omitempty"`
-	LoadedAt    string       `json:"loaded_at"`
-	Valid       bool         `json:"valid"`
-	Files       []string     `json:"files,omitempty"`
-	Warnings    []string     `json:"warnings,omitempty"`
-	Errors      []string     `json:"errors,omitempty"`
-	Settings    Settings     `json:"settings,omitempty"`
-	Services    []Service    `json:"services,omitempty"`
-	Datasources []Datasource `json:"datasources,omitempty"`
-	Credentials []Credential `json:"credentials,omitempty"`
-	Clusters    []Cluster    `json:"clusters,omitempty"`
-	Agents      []Agent      `json:"agents,omitempty"`
-	Topology    []Region     `json:"topology,omitempty"`
-	Rules       []Rule       `json:"correlation_rules,omitempty"`
+	Version      string        `json:"version"`
+	Source       string        `json:"source"`
+	Directory    string        `json:"directory,omitempty"`
+	Commit       string        `json:"commit,omitempty"`
+	LoadedAt     string        `json:"loaded_at"`
+	Valid        bool          `json:"valid"`
+	Files        []string      `json:"files,omitempty"`
+	Warnings     []string      `json:"warnings,omitempty"`
+	Errors       []string      `json:"errors,omitempty"`
+	Settings     Settings      `json:"settings,omitempty"`
+	Services     []Service     `json:"services,omitempty"`
+	Datasources  []Datasource  `json:"datasources,omitempty"`
+	Credentials  []Credential  `json:"credentials,omitempty"`
+	Clusters     []Cluster     `json:"clusters,omitempty"`
+	Agents       []Agent       `json:"agents,omitempty"`
+	NetworkZones []NetworkZone `json:"network_zones,omitempty"`
+	AssetSources []AssetSource `json:"asset_sources,omitempty"`
+	Assets       []Asset       `json:"assets,omitempty"`
+	Topology     []Region      `json:"topology,omitempty"`
+	Rules        []Rule        `json:"correlation_rules,omitempty"`
 }
 
 type Summary struct {
@@ -191,6 +195,47 @@ type Agent struct {
 	Credential    *CredentialRuntime `json:"-" yaml:"-"`
 }
 
+type NetworkZone struct {
+	Name         string   `json:"name" yaml:"name"`
+	Region       string   `json:"region,omitempty" yaml:"region"`
+	Zone         string   `json:"zone,omitempty" yaml:"zone"`
+	CIDRs        []string `json:"cidrs,omitempty" yaml:"cidrs"`
+	EntryPoints  []string `json:"entrypoints,omitempty" yaml:"entrypoints"`
+	Coverage     string   `json:"coverage,omitempty" yaml:"coverage"`
+	ActionPolicy string   `json:"action_policy,omitempty" yaml:"action_policy"`
+	Description  string   `json:"description,omitempty" yaml:"description"`
+	Source       string   `json:"source,omitempty" yaml:"-"`
+}
+
+type AssetSource struct {
+	Name          string             `json:"name" yaml:"name"`
+	Kind          string             `json:"kind,omitempty" yaml:"kind"`
+	Region        string             `json:"region,omitempty" yaml:"region"`
+	NetworkZone   string             `json:"network_zone,omitempty" yaml:"network_zone"`
+	URL           string             `json:"url,omitempty" yaml:"url"`
+	CredentialRef string             `json:"credential_ref,omitempty" yaml:"credential_ref"`
+	Enabled       *bool              `json:"enabled,omitempty" yaml:"enabled"`
+	Coverage      string             `json:"coverage,omitempty" yaml:"coverage"`
+	Note          string             `json:"note,omitempty" yaml:"note"`
+	Source        string             `json:"source,omitempty" yaml:"-"`
+	Credential    *CredentialRuntime `json:"-" yaml:"-"`
+}
+
+type Asset struct {
+	Name            string            `json:"name" yaml:"name"`
+	Hostname        string            `json:"hostname,omitempty" yaml:"hostname"`
+	IPs             []string          `json:"ips,omitempty" yaml:"ips"`
+	AssetType       string            `json:"asset_type,omitempty" yaml:"asset_type"`
+	Region          string            `json:"region,omitempty" yaml:"region"`
+	NetworkZone     string            `json:"network_zone,omitempty" yaml:"network_zone"`
+	Status          string            `json:"status,omitempty" yaml:"status"`
+	Owner           string            `json:"owner,omitempty" yaml:"owner"`
+	Sources         []string          `json:"sources,omitempty" yaml:"sources"`
+	ExpectedSources []string          `json:"expected_sources,omitempty" yaml:"expected_sources"`
+	Labels          map[string]string `json:"labels,omitempty" yaml:"labels"`
+	Source          string            `json:"source,omitempty" yaml:"-"`
+}
+
 type Region struct {
 	Name      string   `json:"name" yaml:"name"`
 	Zone      string   `json:"zone,omitempty" yaml:"zone"`
@@ -263,16 +308,46 @@ type agentDocument struct {
 
 type AgentSpec Agent
 
+type networkZoneDocument struct {
+	APIVersion string          `yaml:"apiVersion"`
+	Kind       string          `yaml:"kind"`
+	Metadata   Metadata        `yaml:"metadata"`
+	Spec       NetworkZoneSpec `yaml:"spec"`
+}
+
+type NetworkZoneSpec NetworkZone
+
+type assetSourceDocument struct {
+	APIVersion string          `yaml:"apiVersion"`
+	Kind       string          `yaml:"kind"`
+	Metadata   Metadata        `yaml:"metadata"`
+	Spec       AssetSourceSpec `yaml:"spec"`
+}
+
+type AssetSourceSpec AssetSource
+
+type assetDocument struct {
+	APIVersion string    `yaml:"apiVersion"`
+	Kind       string    `yaml:"kind"`
+	Metadata   Metadata  `yaml:"metadata"`
+	Spec       AssetSpec `yaml:"spec"`
+}
+
+type AssetSpec Asset
+
 type bulkDocument struct {
-	Version     string       `yaml:"version"`
-	Settings    Settings     `yaml:"settings"`
-	Services    []Service    `yaml:"services"`
-	Datasources []Datasource `yaml:"datasources"`
-	Credentials []Credential `yaml:"credentials"`
-	Clusters    []Cluster    `yaml:"clusters"`
-	Agents      []Agent      `yaml:"agents"`
-	Topology    []Region     `yaml:"topology"`
-	Rules       []Rule       `yaml:"correlation_rules"`
+	Version      string        `yaml:"version"`
+	Settings     Settings      `yaml:"settings"`
+	Services     []Service     `yaml:"services"`
+	Datasources  []Datasource  `yaml:"datasources"`
+	Credentials  []Credential  `yaml:"credentials"`
+	Clusters     []Cluster     `yaml:"clusters"`
+	Agents       []Agent       `yaml:"agents"`
+	NetworkZones []NetworkZone `yaml:"network_zones"`
+	AssetSources []AssetSource `yaml:"asset_sources"`
+	Assets       []Asset       `yaml:"assets"`
+	Topology     []Region      `yaml:"topology"`
+	Rules        []Rule        `yaml:"correlation_rules"`
 }
 
 func Load(dir string) Config {
@@ -356,6 +431,9 @@ func (c Config) Summary() Summary {
 			"credentials":       len(c.Credentials),
 			"clusters":          len(c.Clusters),
 			"agents":            len(c.Agents),
+			"network_zones":     len(c.NetworkZones),
+			"asset_sources":     len(c.AssetSources),
+			"assets":            len(c.Assets),
 			"topology_regions":  len(c.Topology),
 			"correlation_rules": len(c.Rules),
 		},
@@ -478,6 +556,36 @@ func parseDocument(path string, node *yaml.Node, cfg *Config) {
 		item.Name = firstNonEmpty(item.Name, doc.Metadata.Name)
 		item.Source = "file:" + filepath.ToSlash(path)
 		cfg.Agents = append(cfg.Agents, item)
+	case "networkzone", "network_zone":
+		var doc networkZoneDocument
+		if err := node.Decode(&doc); err != nil {
+			cfg.Errors = append(cfg.Errors, fmt.Sprintf("%s: %v", path, err))
+			return
+		}
+		item := NetworkZone(doc.Spec)
+		item.Name = firstNonEmpty(item.Name, doc.Metadata.Name)
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.NetworkZones = append(cfg.NetworkZones, item)
+	case "assetsource", "asset_source":
+		var doc assetSourceDocument
+		if err := node.Decode(&doc); err != nil {
+			cfg.Errors = append(cfg.Errors, fmt.Sprintf("%s: %v", path, err))
+			return
+		}
+		item := AssetSource(doc.Spec)
+		item.Name = firstNonEmpty(item.Name, doc.Metadata.Name)
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.AssetSources = append(cfg.AssetSources, item)
+	case "asset":
+		var doc assetDocument
+		if err := node.Decode(&doc); err != nil {
+			cfg.Errors = append(cfg.Errors, fmt.Sprintf("%s: %v", path, err))
+			return
+		}
+		item := Asset(doc.Spec)
+		item.Name = firstNonEmpty(item.Name, doc.Metadata.Name)
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.Assets = append(cfg.Assets, item)
 	case "":
 		parseBulkDocument(path, node, cfg)
 	default:
@@ -512,6 +620,18 @@ func parseBulkDocument(path string, node *yaml.Node, cfg *Config) {
 	for _, item := range doc.Agents {
 		item.Source = "file:" + filepath.ToSlash(path)
 		cfg.Agents = append(cfg.Agents, item)
+	}
+	for _, item := range doc.NetworkZones {
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.NetworkZones = append(cfg.NetworkZones, item)
+	}
+	for _, item := range doc.AssetSources {
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.AssetSources = append(cfg.AssetSources, item)
+	}
+	for _, item := range doc.Assets {
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.Assets = append(cfg.Assets, item)
 	}
 	for _, item := range doc.Topology {
 		item.Source = "file:" + filepath.ToSlash(path)
@@ -570,6 +690,45 @@ func validate(cfg *Config) {
 			cfg.Warnings = append(cfg.Warnings, "agent "+item.Name+" references missing credential "+item.CredentialRef)
 		}
 	}
+	for _, item := range cfg.NetworkZones {
+		if item.Name == "" {
+			cfg.Errors = append(cfg.Errors, "network zone entry missing name")
+		}
+		if len(item.CIDRs) == 0 && len(item.EntryPoints) == 0 {
+			cfg.Warnings = append(cfg.Warnings, "network zone "+item.Name+" has no CIDRs or entrypoints")
+		}
+		for _, cidr := range item.CIDRs {
+			if _, err := netip.ParsePrefix(strings.TrimSpace(cidr)); err != nil {
+				cfg.Errors = append(cfg.Errors, "network zone "+item.Name+" invalid CIDR "+cidr)
+			}
+		}
+		for _, ip := range item.EntryPoints {
+			if _, err := netip.ParseAddr(strings.TrimSpace(ip)); err != nil {
+				cfg.Errors = append(cfg.Errors, "network zone "+item.Name+" invalid entrypoint "+ip)
+			}
+		}
+	}
+	for _, item := range cfg.AssetSources {
+		if item.Name == "" {
+			cfg.Errors = append(cfg.Errors, "asset source entry missing name")
+		}
+		if item.Kind == "" {
+			cfg.Errors = append(cfg.Errors, "asset source "+item.Name+" missing kind")
+		}
+		if item.CredentialRef != "" && credentialByName(cfg.Credentials, item.CredentialRef) == nil {
+			cfg.Warnings = append(cfg.Warnings, "asset source "+item.Name+" references missing credential "+item.CredentialRef)
+		}
+	}
+	for _, item := range cfg.Assets {
+		if item.Name == "" {
+			cfg.Errors = append(cfg.Errors, "asset entry missing name")
+		}
+		for _, ip := range item.IPs {
+			if _, err := netip.ParseAddr(strings.TrimSpace(ip)); err != nil {
+				cfg.Errors = append(cfg.Errors, "asset "+item.Name+" invalid IP "+ip)
+			}
+		}
+	}
 }
 
 func attachCredentials(cfg *Config) {
@@ -601,6 +760,20 @@ func attachCredentials(cfg *Config) {
 			Password: cred.Password,
 		}
 	}
+	for idx := range cfg.AssetSources {
+		ref := cfg.AssetSources[idx].CredentialRef
+		if ref == "" {
+			continue
+		}
+		cred := credentialByName(cfg.Credentials, ref)
+		if cred == nil {
+			continue
+		}
+		cfg.AssetSources[idx].Credential = &CredentialRuntime{
+			Username: cred.Username,
+			Password: cred.Password,
+		}
+	}
 }
 
 func credentialByName(items []Credential, name string) *Credential {
@@ -618,6 +791,9 @@ func dedupe(cfg *Config) {
 	cfg.Credentials = dedupeByName(cfg.Credentials, func(item Credential) string { return item.Name })
 	cfg.Clusters = dedupeByName(cfg.Clusters, func(item Cluster) string { return item.Name })
 	cfg.Agents = dedupeByName(cfg.Agents, func(item Agent) string { return item.Name })
+	cfg.NetworkZones = dedupeByName(cfg.NetworkZones, func(item NetworkZone) string { return item.Name })
+	cfg.AssetSources = dedupeByName(cfg.AssetSources, func(item AssetSource) string { return item.Name })
+	cfg.Assets = dedupeByName(cfg.Assets, func(item Asset) string { return item.Name })
 	cfg.Topology = dedupeByName(cfg.Topology, func(item Region) string { return item.Name })
 	cfg.Rules = dedupeByName(cfg.Rules, func(item Rule) string { return item.Name })
 }

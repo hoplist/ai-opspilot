@@ -68,6 +68,40 @@ spec:
   default: true
   credential_ref: node206-agent
 `)
+	writeFile(t, dir, "assets/network-zones.yaml", `
+network_zones:
+  - name: chengdu-inner
+    region: chengdu
+    zone: inner
+    cidrs:
+      - 10.65.0.0/16
+    coverage: partial
+    action_policy: advisory_only
+  - name: guangzhou-cloud-entry
+    region: guangzhou
+    zone: entry
+    entrypoints:
+      - 10.236.12.19
+    coverage: partial
+asset_sources:
+  - name: jumpserver-chengdu-inner
+    kind: jumpserver
+    region: chengdu
+    network_zone: chengdu-inner
+    enabled: false
+    coverage: partial
+assets:
+  - name: node-a
+    hostname: node-a
+    ips:
+      - 10.65.1.10
+    asset_type: vm
+    sources:
+      - manual
+    expected_sources:
+      - jumpserver
+      - prometheus
+`)
 	writeFile(t, dir, "services/devex/todo-server.yaml", `
 apiVersion: opspilot.io/v1
 kind: Service
@@ -127,6 +161,15 @@ spec:
 	}
 	if cfg.NodeAgentTokensRaw() != "node206=agent-token" {
 		t.Fatalf("agent token raw = %s", cfg.NodeAgentTokensRaw())
+	}
+	if len(cfg.NetworkZones) != 2 || cfg.NetworkZones[0].Name != "chengdu-inner" {
+		t.Fatalf("network zones = %#v", cfg.NetworkZones)
+	}
+	if len(cfg.AssetSources) != 1 || cfg.AssetSources[0].Name != "jumpserver-chengdu-inner" || cfg.AssetSources[0].Enabled == nil || *cfg.AssetSources[0].Enabled {
+		t.Fatalf("asset sources = %#v", cfg.AssetSources)
+	}
+	if len(cfg.Assets) != 1 || cfg.Assets[0].Name != "node-a" {
+		t.Fatalf("assets = %#v", cfg.Assets)
 	}
 	defaults := cfg.LogSearchDefaults()
 	if defaults.URL != "http://es.example:9200" || defaults.Index != "*-server-*" || defaults.Username != "elastic" || defaults.Password != "secret" {
