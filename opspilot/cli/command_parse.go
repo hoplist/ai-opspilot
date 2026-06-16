@@ -62,8 +62,14 @@ func evidenceCommand(args []string) (string, url.Values) {
 }
 
 func logsCommand(args []string) (string, url.Values) {
-	if len(args) == 0 || args[0] != "search" {
-		fail("expected: logs search")
+	if len(args) == 0 {
+		fail("expected: logs search or logs route")
+	}
+	if args[0] == "route" {
+		return "/api/logs/route", logsRouteValues(args[1:])
+	}
+	if args[0] != "search" {
+		fail("expected: logs search or logs route")
 	}
 	fs := flag.NewFlagSet("logs search", flag.ExitOnError)
 	namespace := fs.String("namespace", "", "namespace")

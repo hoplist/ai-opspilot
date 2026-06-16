@@ -1,42 +1,15 @@
-package main
+package repoupload
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"testing"
-
-	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/repoupload"
 )
 
-func TestRepoUploadRequiresConfirm(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	err := run([]string{"repo", "upload", "--repo", dir, "--name", "demo-api"}, &out)
-	if err == nil {
-		t.Fatal("expected repo upload to require --confirm")
-	}
-	var payload repoUploadResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.Status != "planned" || payload.Ready {
-		t.Fatalf("payload = %#v", payload)
-	}
-	if payload.Plan.Target.GitLabProject != "tpo/sandbox/devex/demo-api" {
-		t.Fatalf("target = %#v", payload.Plan.Target)
-	}
-}
-
-func TestRepoUploadGitLabClientCreatesProject(t *testing.T) {
+func TestClientCreatesProject(t *testing.T) {
 	requests := []string{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.Method+" "+r.URL.EscapedPath())
@@ -47,7 +20,7 @@ func TestRepoUploadGitLabClientCreatesProject(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.EscapedPath() == "/api/v4/projects/tpo%2Fsandbox%2Fdevex%2Fdemo-api":
 			http.NotFound(w, r)
 		case r.Method == http.MethodGet && r.URL.EscapedPath() == "/api/v4/groups/tpo%2Fsandbox%2Fdevex":
-			writeTestJSON(w, map[string]any{"id": 123, "full_path": "tpo/sandbox/devex"})
+			writeJSON(w, map[string]any{"id": 123, "full_path": "tpo/sandbox/devex"})
 		case r.Method == http.MethodPost && r.URL.EscapedPath() == "/api/v4/projects":
 			var payload map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -56,7 +29,7 @@ func TestRepoUploadGitLabClientCreatesProject(t *testing.T) {
 			if payload["path"] != "demo-api" || int(payload["namespace_id"].(float64)) != 123 {
 				t.Fatalf("payload = %#v", payload)
 			}
-			writeTestJSON(w, map[string]any{
+			writeJSON(w, map[string]any{
 				"id":                  456,
 				"path_with_namespace": "tpo/sandbox/devex/demo-api",
 				"http_url_to_repo":    serverURLToRepo(r, "tpo/sandbox/devex/demo-api"),
@@ -67,11 +40,8 @@ func TestRepoUploadGitLabClientCreatesProject(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	oldClient := cliHTTPClient
-	cliHTTPClient = server.Client()
-	defer func() { cliHTTPClient = oldClient }()
 
-	client := repoupload.NewClient(server.URL, "test-token", server.Client())
+	client := NewClient(server.URL, "test-token", server.Client())
 	project, action, err := client.EnsureProject(context.Background(), "tpo/sandbox/devex/demo-api", true)
 	if err != nil {
 		t.Fatal(err)
@@ -81,6 +51,23 @@ func TestRepoUploadGitLabClientCreatesProject(t *testing.T) {
 	}
 	if len(requests) != 3 {
 		t.Fatalf("requests = %#v", requests)
+	}
+}
+
+func TestTargetAllowed(t *testing.T) {
+	allowed := ParseAllowedBases("tpo/sandbox/devex,tpo/apps/devex")
+	if !TargetAllowed("tpo/sandbox/devex/demo-api", allowed) {
+		t.Fatal("expected sandbox target to be allowed")
+	}
+	if TargetAllowed("tpo/platform/opspilot", allowed) {
+		t.Fatal("expected platform target to be blocked")
+	}
+}
+
+func writeJSON(w http.ResponseWriter, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		panic(err)
 	}
 }
 

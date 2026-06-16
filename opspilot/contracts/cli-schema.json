@@ -201,6 +201,11 @@
       "description": "Search collected Kubernetes logs from the configured OpenSearch/Elasticsearch backend. Supports -q, --query, and --since; requests are bounded by a short time window and result limit."
     },
     {
+      "name": "logs route",
+      "readonly": true,
+      "description": "Explain the bounded datasource route for a service, domain, cluster, or region before querying logs. Kibana entries are UI metadata only; Elasticsearch/OpenSearch entries are query targets."
+    },
+    {
       "name": "evidence request",
       "readonly": true,
       "description": "Correlate APISIX access logs with service logs by host, URI, time window, optional route mapping, and evidence strength. Supports --skip-apisix / --service-only for preliminary investigation without gateway logs."
@@ -397,7 +402,7 @@
     {
       "name": "repo upload",
       "readonly": false,
-      "description": "Confirmed sandbox upload for identity-less test repositories. Requires --confirm, runs code precheck, creates or reuses the sandbox GitLab project, and pushes the current committed HEAD. Does not auto-commit local changes, edit GitOps, mutate Kubernetes, or configure gateway routes."
+      "description": "Confirmed sandbox upload for identity-less test repositories. Requires --confirm, runs code precheck, asks opspilot-core to create or reuse the sandbox GitLab project, and pushes the current committed HEAD with a local push token. Does not auto-commit local changes, edit GitOps, mutate Kubernetes, or configure gateway routes."
     },
     {
       "name": "repo autofix",

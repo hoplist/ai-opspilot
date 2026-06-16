@@ -476,6 +476,39 @@ paths:
       responses:
         "200":
           description: Log search results
+  /api/logs/route:
+    get:
+      summary: Explain the ordered datasource route for log investigation
+      parameters:
+        - name: service
+          in: query
+          schema:
+            type: string
+            description: Service catalog name
+        - name: host
+          in: query
+          schema:
+            type: string
+            description: Gateway host/domain
+        - name: cluster
+          in: query
+          schema:
+            type: string
+            description: Cluster catalog name
+        - name: region
+          in: query
+          schema:
+            type: string
+            description: Region name
+        - name: global
+          in: query
+          schema:
+            type: boolean
+            default: false
+            description: Include all log datasources after exact, cluster, and regional candidates
+      responses:
+        "200":
+          description: Ordered ES/OpenSearch candidates, Kibana UI metadata, query limits, and evidence gaps
   /api/evidence/request:
     get:
       summary: Correlate APISIX access logs with service logs for one request shape
@@ -632,6 +665,28 @@ paths:
       responses:
         "200":
           description: Submitted GitLab pipeline
+  /api/repo/upload-target:
+    post:
+      summary: Create or reuse the allowed GitLab target project for repo upload
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - target_project
+              properties:
+                target_project:
+                  type: string
+                  description: Full GitLab project path under an allowed upload base
+                no_reuse:
+                  type: boolean
+                  default: false
+                  description: Fail if the target project already exists
+      responses:
+        "200":
+          description: GitLab project metadata without returning tokens
   /api/release/logs:
     get:
       summary: Read bounded GitLab job trace logs for one configured release service

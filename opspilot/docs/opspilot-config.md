@@ -136,3 +136,24 @@ Evidence strength rules remain explicit:
 - `medium`: same domain/service/time window with gateway and service evidence.
 - `weak`: only one side has useful evidence.
 - `missing`: required log source or mapping is absent.
+
+## Log Datasource Routing
+
+Before querying logs, OpsPilot can explain the shortest bounded route:
+
+```powershell
+opspilot logs route --host todo.tpo.xzoa.com --output human
+opspilot logs route --service todo-server --output pretty
+opspilot logs route --region chengdu-inner --global --output pretty
+```
+
+Routing order:
+
+1. service/domain exact match;
+2. cluster default log datasource;
+3. same-region ES/OpenSearch datasource;
+4. neighbor-region datasource from `topology/`;
+5. global datasource search only when `--global` is explicit.
+
+Kibana datasources are kept as UI metadata and are not used as query targets.
+Elasticsearch/OpenSearch datasources are the only log query targets.

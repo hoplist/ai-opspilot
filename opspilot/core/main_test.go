@@ -307,6 +307,83 @@ func TestConfigStatusEndpoint(t *testing.T) {
 	}
 }
 
+func TestLogsRouteEndpoint(t *testing.T) {
+	mux := http.NewServeMux()
+	state := testRuntimeState("", configloader.Config{
+		Version: "v1",
+		Source:  "test",
+		Valid:   true,
+		Services: []configloader.Service{{
+			Name:    "todo-server",
+			Domains: []string{"todo.tpo.xzoa.com"},
+			Runtime: configloader.RuntimeSpec{Cluster: "node200-test", Namespace: "todo", Deployment: "todo-server"},
+			Logs:    configloader.ServiceLogSpec{AppIndexes: []string{"todo-*"}},
+		}},
+		Clusters: []configloader.Cluster{{Name: "node200-test", Logs: "node200-logs"}},
+		Datasources: []configloader.Datasource{{
+			Name: "node200-logs",
+			Kind: "elasticsearch",
+			URL:  "http://es.example:9200",
+		}},
+	})
+	registerRoutes(mux, state, errorevidence.NewCollector(t.TempDir()), release.QualitySettings{}, nil, evidence.NewStore(t.TempDir()))
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/logs/route?host=todo.tpo.xzoa.com", nil)
+	mux.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"selected"`) || !strings.Contains(recorder.Body.String(), "node200-logs") {
+		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}
+
+func TestRepoUploadTargetEndpointCreatesProject(t *testing.T) {
+	gitlab := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("PRIVATE-TOKEN") != "server-token" {
+			t.Fatalf("missing private token")
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.EscapedPath() == "/api/v4/projects/tpo%2Fsandbox%2Fdevex%2Fdemo-api":
+			http.NotFound(w, r)
+		case r.Method == http.MethodGet && r.URL.EscapedPath() == "/api/v4/groups/tpo%2Fsandbox%2Fdevex":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 123})
+		case r.Method == http.MethodPost && r.URL.EscapedPath() == "/api/v4/projects":
+			base := "http://" + r.Host
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":                  456,
+				"path_with_namespace": "tpo/sandbox/devex/demo-api",
+				"http_url_to_repo":    base + "/tpo/sandbox/devex/demo-api.git",
+				"web_url":             base + "/tpo/sandbox/devex/demo-api",
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.EscapedPath())
+		}
+	}))
+	defer gitlab.Close()
+	t.Setenv("OPSPILOT_GITLAB_TOKEN", "server-token")
+	t.Setenv("OPSPILOT_REPO_UPLOAD_ALLOWED_BASES", "tpo/sandbox/devex")
+
+	mux := http.NewServeMux()
+	state := testRuntimeState("", configloader.Config{
+		Version:  "v1",
+		Source:   "test",
+		Valid:    true,
+		Settings: configloader.Settings{GitLabURL: gitlab.URL},
+	})
+	registerRoutes(mux, state, errorevidence.NewCollector(t.TempDir()), release.QualitySettings{}, nil, evidence.NewStore(t.TempDir()))
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/repo/upload-target", strings.NewReader("target_project=tpo%2Fsandbox%2Fdevex%2Fdemo-api"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	mux.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"server_owned":true`) || !strings.Contains(recorder.Body.String(), `"action":"created"`) {
+		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}
+
 func TestAuditPolicyEndpoint(t *testing.T) {
 	mux := http.NewServeMux()
 	registerTestRoutes(t, mux, "")

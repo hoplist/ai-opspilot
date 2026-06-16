@@ -9,7 +9,7 @@ spec:
   owner: platform
   repo: platform/opspilot
   runtime:
-    cluster: node200-k8s
+    cluster: node200-test
     namespace: opspilot
     deployment: opspilot-core
     container: core

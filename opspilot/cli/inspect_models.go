@@ -6,8 +6,9 @@ import (
 )
 
 type apiEnvelope struct {
-	OK   bool            `json:"ok"`
-	Data json.RawMessage `json:"data"`
+	OK       bool            `json:"ok"`
+	Data     json.RawMessage `json:"data"`
+	Warnings []string        `json:"warnings"`
 }
 
 type metricItem struct {

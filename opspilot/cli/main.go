@@ -88,6 +88,9 @@ func run(args []string, out io.Writer) error {
 	case "host":
 		return runHostCommand(opts, args[1:], out)
 	case "logs":
+		if handled, err := runLogsCommand(opts, args[1:], out); handled {
+			return err
+		}
 		endpoint, values = logsCommand(args[1:])
 	case "evidence":
 		if handled, err := runEvidenceCommand(opts, args[1:], out); handled {

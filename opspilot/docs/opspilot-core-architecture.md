@@ -32,6 +32,8 @@ User natural language
 | Metrics evidence | `internal/prometheus` | Prometheus datasource registry and resource queries. |
 | Logs evidence | `internal/logsearch` | ELK/OpenSearch search and APISIX/service correlation. |
 | Release evidence | `internal/release` | GitLab, Registry, GitOps, Argo CD, quality, release, and rollback evidence. |
+| Datasource routing | `internal/datasource` | Resolves bounded ES/OpenSearch query routes from service, host, cluster, and region metadata. |
+| Repository upload target | `internal/repoupload` | Server-owned GitLab project create/reuse for sandbox repository upload. |
 
 ## Natural Language Policy
 
@@ -67,6 +69,12 @@ allows them.
    - `httpclient`
 4. Keep CLI as a thin client. Server-side APIs should own skills, cluster
    catalogs, credential catalogs, and policy.
+
+`repo upload --confirm` now follows the first thin-client migration phase:
+`opspilot-core` creates or reuses the GitLab project and enforces allowed
+target bases; the CLI still performs local precheck, local git status, and
+local `git push` because the server cannot read the user's local repository
+unless a future archive-upload mode is added.
 
 ## Multi-Cluster Model
 
@@ -164,6 +172,8 @@ GET /api/audit/recent
 GET /api/audit/policy
 GET /api/evidence/pack
 GET /api/evidence/packs/recent
+GET /api/logs/route
+POST /api/repo/upload-target
 ```
 
 CLI wrappers:
@@ -173,6 +183,7 @@ opspilot audit recent --output human
 opspilot audit policy --output human
 opspilot evidence pack --target-type service --service opspilot-core --output human
 opspilot evidence packs --output human
+opspilot logs route --host <domain> --output pretty
 ```
 
 High-risk operations remain plan-only until the platform has explicit
@@ -186,5 +197,5 @@ authorization, audit retention, and before/after validation evidence.
    responses.
 3. Split CLI command implementations once backend ownership is clear.
 4. Switch live Argo CD from the compatibility `clusters/test/argocd-core`
-   source path to `platform/argocd/overlays/node200-test` after a planned
-   render diff and sync/health check.
+   source path to `platform/argocd/overlays/node200-test` only after running
+   `tools/argocd-render-diff` and completing sync/health checks.

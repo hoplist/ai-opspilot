@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/datasource"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/logsearch"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/nodeagent"
 )
@@ -66,6 +67,17 @@ func registerLogAndNodeRoutes(mux *http.ServeMux, state *runtimeState) {
 			SinceSeconds: intQueryAliases(r, []string{"since_seconds", "since"}, logsearch.DefaultSearchSinceSeconds),
 		})
 		return result, nil, err
+	}))
+	handleAPI(mux, "/api/logs/route", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		result := datasource.Resolve(state.snapshot().config, datasource.RouteRequest{
+			Service: q.Get("service"),
+			Host:    q.Get("host"),
+			Cluster: q.Get("cluster"),
+			Region:  q.Get("region"),
+			Global:  boolQuery(r, "global"),
+		})
+		return result, nil, nil
 	}))
 	handleAPI(mux, "/api/evidence/request", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		q := r.URL.Query()

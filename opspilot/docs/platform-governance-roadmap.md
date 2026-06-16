@@ -392,6 +392,8 @@ opspilot release status --service skillshub-api --cluster node200-test
 - Done: node200-test is registered in the OpsPilot runtime cluster catalog so
   `opspilot clusters catalog` returns the active cluster instead of an empty
   list after deployment.
-- Remaining later work: switch the live `argocd-core` Application source path
-  in a separate planned GitOps change, then retire the compatibility path after
+- Done: added `tools/argocd-render-diff` so the live `argocd-core` Application
+  path can be switched only after old/new render comparison.
+- Remaining GitOps work: switch the live `argocd-core` Application source path
+  in a separate GitOps change, then retire the compatibility path after
   sync/health verification.

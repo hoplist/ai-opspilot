@@ -7,11 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -39,8 +37,9 @@ func repoUploadPlanCommand(opts globalOptions, args []string, out io.Writer) err
 func repoUploadCommand(opts globalOptions, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("repo upload", flag.ExitOnError)
 	repo, name, planOpts := addRepoUploadPlanFlags(fs)
-	gitlabURL := fs.String("gitlab-url", env("OPSPILOT_GITLAB_URL", defaultGitLabURL), "GitLab base URL")
-	token := fs.String("token", firstNonEmpty(env("OPSPILOT_GITLAB_TOKEN", ""), env("GITLAB_TOKEN", "")), "GitLab API token; prefer OPSPILOT_GITLAB_TOKEN")
+	_ = fs.String("gitlab-url", env("OPSPILOT_GITLAB_URL", defaultGitLabURL), "deprecated: GitLab project creation is handled by opspilot-core")
+	pushToken := fs.String("push-token", firstNonEmpty(env("OPSPILOT_GITLAB_PUSH_TOKEN", ""), env("OPSPILOT_GITLAB_TOKEN", ""), env("GITLAB_TOKEN", "")), "GitLab token used only for local git push")
+	fs.StringVar(pushToken, "token", *pushToken, "alias for --push-token")
 	ref := fs.String("ref", "main", "remote branch to push")
 	confirm := fs.Bool("confirm", false, "confirm GitLab project creation/reuse and git push")
 	reuseExisting := fs.Bool("reuse-existing", true, "reuse existing GitLab project at the target path")
@@ -63,13 +62,6 @@ func repoUploadCommand(opts globalOptions, args []string, out io.Writer) error {
 		}
 		return fmt.Errorf("repo upload requires --confirm")
 	}
-	if strings.TrimSpace(*token) == "" {
-		result.Status = "blocked"
-		result.Next = []string{"set OPSPILOT_GITLAB_TOKEN or pass --token with api/write_repository permission"}
-		_ = writeRepoUpload(out, opts.output, result)
-		return fmt.Errorf("GitLab token is required")
-	}
-
 	precheck, err := runRepoUploadPrecheck(plan)
 	result.Precheck = precheck
 	if err != nil {
@@ -88,20 +80,12 @@ func repoUploadCommand(opts globalOptions, args []string, out io.Writer) error {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), cliHTTPTimeout)
-	defer cancel()
-	client := newRepoUploadGitLabClient(*gitlabURL, *token)
-	project, action, err := client.ensureProject(ctx, plan.Target.GitLabProject, *reuseExisting)
-	result.GitLab = repoUploadGitLabResult{
-		Action:        action,
-		ProjectID:     project.ID,
-		ProjectPath:   firstNonEmpty(project.PathWithNamespace, plan.Target.GitLabProject),
-		HTTPURLToRepo: project.HTTPURLToRepo,
-		WebURL:        project.WebURL,
-	}
+	gitlab, warnings, err := repoUploadEnsureTarget(opts.backendURL, plan.Target.GitLabProject, *reuseExisting)
+	result.GitLab = gitlab
+	result.Warnings = append(result.Warnings, warnings...)
 	if err != nil {
 		result.Status = "blocked"
-		result.Next = []string{"create the target GitLab namespace or provide --target-project under an existing namespace"}
+		result.Next = []string{"check opspilot-core GitLab configuration and allowed repo upload bases"}
 		_ = writeRepoUpload(out, opts.output, result)
 		return err
 	}
@@ -110,8 +94,14 @@ func repoUploadCommand(opts globalOptions, args []string, out io.Writer) error {
 		_ = writeRepoUpload(out, opts.output, result)
 		return fmt.Errorf("GitLab project did not return http_url_to_repo")
 	}
+	if strings.TrimSpace(*pushToken) == "" {
+		result.Status = "blocked"
+		result.Next = []string{"set OPSPILOT_GITLAB_PUSH_TOKEN or pass --push-token for local git push; core already owns project create/reuse"}
+		_ = writeRepoUpload(out, opts.output, result)
+		return fmt.Errorf("GitLab push token is required")
+	}
 
-	pushedURL, err := gitPushWithToken(plan.Repo, result.GitLab.HTTPURLToRepo, *token, result.Git.Ref)
+	pushedURL, err := gitPushWithToken(plan.Repo, result.GitLab.HTTPURLToRepo, *pushToken, result.Git.Ref)
 	result.Git.RemoteURL = stripURLCredentials(pushedURL)
 	if err != nil {
 		result.Status = "blocked"
@@ -128,6 +118,29 @@ func repoUploadCommand(opts globalOptions, args []string, out io.Writer) error {
 		"release through GitLab Runner -> BuildKit -> Registry -> GitOps -> Argo CD",
 	}
 	return writeRepoUpload(out, opts.output, result)
+}
+
+func repoUploadEnsureTarget(backendURL, targetProject string, reuseExisting bool) (repoUploadGitLabResult, []string, error) {
+	values := url.Values{"target_project": {targetProject}}
+	if !reuseExisting {
+		values.Set("no_reuse", "true")
+	}
+	body, err := post(backendURL, "/api/repo/upload-target", values)
+	if err != nil {
+		return repoUploadGitLabResult{}, nil, err
+	}
+	var env apiEnvelope
+	if err := json.Unmarshal(body, &env); err != nil {
+		return repoUploadGitLabResult{}, nil, err
+	}
+	if !env.OK {
+		return repoUploadGitLabResult{}, env.Warnings, fmt.Errorf("repo upload target API returned ok=false")
+	}
+	var data repoUploadGitLabResult
+	if err := json.Unmarshal(env.Data, &data); err != nil {
+		return repoUploadGitLabResult{}, env.Warnings, err
+	}
+	return data, env.Warnings, nil
 }
 
 type repoUploadFlagValues struct {
@@ -364,143 +377,6 @@ func writeGitAskpass() (string, error) {
 		}
 	}
 	return file.Name(), nil
-}
-
-type repoUploadGitLabClient struct {
-	baseURL string
-	token   string
-	client  *http.Client
-}
-
-type repoUploadGitLabProject struct {
-	ID                int    `json:"id"`
-	Path              string `json:"path"`
-	PathWithNamespace string `json:"path_with_namespace"`
-	HTTPURLToRepo     string `json:"http_url_to_repo"`
-	WebURL            string `json:"web_url"`
-}
-
-type repoUploadGitLabGroup struct {
-	ID       int    `json:"id"`
-	FullPath string `json:"full_path"`
-}
-
-func newRepoUploadGitLabClient(baseURL, token string) repoUploadGitLabClient {
-	return repoUploadGitLabClient{
-		baseURL: strings.TrimRight(firstNonEmpty(baseURL, defaultGitLabURL), "/"),
-		token:   strings.TrimSpace(token),
-		client:  cliHTTPClient,
-	}
-}
-
-func (c repoUploadGitLabClient) ensureProject(ctx context.Context, projectPath string, reuseExisting bool) (repoUploadGitLabProject, string, error) {
-	if project, ok, err := c.project(ctx, projectPath); err != nil {
-		return repoUploadGitLabProject{}, "", err
-	} else if ok {
-		if !reuseExisting {
-			return repoUploadGitLabProject{}, "", fmt.Errorf("GitLab project already exists: %s", projectPath)
-		}
-		return project, "reused", nil
-	}
-	namespacePath, projectName := path.Split(strings.Trim(projectPath, "/"))
-	namespacePath = strings.Trim(namespacePath, "/")
-	projectName = strings.Trim(projectName, "/")
-	if namespacePath == "" || projectName == "" {
-		return repoUploadGitLabProject{}, "", fmt.Errorf("target project must include namespace and project name")
-	}
-	group, err := c.group(ctx, namespacePath)
-	if err != nil {
-		return repoUploadGitLabProject{}, "", err
-	}
-	project, err := c.createProject(ctx, group.ID, projectName)
-	if err != nil {
-		return repoUploadGitLabProject{}, "", err
-	}
-	return project, "created", nil
-}
-
-func (c repoUploadGitLabClient) project(ctx context.Context, projectPath string) (repoUploadGitLabProject, bool, error) {
-	var project repoUploadGitLabProject
-	status, body, err := c.do(ctx, http.MethodGet, "/api/v4/projects/"+url.PathEscape(projectPath), nil)
-	if err != nil {
-		return project, false, err
-	}
-	if status == http.StatusNotFound {
-		return project, false, nil
-	}
-	if status < 200 || status >= 300 {
-		return project, false, fmt.Errorf("GitLab project lookup failed: %s", string(body))
-	}
-	if err := json.Unmarshal(body, &project); err != nil {
-		return project, false, err
-	}
-	return project, true, nil
-}
-
-func (c repoUploadGitLabClient) group(ctx context.Context, groupPath string) (repoUploadGitLabGroup, error) {
-	var group repoUploadGitLabGroup
-	status, body, err := c.do(ctx, http.MethodGet, "/api/v4/groups/"+url.PathEscape(groupPath), nil)
-	if err != nil {
-		return group, err
-	}
-	if status == http.StatusNotFound {
-		return group, fmt.Errorf("GitLab namespace not found: %s", groupPath)
-	}
-	if status < 200 || status >= 300 {
-		return group, fmt.Errorf("GitLab namespace lookup failed: %s", string(body))
-	}
-	if err := json.Unmarshal(body, &group); err != nil {
-		return group, err
-	}
-	return group, nil
-}
-
-func (c repoUploadGitLabClient) createProject(ctx context.Context, namespaceID int, projectName string) (repoUploadGitLabProject, error) {
-	var project repoUploadGitLabProject
-	payload := map[string]any{
-		"name":                   projectName,
-		"path":                   projectName,
-		"namespace_id":           namespaceID,
-		"visibility":             "private",
-		"initialize_with_readme": false,
-		"description":            "[SANDBOX] Test-only repository uploaded by OpsPilot.",
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return project, err
-	}
-	status, response, err := c.do(ctx, http.MethodPost, "/api/v4/projects", body)
-	if err != nil {
-		return project, err
-	}
-	if status < 200 || status >= 300 {
-		return project, fmt.Errorf("GitLab project create failed: %s", string(response))
-	}
-	if err := json.Unmarshal(response, &project); err != nil {
-		return project, err
-	}
-	return project, nil
-}
-
-func (c repoUploadGitLabClient) do(ctx context.Context, method, endpoint string, body []byte) (int, []byte, error) {
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+endpoint, bytes.NewReader(body))
-	if err != nil {
-		return 0, nil, err
-	}
-	req.Header.Set("PRIVATE-TOKEN", c.token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return 0, nil, err
-	}
-	defer resp.Body.Close()
-	response, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
-	if err != nil {
-		return resp.StatusCode, nil, err
-	}
-	return resp.StatusCode, response, nil
 }
 
 func stripURLCredentials(raw string) string {
