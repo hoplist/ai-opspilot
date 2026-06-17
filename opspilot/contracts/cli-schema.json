@@ -156,6 +156,21 @@
       "description": "Return filesystem mountpoint free space, total space, and usage percent from Prometheus. Supports --source and --source all."
     },
     {
+      "name": "profiles status",
+      "readonly": true,
+      "description": "Show optional Parca profile datasource readiness. Missing or unreachable Parca is reported as missing profile evidence and does not block other checks."
+    },
+    {
+      "name": "profiles datasources",
+      "readonly": true,
+      "description": "Alias for profiles status. Lists configured Parca datasources and readiness."
+    },
+    {
+      "name": "profiles link",
+      "readonly": true,
+      "description": "Generate a Parca UI query link for a service, namespace, or Pod. Does not collect profiles or mutate workloads."
+    },
+    {
       "name": "k8s pods",
       "readonly": true,
       "description": "List Kubernetes Pods with optional namespace, status, and query filters."

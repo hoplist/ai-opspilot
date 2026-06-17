@@ -11,6 +11,7 @@ import (
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/logsearch"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/nodeagent"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/profile"
 	prom "github.com/dualistpeng-netizen/ai-observability/opspilot/internal/prometheus"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/release"
 )
@@ -22,7 +23,7 @@ func registerEvidencePackRoutes(mux *http.ServeMux, state *runtimeState, errorCo
 		if err != nil {
 			return nil, warnings, err
 		}
-		pack, moreWarnings, err := buildEvidencePack(ctx, r, client, snap.promRegistry, snap.agentRegistry, snap.logClient, snap.releaseRegistry, errorCollector, qualitySettings)
+		pack, moreWarnings, err := buildEvidencePack(ctx, r, client, snap.promRegistry, snap.agentRegistry, snap.profileRegistry, snap.logClient, snap.releaseRegistry, errorCollector, qualitySettings)
 		warnings = append(warnings, moreWarnings...)
 		if err != nil {
 			return nil, warnings, err
@@ -45,7 +46,7 @@ func registerEvidencePackRoutes(mux *http.ServeMux, state *runtimeState, errorCo
 	}))
 }
 
-func buildEvidencePack(ctx context.Context, r *http.Request, client *k8s.Client, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, errorCollector *errorevidence.Collector, qualitySettings release.QualitySettings) (evidence.Pack, []string, error) {
+func buildEvidencePack(ctx context.Context, r *http.Request, client *k8s.Client, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, profileRegistry *profile.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, errorCollector *errorevidence.Collector, qualitySettings release.QualitySettings) (evidence.Pack, []string, error) {
 	q := r.URL.Query()
 	targetType := firstNonEmpty(q.Get("target_type"), q.Get("type"))
 	service := q.Get("service")
@@ -68,7 +69,7 @@ func buildEvidencePack(ctx context.Context, r *http.Request, client *k8s.Client,
 	status := "unknown"
 	summary := ""
 
-	capabilities, capabilityWarnings, err := buildCapabilities(ctx, client, promRegistry, agentRegistry, logClient, releaseRegistry, qualitySettings)
+	capabilities, capabilityWarnings, err := buildCapabilities(ctx, client, promRegistry, agentRegistry, profileRegistry, logClient, releaseRegistry, qualitySettings)
 	warnings = append(warnings, capabilityWarnings...)
 	if err == nil {
 		evidenceMap["capabilities"] = map[string]any{

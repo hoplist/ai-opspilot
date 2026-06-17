@@ -8,3 +8,4 @@ Use only when the environment explicitly needs them:
 - `minio/`
 - `mysql/`
 - `ebpf/`
+- `parca/`

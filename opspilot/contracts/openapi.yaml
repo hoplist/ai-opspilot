@@ -274,6 +274,46 @@ paths:
       responses:
         "200":
           description: Single Pod metrics
+  /api/profiles/datasources:
+    get:
+      summary: Return optional Parca profile datasource readiness
+      responses:
+        "200":
+          description: Parca datasource readiness and missing profile evidence
+  /api/profiles/status:
+    get:
+      summary: Return optional Parca profile datasource status
+      responses:
+        "200":
+          description: Parca status; missing or unreachable Parca does not block other evidence
+  /api/profiles/link:
+    get:
+      summary: Generate a Parca UI query link
+      parameters:
+        - name: source
+          in: query
+          schema:
+            type: string
+        - name: service
+          in: query
+          schema:
+            type: string
+        - name: namespace
+          in: query
+          schema:
+            type: string
+        - name: pod
+          in: query
+          schema:
+            type: string
+        - name: since
+          in: query
+          schema:
+            type: string
+            default: 10m
+      responses:
+        "200":
+          description: Profile datasource, query, URL, or missing profile evidence
   /api/k8s/pods:
     get:
       summary: List Kubernetes Pods

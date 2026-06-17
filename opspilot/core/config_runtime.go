@@ -11,6 +11,7 @@ import (
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/logsearch"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/nodeagent"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/profile"
 	prom "github.com/dualistpeng-netizen/ai-observability/opspilot/internal/prometheus"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/release"
 )
@@ -21,6 +22,7 @@ type runtimeState struct {
 	k8sRegistry     *k8s.Registry
 	promRegistry    *prom.Registry
 	agentRegistry   *nodeagent.Registry
+	profileRegistry *profile.Registry
 	logClient       *logsearch.Client
 	releaseRegistry *release.Registry
 }
@@ -30,6 +32,7 @@ type runtimeSnapshot struct {
 	k8sRegistry     *k8s.Registry
 	promRegistry    *prom.Registry
 	agentRegistry   *nodeagent.Registry
+	profileRegistry *profile.Registry
 	logClient       *logsearch.Client
 	releaseRegistry *release.Registry
 }
@@ -52,6 +55,7 @@ func newRuntimeState(cfg configloader.Config) *runtimeState {
 		k8sRegistry:     snap.k8sRegistry,
 		promRegistry:    snap.promRegistry,
 		agentRegistry:   snap.agentRegistry,
+		profileRegistry: snap.profileRegistry,
 		logClient:       snap.logClient,
 		releaseRegistry: snap.releaseRegistry,
 	}
@@ -65,6 +69,7 @@ func (s *runtimeState) snapshot() runtimeSnapshot {
 		k8sRegistry:     s.k8sRegistry,
 		promRegistry:    s.promRegistry,
 		agentRegistry:   s.agentRegistry,
+		profileRegistry: s.profileRegistry,
 		logClient:       s.logClient,
 		releaseRegistry: s.releaseRegistry,
 	}
@@ -81,6 +86,7 @@ func (s *runtimeState) reload(cfg configloader.Config) {
 	s.k8sRegistry = snap.k8sRegistry
 	s.promRegistry = snap.promRegistry
 	s.agentRegistry = snap.agentRegistry
+	s.profileRegistry = snap.profileRegistry
 	s.logClient = snap.logClient
 	s.releaseRegistry = snap.releaseRegistry
 }
@@ -91,6 +97,7 @@ func buildRuntimeSnapshot(runtimeConfig configloader.Config) runtimeSnapshot {
 		k8sRegistry:     buildK8sRegistry(runtimeConfig),
 		promRegistry:    buildPromRegistry(runtimeConfig),
 		agentRegistry:   buildAgentRegistry(runtimeConfig),
+		profileRegistry: profile.NewRegistry(runtimeConfig),
 		logClient:       buildLogClient(runtimeConfig),
 		releaseRegistry: buildReleaseRegistry(runtimeConfig),
 	}

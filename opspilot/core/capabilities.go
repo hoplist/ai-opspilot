@@ -11,12 +11,13 @@ import (
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/logsearch"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/nodeagent"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/profile"
 	prom "github.com/dualistpeng-netizen/ai-observability/opspilot/internal/prometheus"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/release"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/skillregistry"
 )
 
-func buildCapabilities(ctx context.Context, client *k8s.Client, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, qualitySettings release.QualitySettings) (map[string]any, []string, error) {
+func buildCapabilities(ctx context.Context, client *k8s.Client, promRegistry *prom.Registry, agentRegistry *nodeagent.Registry, profileRegistry *profile.Registry, logClient *logsearch.Client, releaseRegistry *release.Registry, qualitySettings release.QualitySettings) (map[string]any, []string, error) {
 	warnings := []string{}
 	capabilities := []map[string]any{}
 	availableEvidence := []string{}
@@ -57,6 +58,20 @@ func buildCapabilities(ctx context.Context, client *k8s.Client, promRegistry *pr
 		[]string{"CPU/Memory 当前值和趋势", "Top Pod", "节点资源", "磁盘挂载点"},
 		[]string{"Prometheus 未接入或不可达，无法判断 CPU/Memory 趋势、Top Pod、节点资源和磁盘挂载点。"},
 		"Prometheus enriches Pod and cluster checks; Kubernetes-only inspection can still continue.", promHealth))
+
+	profileHealth := profileRegistry.Health(ctx)
+	if profileHealth.Configured && !profileHealth.Ready {
+		warnings = append(warnings, "profiles: configured but not ready")
+	}
+	add(capabilityItem("profile_evidence", "Parca Profile Evidence", "profiles", profileHealth.Configured, profileHealth.Ready,
+		[]string{"Go/Python CPU profile evidence", "function-level flamegraph link", "high CPU RCA hint"},
+		[]string{"Parca profile datasource is not configured or not ready; function-level CPU evidence is unavailable, but logs, metrics, Kubernetes, and release evidence still work."},
+		"Parca is optional profile evidence. OpsPilot only uses it when configured and reachable.", map[string]any{
+			"version":          profileHealth.Version,
+			"datasource_count": profileHealth.DatasourceCount,
+			"datasources":      profileHealth.Datasources,
+			"missing_evidence": profileHealth.MissingEvidence,
+		}))
 
 	logHealth := logClient.Health(ctx)
 	logReady := boolMapValue(logHealth, "configured") && boolMapValue(logHealth, "ready")

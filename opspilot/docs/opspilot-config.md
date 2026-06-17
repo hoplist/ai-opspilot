@@ -197,3 +197,30 @@ Routing order:
 
 Kibana datasources are kept as UI metadata and are not used as query targets.
 Elasticsearch/OpenSearch datasources are the only log query targets.
+
+## Profile Datasources
+
+Parca can be registered as an optional profile datasource:
+
+```yaml
+datasources:
+  - name: parca-node200
+    kind: parca
+    environment: test
+    region: chengdu-inner
+    url: http://parca.parca.svc.cluster.local:7070
+```
+
+Profile evidence is optional. If Parca is missing or unreachable, OpsPilot
+reports `profile_evidence_not_ready` and continues with Kubernetes, logs,
+metrics, release, host, and asset evidence.
+
+Commands:
+
+```powershell
+opspilot profiles status --output human
+opspilot profiles link --namespace opspilot --service opspilot-core --since 10m --output human
+```
+
+Do not merge Parca Agent into `opspilot-agent`; Parca Agent is a separate
+node-level profiling component.

@@ -47,7 +47,7 @@ func registerSystemRoutes(mux *http.ServeMux, state *runtimeState, qualitySettin
 		if err != nil {
 			return nil, clusterWarnings, err
 		}
-		data, warnings, err := buildCapabilities(ctx, client, snap.promRegistry, snap.agentRegistry, snap.logClient, snap.releaseRegistry, qualitySettings)
+		data, warnings, err := buildCapabilities(ctx, client, snap.promRegistry, snap.agentRegistry, snap.profileRegistry, snap.logClient, snap.releaseRegistry, qualitySettings)
 		if data != nil {
 			data["cluster"] = client.ClusterName()
 		}

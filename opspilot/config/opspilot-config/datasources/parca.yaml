@@ -1,0 +1,6 @@
+datasources:
+  - name: parca-node200
+    kind: parca
+    environment: test
+    region: chengdu-inner
+    url: http://parca.parca.svc.cluster.local:7070

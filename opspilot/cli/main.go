@@ -83,6 +83,8 @@ func run(args []string, out io.Writer) error {
 			return runMetricsFilesystems(opts, args[2:], out)
 		}
 		endpoint, values = metricsCommand(args[1:])
+	case "profiles", "profile":
+		return runProfilesCommand(opts, args[1:], out)
 	case "k8s":
 		endpoint, values = k8sCommand(args[1:])
 	case "docker":
