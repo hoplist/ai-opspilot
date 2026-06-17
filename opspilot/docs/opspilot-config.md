@@ -209,7 +209,7 @@ datasources:
     environment: test
     cluster: node200-test
     region: chengdu-inner
-    url: http://parca.parca.svc.cluster.local:7070
+    url: http://parca-server.parca.svc.cluster.local:7070
 ```
 
 Profile evidence is optional. If Parca is missing or unreachable, OpsPilot

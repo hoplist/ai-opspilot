@@ -47,7 +47,7 @@ datasources:
     environment: test
     cluster: node200-test
     region: chengdu-inner
-    url: http://parca.parca.svc.cluster.local:7070
+    url: http://parca-server.parca.svc.cluster.local:7070
 ```
 
 CLI/API:
@@ -88,6 +88,7 @@ test cluster:
 - namespace: `parca`
 - Argo CD application: `parca`
 - GitOps path: `clusters/test/apps/parca`
+- service URL: `http://parca-server.parca.svc.cluster.local:7070`
 - datasource cluster: `node200-test`
 
 The Parca Agent remains separate from `opspilot-agent` because it needs
