@@ -45,6 +45,7 @@ datasources:
   - name: parca-node200
     kind: parca
     environment: test
+    cluster: node200-test
     region: chengdu-inner
     url: http://parca.parca.svc.cluster.local:7070
 ```
@@ -78,6 +79,27 @@ Minimum validation:
 4. `capabilities --output human` shows profile evidence as ready or missing.
 5. Existing `inspect service`, `inspect pod`, and `release status` still work
    when Parca is missing.
+
+## Follow-up: Test Cluster Install
+
+Parca is installed as an independent optional GitOps application in the node200
+test cluster:
+
+- namespace: `parca`
+- Argo CD application: `parca`
+- GitOps path: `clusters/test/apps/parca`
+- datasource cluster: `node200-test`
+
+The Parca Agent remains separate from `opspilot-agent` because it needs
+node-level profiling privileges. OpsPilot consumes only the configured Parca
+service URL as optional profile evidence.
+
+Minimum validation:
+
+1. `kubectl -n parca get pods` shows Parca server and agent Pods.
+2. `opspilot profiles status` shows `cluster=node200-test`.
+3. If Parca is unavailable, OpsPilot reports `profile_evidence_not_ready`
+   without blocking other evidence.
 
 ## Deferred
 

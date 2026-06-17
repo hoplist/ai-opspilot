@@ -129,6 +129,7 @@ type Datasource struct {
 	Name          string             `json:"name" yaml:"name"`
 	Kind          string             `json:"kind" yaml:"kind"`
 	Environment   string             `json:"environment,omitempty" yaml:"environment"`
+	Cluster       string             `json:"cluster,omitempty" yaml:"cluster"`
 	Region        string             `json:"region,omitempty" yaml:"region"`
 	URL           string             `json:"url,omitempty" yaml:"url"`
 	CredentialRef string             `json:"credential_ref,omitempty" yaml:"credential_ref"`

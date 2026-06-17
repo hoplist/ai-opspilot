@@ -27,10 +27,13 @@ func TestHealthChecksParcaDatasource(t *testing.T) {
 	defer server.Close()
 
 	got := NewRegistry(configloader.Config{Datasources: []configloader.Datasource{
-		{Name: "parca-test", Kind: "parca", Region: "chengdu-inner", URL: server.URL},
+		{Name: "parca-test", Kind: "parca", Cluster: "node200-test", Region: "chengdu-inner", URL: server.URL},
 	}}).Health(context.Background())
 	if !got.Configured || !got.Ready || got.DatasourceCount != 1 || got.Datasources[0].Status != "ready" {
 		t.Fatalf("health = %#v", got)
+	}
+	if got.Datasources[0].Cluster != "node200-test" {
+		t.Fatalf("cluster = %q", got.Datasources[0].Cluster)
 	}
 }
 

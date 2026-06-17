@@ -207,6 +207,7 @@ datasources:
   - name: parca-node200
     kind: parca
     environment: test
+    cluster: node200-test
     region: chengdu-inner
     url: http://parca.parca.svc.cluster.local:7070
 ```
@@ -214,6 +215,9 @@ datasources:
 Profile evidence is optional. If Parca is missing or unreachable, OpsPilot
 reports `profile_evidence_not_ready` and continues with Kubernetes, logs,
 metrics, release, host, and asset evidence.
+
+Use `cluster` to bind the profile datasource to the cluster that owns the Parca
+service. For example, the node200 test cluster uses `cluster: node200-test`.
 
 Commands:
 

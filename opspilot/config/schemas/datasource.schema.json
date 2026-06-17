@@ -19,6 +19,7 @@
       "properties": {
         "kind": { "enum": ["elasticsearch", "opensearch", "elk", "kibana", "prometheus", "parca"] },
         "environment": { "type": "string" },
+        "cluster": { "type": "string" },
         "region": { "type": "string" },
         "url": { "type": "string" },
         "credential_ref": { "type": "string" },

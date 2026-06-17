@@ -18,6 +18,7 @@ const Version = "v1"
 type Datasource struct {
 	Name        string `json:"name"`
 	Environment string `json:"environment,omitempty"`
+	Cluster     string `json:"cluster,omitempty"`
 	Region      string `json:"region,omitempty"`
 	URL         string `json:"url,omitempty"`
 	URLSet      bool   `json:"url_set"`
@@ -79,6 +80,7 @@ func (r *Registry) Health(ctx context.Context) Health {
 		ds := Datasource{
 			Name:        item.Name,
 			Environment: item.Environment,
+			Cluster:     item.Cluster,
 			Region:      item.Region,
 			URL:         strings.TrimRight(item.URL, "/"),
 			URLSet:      strings.TrimSpace(item.URL) != "",
