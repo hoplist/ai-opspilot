@@ -56,3 +56,20 @@ func TestLinkBuildsUIHint(t *testing.T) {
 		t.Fatalf("url = %s", got.URL)
 	}
 }
+
+func TestHealthReportsServerOnlyWhenAgentDisabled(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	got := NewRegistry(configloader.Config{Datasources: []configloader.Datasource{
+		{Name: "parca-test", Kind: "parca", URL: server.URL, Options: map[string]string{"agent_enabled": "false"}},
+	}}).Health(context.Background())
+	if got.Ready || got.Datasources[0].Status != "server_only" {
+		t.Fatalf("health = %#v", got)
+	}
+	if len(got.MissingEvidence) == 0 || !strings.Contains(got.MissingEvidence[0], "profile_agent_disabled") {
+		t.Fatalf("missing evidence = %#v", got.MissingEvidence)
+	}
+}

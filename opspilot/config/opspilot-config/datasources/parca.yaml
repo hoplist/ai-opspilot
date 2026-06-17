@@ -5,3 +5,5 @@ datasources:
     cluster: node200-test
     region: chengdu-inner
     url: http://parca-server.parca.svc.cluster.local:7070
+    options:
+      agent_enabled: "false"

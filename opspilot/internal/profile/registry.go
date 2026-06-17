@@ -16,16 +16,17 @@ import (
 const Version = "v1"
 
 type Datasource struct {
-	Name        string `json:"name"`
-	Environment string `json:"environment,omitempty"`
-	Cluster     string `json:"cluster,omitempty"`
-	Region      string `json:"region,omitempty"`
-	URL         string `json:"url,omitempty"`
-	URLSet      bool   `json:"url_set"`
-	Ready       bool   `json:"ready"`
-	Status      string `json:"status"`
-	Error       string `json:"error,omitempty"`
-	Source      string `json:"source,omitempty"`
+	Name         string `json:"name"`
+	Environment  string `json:"environment,omitempty"`
+	Cluster      string `json:"cluster,omitempty"`
+	Region       string `json:"region,omitempty"`
+	URL          string `json:"url,omitempty"`
+	URLSet       bool   `json:"url_set"`
+	AgentEnabled bool   `json:"agent_enabled"`
+	Ready        bool   `json:"ready"`
+	Status       string `json:"status"`
+	Error        string `json:"error,omitempty"`
+	Source       string `json:"source,omitempty"`
 }
 
 type Health struct {
@@ -78,13 +79,14 @@ func (r *Registry) Health(ctx context.Context) Health {
 	ready := false
 	for _, item := range r.datasources {
 		ds := Datasource{
-			Name:        item.Name,
-			Environment: item.Environment,
-			Cluster:     item.Cluster,
-			Region:      item.Region,
-			URL:         strings.TrimRight(item.URL, "/"),
-			URLSet:      strings.TrimSpace(item.URL) != "",
-			Source:      item.Source,
+			Name:         item.Name,
+			Environment:  item.Environment,
+			Cluster:      item.Cluster,
+			Region:       item.Region,
+			URL:          strings.TrimRight(item.URL, "/"),
+			URLSet:       strings.TrimSpace(item.URL) != "",
+			AgentEnabled: profileAgentEnabled(item),
+			Source:       item.Source,
 		}
 		if !ds.URLSet {
 			ds.Status = "missing_url"
@@ -95,6 +97,12 @@ func (r *Registry) Health(ctx context.Context) Health {
 		if err := r.check(ctx, ds.URL); err != nil {
 			ds.Status = "not_ready"
 			ds.Error = err.Error()
+			items = append(items, ds)
+			continue
+		}
+		if !ds.AgentEnabled {
+			ds.Status = "server_only"
+			ds.Error = "parca server is reachable but agent is disabled"
 			items = append(items, ds)
 			continue
 		}
@@ -114,7 +122,7 @@ func (r *Registry) Health(ctx context.Context) Health {
 	if !out.Configured {
 		out.MissingEvidence = []string{"profile_evidence_missing: parca datasource not configured"}
 	} else if !out.Ready {
-		out.MissingEvidence = []string{"profile_evidence_not_ready: parca datasource is configured but unreachable"}
+		out.MissingEvidence = profileMissingEvidence(items)
 	}
 	return out
 }
@@ -178,6 +186,20 @@ func parcaDatasources(items []configloader.Datasource) []configloader.Datasource
 		}
 	}
 	return out
+}
+
+func profileAgentEnabled(item configloader.Datasource) bool {
+	raw := strings.TrimSpace(item.Options["agent_enabled"])
+	return raw == "" || strings.EqualFold(raw, "true") || raw == "1" || strings.EqualFold(raw, "yes")
+}
+
+func profileMissingEvidence(items []Datasource) []string {
+	for _, item := range items {
+		if item.Status == "server_only" {
+			return []string{"profile_agent_disabled: parca server is reachable but agent is disabled"}
+		}
+	}
+	return []string{"profile_evidence_not_ready: parca datasource is configured but unreachable"}
 }
 
 func selectDatasource(items []Datasource, source string) *Datasource {

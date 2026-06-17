@@ -48,6 +48,8 @@ datasources:
     cluster: node200-test
     region: chengdu-inner
     url: http://parca-server.parca.svc.cluster.local:7070
+    options:
+      agent_enabled: "false"
 ```
 
 CLI/API:
@@ -92,14 +94,19 @@ test cluster:
 - datasource cluster: `node200-test`
 
 The Parca Agent remains separate from `opspilot-agent` because it needs
-node-level profiling privileges. OpsPilot consumes only the configured Parca
-service URL as optional profile evidence.
+node-level profiling privileges. On node200 test, Parca server is installed and
+the agent is currently disabled because the agent crashes on the current
+Ubuntu 24.04 / kernel 6.8 nodes with a BPF map cleanup error. OpsPilot consumes
+the configured Parca service URL, but reports this as `profile_agent_disabled`
+instead of full profile evidence.
 
 Minimum validation:
 
 1. `kubectl -n parca get pods` shows Parca server and agent Pods.
 2. `opspilot profiles status` shows `cluster=node200-test`.
-3. If Parca is unavailable, OpsPilot reports `profile_evidence_not_ready`
+3. If Parca server is reachable but agent is disabled, OpsPilot reports
+   `profile_agent_disabled`.
+4. If Parca is unavailable, OpsPilot reports `profile_evidence_not_ready`
    without blocking other evidence.
 
 ## Deferred

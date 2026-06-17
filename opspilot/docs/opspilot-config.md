@@ -210,6 +210,8 @@ datasources:
     cluster: node200-test
     region: chengdu-inner
     url: http://parca-server.parca.svc.cluster.local:7070
+    options:
+      agent_enabled: "false"
 ```
 
 Profile evidence is optional. If Parca is missing or unreachable, OpsPilot
@@ -218,6 +220,9 @@ metrics, release, host, and asset evidence.
 
 Use `cluster` to bind the profile datasource to the cluster that owns the Parca
 service. For example, the node200 test cluster uses `cluster: node200-test`.
+Use `options.agent_enabled: "false"` when only the Parca server is installed.
+OpsPilot will report `profile_agent_disabled` instead of treating it as full
+profile evidence.
 
 Commands:
 

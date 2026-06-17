@@ -88,11 +88,11 @@ func writeProfileDatasourceRows(w io.Writer, rows []map[string]any) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tCLUSTER\tREGION\tURL\tSTATUS\tERROR")
+	fmt.Fprintln(tw, "NAME\tCLUSTER\tREGION\tURL\tAGENT\tSTATUS\tERROR")
 	for _, item := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%t\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%t\t%t\t%s\t%s\n",
 			stringValue(item["name"]), stringValue(item["cluster"]), stringValue(item["region"]), boolValue(item["url_set"]),
-			stringValue(item["status"]), oneLine(strings.TrimSpace(stringValue(item["error"])), 80))
+			boolValue(item["agent_enabled"]), stringValue(item["status"]), oneLine(strings.TrimSpace(stringValue(item["error"])), 80))
 	}
 	_ = tw.Flush()
 }
