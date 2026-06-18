@@ -1,7 +1,9 @@
 package inspection
 
 import (
+	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/configloader"
@@ -352,6 +354,7 @@ func renderDraftYAML(item configloader.Inspection) string {
 		if check.Datasource != "" {
 			b.WriteString("      datasource: " + check.Datasource + "\n")
 		}
+		writeScalarMap(&b, "      thresholds", check.Thresholds)
 		writeStringList(&b, "      flows", check.Flows)
 	}
 	return b.String()
@@ -363,10 +366,53 @@ func writeStringList(b *strings.Builder, key string, items []string) {
 		return
 	}
 	b.WriteString(key + ":\n")
-	itemIndent := strings.Repeat(" ", len(key)-1)
+	itemIndent := strings.Repeat(" ", leadingSpaces(key)+2)
 	for _, item := range items {
 		b.WriteString(itemIndent + "- " + item + "\n")
 	}
+}
+
+func writeScalarMap(b *strings.Builder, key string, values map[string]any) {
+	if len(values) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(values))
+	for item := range values {
+		if strings.TrimSpace(item) != "" {
+			keys = append(keys, item)
+		}
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return
+	}
+	b.WriteString(key + ":\n")
+	itemIndent := strings.Repeat(" ", leadingSpaces(key)+2)
+	for _, item := range keys {
+		b.WriteString(itemIndent + item + ": " + scalarString(values[item]) + "\n")
+	}
+}
+
+func scalarString(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strconv.Quote(v)
+	case fmt.Stringer:
+		return strconv.Quote(v.String())
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func leadingSpaces(value string) int {
+	count := 0
+	for _, ch := range value {
+		if ch != ' ' {
+			break
+		}
+		count++
+	}
+	return count
 }
 
 func dedupeStrings(items []string) []string {

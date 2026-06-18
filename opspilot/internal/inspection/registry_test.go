@@ -55,6 +55,12 @@ func TestGenerateDraftIncludesFlowAndKafkaDatasource(t *testing.T) {
 	if !strings.Contains(result.YAML, "datasource: node200-kafka") {
 		t.Fatalf("draft should include kafka datasource:\n%s", result.YAML)
 	}
+	if !strings.Contains(result.YAML, "thresholds:\n        cpu_usage_percent: 85\n        memory_usage_percent: 85") {
+		t.Fatalf("draft should include node thresholds:\n%s", result.YAML)
+	}
+	if !strings.Contains(result.YAML, "thresholds:\n        free_gib: 20\n        usage_percent: 85") {
+		t.Fatalf("draft should include filesystem thresholds:\n%s", result.YAML)
+	}
 }
 
 func contains(items []string, target string) bool {

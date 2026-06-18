@@ -75,4 +75,3 @@ opspilot inspection generate --cluster node200-test --output human
 ## Boundary
 
 This phase does not add a scheduler or controller. It prepares the policy model and read-only entrypoints so later automatic巡检 can use the same config without changing command behavior.
-

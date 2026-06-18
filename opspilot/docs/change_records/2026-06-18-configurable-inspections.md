@@ -42,4 +42,3 @@ First implementation is configuration-first:
 - CLI smoke after deploy:
   - `opspilot inspections catalog`
   - `opspilot inspection generate --cluster node200-test`
-
