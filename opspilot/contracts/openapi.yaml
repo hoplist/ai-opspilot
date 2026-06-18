@@ -314,6 +314,31 @@ paths:
       responses:
         "200":
           description: Profile datasource, query, URL, or missing profile evidence
+  /api/flows/catalog:
+    get:
+      summary: Return configured business flow evidence chains
+      responses:
+        "200":
+          description: Flow catalog loaded from OpsPilot config
+  /api/flows/inspect:
+    get:
+      summary: Inspect configured flow stages and evidence gaps
+      parameters:
+        - name: name
+          in: query
+          schema:
+            type: string
+        - name: stage
+          in: query
+          schema:
+            type: string
+        - name: window
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Flow stage metadata and missing evidence; first phase does not query remote datasources
   /api/k8s/pods:
     get:
       summary: List Kubernetes Pods

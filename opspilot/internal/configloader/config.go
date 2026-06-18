@@ -38,6 +38,7 @@ type Config struct {
 	NetworkZones []NetworkZone `json:"network_zones,omitempty"`
 	AssetSources []AssetSource `json:"asset_sources,omitempty"`
 	Assets       []Asset       `json:"assets,omitempty"`
+	Flows        []Flow        `json:"flows,omitempty"`
 	Topology     []Region      `json:"topology,omitempty"`
 	Rules        []Rule        `json:"correlation_rules,omitempty"`
 }
@@ -237,6 +238,47 @@ type Asset struct {
 	Source          string            `json:"source,omitempty" yaml:"-"`
 }
 
+type Flow struct {
+	Name        string      `json:"name" yaml:"name"`
+	Type        string      `json:"type,omitempty" yaml:"type"`
+	Cluster     string      `json:"cluster,omitempty" yaml:"cluster"`
+	Environment string      `json:"environment,omitempty" yaml:"environment"`
+	Region      string      `json:"region,omitempty" yaml:"region"`
+	Service     string      `json:"service,omitempty" yaml:"service"`
+	Window      FlowWindow  `json:"window,omitempty" yaml:"window"`
+	MatchKeys   []string    `json:"match_keys,omitempty" yaml:"match_keys"`
+	Stages      []FlowStage `json:"stages,omitempty" yaml:"stages"`
+	Source      string      `json:"source,omitempty" yaml:"-"`
+}
+
+type FlowWindow struct {
+	Default string `json:"default,omitempty" yaml:"default"`
+	Max     string `json:"max,omitempty" yaml:"max"`
+}
+
+type FlowStage struct {
+	Name             string            `json:"name" yaml:"name"`
+	Type             string            `json:"type,omitempty" yaml:"type"`
+	Service          string            `json:"service,omitempty" yaml:"service"`
+	Namespace        string            `json:"namespace,omitempty" yaml:"namespace"`
+	Workload         string            `json:"workload,omitempty" yaml:"workload"`
+	DefaultContainer string            `json:"default_container,omitempty" yaml:"default_container"`
+	Containers       []FlowContainer   `json:"containers,omitempty" yaml:"containers"`
+	Datasource       string            `json:"datasource,omitempty" yaml:"datasource"`
+	Topic            string            `json:"topic,omitempty" yaml:"topic"`
+	ConsumerGroup    string            `json:"consumer_group,omitempty" yaml:"consumer_group"`
+	Database         string            `json:"database,omitempty" yaml:"database"`
+	Table            string            `json:"table,omitempty" yaml:"table"`
+	Endpoint         string            `json:"endpoint,omitempty" yaml:"endpoint"`
+	Evidence         map[string]any    `json:"evidence,omitempty" yaml:"evidence"`
+	Options          map[string]string `json:"options,omitempty" yaml:"options"`
+}
+
+type FlowContainer struct {
+	Name string `json:"name" yaml:"name"`
+	Role string `json:"role,omitempty" yaml:"role"`
+}
+
 type Region struct {
 	Name      string   `json:"name" yaml:"name"`
 	Zone      string   `json:"zone,omitempty" yaml:"zone"`
@@ -347,9 +389,19 @@ type bulkDocument struct {
 	NetworkZones []NetworkZone `yaml:"network_zones"`
 	AssetSources []AssetSource `yaml:"asset_sources"`
 	Assets       []Asset       `yaml:"assets"`
+	Flows        []Flow        `yaml:"flows"`
 	Topology     []Region      `yaml:"topology"`
 	Rules        []Rule        `yaml:"correlation_rules"`
 }
+
+type flowDocument struct {
+	APIVersion string   `yaml:"apiVersion"`
+	Kind       string   `yaml:"kind"`
+	Metadata   Metadata `yaml:"metadata"`
+	Spec       FlowSpec `yaml:"spec"`
+}
+
+type FlowSpec Flow
 
 func Load(dir string) Config {
 	cfg := Config{
@@ -435,6 +487,7 @@ func (c Config) Summary() Summary {
 			"network_zones":     len(c.NetworkZones),
 			"asset_sources":     len(c.AssetSources),
 			"assets":            len(c.Assets),
+			"flows":             len(c.Flows),
 			"topology_regions":  len(c.Topology),
 			"correlation_rules": len(c.Rules),
 		},
@@ -587,6 +640,16 @@ func parseDocument(path string, node *yaml.Node, cfg *Config) {
 		item.Name = firstNonEmpty(item.Name, doc.Metadata.Name)
 		item.Source = "file:" + filepath.ToSlash(path)
 		cfg.Assets = append(cfg.Assets, item)
+	case "flow":
+		var doc flowDocument
+		if err := node.Decode(&doc); err != nil {
+			cfg.Errors = append(cfg.Errors, fmt.Sprintf("%s: %v", path, err))
+			return
+		}
+		item := Flow(doc.Spec)
+		item.Name = firstNonEmpty(item.Name, doc.Metadata.Name)
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.Flows = append(cfg.Flows, item)
 	case "":
 		parseBulkDocument(path, node, cfg)
 	default:
@@ -633,6 +696,10 @@ func parseBulkDocument(path string, node *yaml.Node, cfg *Config) {
 	for _, item := range doc.Assets {
 		item.Source = "file:" + filepath.ToSlash(path)
 		cfg.Assets = append(cfg.Assets, item)
+	}
+	for _, item := range doc.Flows {
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.Flows = append(cfg.Flows, item)
 	}
 	for _, item := range doc.Topology {
 		item.Source = "file:" + filepath.ToSlash(path)
@@ -730,6 +797,25 @@ func validate(cfg *Config) {
 			}
 		}
 	}
+	for _, item := range cfg.Flows {
+		if item.Name == "" {
+			cfg.Errors = append(cfg.Errors, "flow entry missing name")
+		}
+		if item.Cluster == "" {
+			cfg.Warnings = append(cfg.Warnings, "flow "+item.Name+" has no cluster")
+		}
+		if len(item.Stages) == 0 {
+			cfg.Warnings = append(cfg.Warnings, "flow "+item.Name+" has no stages")
+		}
+		for _, stage := range item.Stages {
+			if stage.Name == "" {
+				cfg.Warnings = append(cfg.Warnings, "flow "+item.Name+" has a stage without name")
+			}
+			if stage.Type == "" {
+				cfg.Warnings = append(cfg.Warnings, "flow "+item.Name+" stage "+stage.Name+" has no type")
+			}
+		}
+	}
 }
 
 func attachCredentials(cfg *Config) {
@@ -795,6 +881,7 @@ func dedupe(cfg *Config) {
 	cfg.NetworkZones = dedupeByName(cfg.NetworkZones, func(item NetworkZone) string { return item.Name })
 	cfg.AssetSources = dedupeByName(cfg.AssetSources, func(item AssetSource) string { return item.Name })
 	cfg.Assets = dedupeByName(cfg.Assets, func(item Asset) string { return item.Name })
+	cfg.Flows = dedupeByName(cfg.Flows, func(item Flow) string { return item.Name })
 	cfg.Topology = dedupeByName(cfg.Topology, func(item Region) string { return item.Name })
 	cfg.Rules = dedupeByName(cfg.Rules, func(item Rule) string { return item.Name })
 }

@@ -88,7 +88,7 @@ func writeConfigStatusMapHuman(data map[string]any, warnings []string) func(io.W
 func writeCounts(w io.Writer, counts map[string]int) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "ITEM\tCOUNT")
-	keys := []string{"services", "datasources", "credentials", "clusters", "agents", "network_zones", "asset_sources", "assets", "topology_regions", "correlation_rules"}
+	keys := []string{"services", "datasources", "credentials", "clusters", "agents", "network_zones", "asset_sources", "assets", "flows", "topology_regions", "correlation_rules"}
 	for _, key := range keys {
 		fmt.Fprintf(tw, "%s\t%d\n", key, counts[key])
 	}

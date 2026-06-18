@@ -91,6 +91,16 @@
       "description": "Return the service catalog that maps services to repo, namespace, deployment, image, owner, middleware, config sources, and release mapping state."
     },
     {
+      "name": "flows catalog",
+      "readonly": true,
+      "description": "List configured business flow evidence chains, including cluster, service, stage count, and match keys. Configuration-only; does not query remote datasources."
+    },
+    {
+      "name": "flow inspect",
+      "readonly": true,
+      "description": "Inspect one configured flow and return stage metadata plus evidence gaps. Supports --name, --stage, and --window."
+    },
+    {
       "name": "assets zones",
       "readonly": true,
       "description": "List advisory-only network zones used to classify server IPs before JumpServer, Prometheus, and agent correlation."

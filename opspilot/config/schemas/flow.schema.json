@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpsPilot Flow",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "opspilot.io/v1" },
+    "kind": { "const": "Flow" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["cluster", "stages"],
+      "properties": {
+        "type": { "type": "string" },
+        "cluster": { "type": "string" },
+        "environment": { "type": "string" },
+        "region": { "type": "string" },
+        "service": { "type": "string" },
+        "window": {
+          "type": "object",
+          "properties": {
+            "default": { "type": "string" },
+            "max": { "type": "string" }
+          }
+        },
+        "match_keys": { "type": "array", "items": { "type": "string" } },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "type": "string" },
+              "service": { "type": "string" },
+              "namespace": { "type": "string" },
+              "workload": { "type": "string" },
+              "default_container": { "type": "string" },
+              "containers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name"],
+                  "properties": {
+                    "name": { "type": "string" },
+                    "role": { "type": "string" }
+                  }
+                }
+              },
+              "datasource": { "type": "string" },
+              "topic": { "type": "string" },
+              "consumer_group": { "type": "string" },
+              "database": { "type": "string" },
+              "table": { "type": "string" },
+              "endpoint": { "type": "string" },
+              "evidence": { "type": "object" },
+              "options": { "type": "object" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
