@@ -339,6 +339,42 @@ paths:
       responses:
         "200":
           description: Flow stage metadata and missing evidence; first phase does not query remote datasources
+  /api/inspections/catalog:
+    get:
+      summary: Return configured inspection policies
+      responses:
+        "200":
+          description: Inspection catalog loaded from OpsPilot config
+  /api/inspections/run:
+    get:
+      summary: Evaluate one configured inspection policy shape
+      parameters:
+        - name: name
+          in: query
+          schema:
+            type: string
+        - name: cluster
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Configured checks, disabled checks, and missing evidence gaps; no mutation is performed
+  /api/inspections/generate:
+    get:
+      summary: Generate a reviewable inspection policy draft
+      parameters:
+        - name: cluster
+          in: query
+          schema:
+            type: string
+        - name: service
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: YAML draft and evidence gaps; no files are written
   /api/k8s/pods:
     get:
       summary: List Kubernetes Pods

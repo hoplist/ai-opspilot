@@ -101,6 +101,21 @@
       "description": "Inspect one configured flow and return stage metadata plus evidence gaps. Supports --name, --stage, and --window."
     },
     {
+      "name": "inspections catalog",
+      "readonly": true,
+      "description": "List configured inspection policies loaded from GitLab-managed OpsPilot config."
+    },
+    {
+      "name": "inspection run",
+      "readonly": true,
+      "description": "Evaluate one configured inspection policy shape and return configured checks, disabled checks, and missing evidence gaps. Does not mutate clusters or datasources."
+    },
+    {
+      "name": "inspection generate",
+      "readonly": true,
+      "description": "Generate a reviewable inspection YAML draft for a cluster or service. Does not write files or commit to GitLab."
+    },
+    {
       "name": "assets zones",
       "readonly": true,
       "description": "List advisory-only network zones used to classify server IPs before JumpServer, Prometheus, and agent correlation."

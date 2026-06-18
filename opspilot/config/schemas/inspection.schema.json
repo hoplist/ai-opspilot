@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpsPilot Inspection",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "opspilot.io/v1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Inspection"
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["checks"],
+      "properties": {
+        "cluster": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "schedule": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "namespaces": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "services": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "flows": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "datasource": {
+                "type": "string"
+              },
+              "flows": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "thresholds": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "options": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

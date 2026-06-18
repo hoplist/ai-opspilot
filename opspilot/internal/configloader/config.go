@@ -39,6 +39,7 @@ type Config struct {
 	AssetSources []AssetSource `json:"asset_sources,omitempty"`
 	Assets       []Asset       `json:"assets,omitempty"`
 	Flows        []Flow        `json:"flows,omitempty"`
+	Inspections  []Inspection  `json:"inspections,omitempty"`
 	Topology     []Region      `json:"topology,omitempty"`
 	Rules        []Rule        `json:"correlation_rules,omitempty"`
 }
@@ -279,6 +280,33 @@ type FlowContainer struct {
 	Role string `json:"role,omitempty" yaml:"role"`
 }
 
+type Inspection struct {
+	Name        string            `json:"name" yaml:"name"`
+	Cluster     string            `json:"cluster,omitempty" yaml:"cluster"`
+	Environment string            `json:"environment,omitempty" yaml:"environment"`
+	Region      string            `json:"region,omitempty" yaml:"region"`
+	Schedule    string            `json:"schedule,omitempty" yaml:"schedule"`
+	Scope       InspectionScope   `json:"scope,omitempty" yaml:"scope"`
+	Checks      []InspectionCheck `json:"checks,omitempty" yaml:"checks"`
+	Source      string            `json:"source,omitempty" yaml:"-"`
+}
+
+type InspectionScope struct {
+	Namespaces []string `json:"namespaces,omitempty" yaml:"namespaces"`
+	Services   []string `json:"services,omitempty" yaml:"services"`
+	Flows      []string `json:"flows,omitempty" yaml:"flows"`
+}
+
+type InspectionCheck struct {
+	Name       string         `json:"name" yaml:"name"`
+	Type       string         `json:"type,omitempty" yaml:"type"`
+	Enabled    *bool          `json:"enabled,omitempty" yaml:"enabled"`
+	Datasource string         `json:"datasource,omitempty" yaml:"datasource"`
+	Flows      []string       `json:"flows,omitempty" yaml:"flows"`
+	Thresholds map[string]any `json:"thresholds,omitempty" yaml:"thresholds"`
+	Options    map[string]any `json:"options,omitempty" yaml:"options"`
+}
+
 type Region struct {
 	Name      string   `json:"name" yaml:"name"`
 	Zone      string   `json:"zone,omitempty" yaml:"zone"`
@@ -390,6 +418,7 @@ type bulkDocument struct {
 	AssetSources []AssetSource `yaml:"asset_sources"`
 	Assets       []Asset       `yaml:"assets"`
 	Flows        []Flow        `yaml:"flows"`
+	Inspections  []Inspection  `yaml:"inspections"`
 	Topology     []Region      `yaml:"topology"`
 	Rules        []Rule        `yaml:"correlation_rules"`
 }
@@ -402,6 +431,15 @@ type flowDocument struct {
 }
 
 type FlowSpec Flow
+
+type inspectionDocument struct {
+	APIVersion string         `yaml:"apiVersion"`
+	Kind       string         `yaml:"kind"`
+	Metadata   Metadata       `yaml:"metadata"`
+	Spec       InspectionSpec `yaml:"spec"`
+}
+
+type InspectionSpec Inspection
 
 func Load(dir string) Config {
 	cfg := Config{
@@ -488,6 +526,7 @@ func (c Config) Summary() Summary {
 			"asset_sources":     len(c.AssetSources),
 			"assets":            len(c.Assets),
 			"flows":             len(c.Flows),
+			"inspections":       len(c.Inspections),
 			"topology_regions":  len(c.Topology),
 			"correlation_rules": len(c.Rules),
 		},
@@ -650,6 +689,16 @@ func parseDocument(path string, node *yaml.Node, cfg *Config) {
 		item.Name = firstNonEmpty(item.Name, doc.Metadata.Name)
 		item.Source = "file:" + filepath.ToSlash(path)
 		cfg.Flows = append(cfg.Flows, item)
+	case "inspection":
+		var doc inspectionDocument
+		if err := node.Decode(&doc); err != nil {
+			cfg.Errors = append(cfg.Errors, fmt.Sprintf("%s: %v", path, err))
+			return
+		}
+		item := Inspection(doc.Spec)
+		item.Name = firstNonEmpty(item.Name, doc.Metadata.Name)
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.Inspections = append(cfg.Inspections, item)
 	case "":
 		parseBulkDocument(path, node, cfg)
 	default:
@@ -700,6 +749,10 @@ func parseBulkDocument(path string, node *yaml.Node, cfg *Config) {
 	for _, item := range doc.Flows {
 		item.Source = "file:" + filepath.ToSlash(path)
 		cfg.Flows = append(cfg.Flows, item)
+	}
+	for _, item := range doc.Inspections {
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.Inspections = append(cfg.Inspections, item)
 	}
 	for _, item := range doc.Topology {
 		item.Source = "file:" + filepath.ToSlash(path)
@@ -816,6 +869,25 @@ func validate(cfg *Config) {
 			}
 		}
 	}
+	for _, item := range cfg.Inspections {
+		if item.Name == "" {
+			cfg.Errors = append(cfg.Errors, "inspection entry missing name")
+		}
+		if item.Cluster == "" {
+			cfg.Warnings = append(cfg.Warnings, "inspection "+item.Name+" has no cluster")
+		}
+		if len(item.Checks) == 0 {
+			cfg.Warnings = append(cfg.Warnings, "inspection "+item.Name+" has no checks")
+		}
+		for _, check := range item.Checks {
+			if check.Name == "" {
+				cfg.Warnings = append(cfg.Warnings, "inspection "+item.Name+" has a check without name")
+			}
+			if check.Type == "" {
+				cfg.Warnings = append(cfg.Warnings, "inspection "+item.Name+" check "+check.Name+" has no type")
+			}
+		}
+	}
 }
 
 func attachCredentials(cfg *Config) {
@@ -882,6 +954,7 @@ func dedupe(cfg *Config) {
 	cfg.AssetSources = dedupeByName(cfg.AssetSources, func(item AssetSource) string { return item.Name })
 	cfg.Assets = dedupeByName(cfg.Assets, func(item Asset) string { return item.Name })
 	cfg.Flows = dedupeByName(cfg.Flows, func(item Flow) string { return item.Name })
+	cfg.Inspections = dedupeByName(cfg.Inspections, func(item Inspection) string { return item.Name })
 	cfg.Topology = dedupeByName(cfg.Topology, func(item Region) string { return item.Name })
 	cfg.Rules = dedupeByName(cfg.Rules, func(item Rule) string { return item.Name })
 }

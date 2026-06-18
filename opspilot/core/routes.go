@@ -16,6 +16,7 @@ func registerRoutes(mux *http.ServeMux, state *runtimeState, errorCollector *err
 	registerAuditRoutes(mux, auditRecorder)
 	registerAssetRoutes(mux, state)
 	registerFlowRoutes(mux, state)
+	registerInspectionRoutes(mux, state)
 	registerRepoRoutes(mux, state)
 	registerKubernetesRoutes(mux, state, errorCollector)
 	registerEvidencePackRoutes(mux, state, errorCollector, qualitySettings, evidenceStore)

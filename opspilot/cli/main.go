@@ -78,6 +78,8 @@ func run(args []string, out io.Writer) error {
 		return runAssetsCommand(opts, args[1:], out)
 	case "flows", "flow":
 		return runFlowsCommand(opts, args[1:], out)
+	case "inspections", "inspection":
+		return runInspectionsCommand(opts, args[1:], out)
 	case "inventory":
 		endpoint, values = inventoryCommand(args[1:])
 	case "metrics":

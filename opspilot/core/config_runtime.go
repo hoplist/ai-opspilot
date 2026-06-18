@@ -9,6 +9,7 @@ import (
 
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/configloader"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/flow"
+	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/inspection"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/k8s"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/logsearch"
 	"github.com/dualistpeng-netizen/ai-observability/opspilot/internal/nodeagent"
@@ -18,26 +19,28 @@ import (
 )
 
 type runtimeState struct {
-	mu              sync.RWMutex
-	config          configloader.Config
-	k8sRegistry     *k8s.Registry
-	promRegistry    *prom.Registry
-	agentRegistry   *nodeagent.Registry
-	flowRegistry    *flow.Registry
-	profileRegistry *profile.Registry
-	logClient       *logsearch.Client
-	releaseRegistry *release.Registry
+	mu                 sync.RWMutex
+	config             configloader.Config
+	k8sRegistry        *k8s.Registry
+	promRegistry       *prom.Registry
+	agentRegistry      *nodeagent.Registry
+	flowRegistry       *flow.Registry
+	inspectionRegistry *inspection.Registry
+	profileRegistry    *profile.Registry
+	logClient          *logsearch.Client
+	releaseRegistry    *release.Registry
 }
 
 type runtimeSnapshot struct {
-	config          configloader.Config
-	k8sRegistry     *k8s.Registry
-	promRegistry    *prom.Registry
-	agentRegistry   *nodeagent.Registry
-	flowRegistry    *flow.Registry
-	profileRegistry *profile.Registry
-	logClient       *logsearch.Client
-	releaseRegistry *release.Registry
+	config             configloader.Config
+	k8sRegistry        *k8s.Registry
+	promRegistry       *prom.Registry
+	agentRegistry      *nodeagent.Registry
+	flowRegistry       *flow.Registry
+	inspectionRegistry *inspection.Registry
+	profileRegistry    *profile.Registry
+	logClient          *logsearch.Client
+	releaseRegistry    *release.Registry
 }
 
 func loadRuntimeConfig() configloader.Config {
@@ -54,14 +57,15 @@ func loadRuntimeConfig() configloader.Config {
 func newRuntimeState(cfg configloader.Config) *runtimeState {
 	snap := buildRuntimeSnapshot(cfg)
 	return &runtimeState{
-		config:          snap.config,
-		k8sRegistry:     snap.k8sRegistry,
-		promRegistry:    snap.promRegistry,
-		agentRegistry:   snap.agentRegistry,
-		flowRegistry:    snap.flowRegistry,
-		profileRegistry: snap.profileRegistry,
-		logClient:       snap.logClient,
-		releaseRegistry: snap.releaseRegistry,
+		config:             snap.config,
+		k8sRegistry:        snap.k8sRegistry,
+		promRegistry:       snap.promRegistry,
+		agentRegistry:      snap.agentRegistry,
+		flowRegistry:       snap.flowRegistry,
+		inspectionRegistry: snap.inspectionRegistry,
+		profileRegistry:    snap.profileRegistry,
+		logClient:          snap.logClient,
+		releaseRegistry:    snap.releaseRegistry,
 	}
 }
 
@@ -69,14 +73,15 @@ func (s *runtimeState) snapshot() runtimeSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return runtimeSnapshot{
-		config:          s.config,
-		k8sRegistry:     s.k8sRegistry,
-		promRegistry:    s.promRegistry,
-		agentRegistry:   s.agentRegistry,
-		flowRegistry:    s.flowRegistry,
-		profileRegistry: s.profileRegistry,
-		logClient:       s.logClient,
-		releaseRegistry: s.releaseRegistry,
+		config:             s.config,
+		k8sRegistry:        s.k8sRegistry,
+		promRegistry:       s.promRegistry,
+		agentRegistry:      s.agentRegistry,
+		flowRegistry:       s.flowRegistry,
+		inspectionRegistry: s.inspectionRegistry,
+		profileRegistry:    s.profileRegistry,
+		logClient:          s.logClient,
+		releaseRegistry:    s.releaseRegistry,
 	}
 }
 
@@ -92,6 +97,7 @@ func (s *runtimeState) reload(cfg configloader.Config) {
 	s.promRegistry = snap.promRegistry
 	s.agentRegistry = snap.agentRegistry
 	s.flowRegistry = snap.flowRegistry
+	s.inspectionRegistry = snap.inspectionRegistry
 	s.profileRegistry = snap.profileRegistry
 	s.logClient = snap.logClient
 	s.releaseRegistry = snap.releaseRegistry
@@ -99,14 +105,15 @@ func (s *runtimeState) reload(cfg configloader.Config) {
 
 func buildRuntimeSnapshot(runtimeConfig configloader.Config) runtimeSnapshot {
 	return runtimeSnapshot{
-		config:          runtimeConfig,
-		k8sRegistry:     buildK8sRegistry(runtimeConfig),
-		promRegistry:    buildPromRegistry(runtimeConfig),
-		agentRegistry:   buildAgentRegistry(runtimeConfig),
-		flowRegistry:    flow.NewRegistry(runtimeConfig),
-		profileRegistry: profile.NewRegistry(runtimeConfig),
-		logClient:       buildLogClient(runtimeConfig),
-		releaseRegistry: buildReleaseRegistry(runtimeConfig),
+		config:             runtimeConfig,
+		k8sRegistry:        buildK8sRegistry(runtimeConfig),
+		promRegistry:       buildPromRegistry(runtimeConfig),
+		agentRegistry:      buildAgentRegistry(runtimeConfig),
+		flowRegistry:       flow.NewRegistry(runtimeConfig),
+		inspectionRegistry: inspection.NewRegistry(runtimeConfig),
+		profileRegistry:    profile.NewRegistry(runtimeConfig),
+		logClient:          buildLogClient(runtimeConfig),
+		releaseRegistry:    buildReleaseRegistry(runtimeConfig),
 	}
 }
 
