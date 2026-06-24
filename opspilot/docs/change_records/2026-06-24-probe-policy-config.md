@@ -16,6 +16,27 @@ HTTP probe 的基础能力保留在代码中，但“查哪些证据源、缺失
   - `prometheus_pod`：Pod 指标，缺失默认 `warn`。
 - Evidence Pack 中记录实际使用的 `policy`。
 
+## 代码边界收敛
+
+- 新增 `internal/probeevidence`，集中处理：
+  - `ProbePolicy.evidence` 的证据项解析。
+  - gateway/service log 的启停和缺失策略。
+  - HTTP probe 对应的 Evidence Pack 组装。
+- `core/routes_probe.go` 收敛为：
+  - 解析 HTTP/API 入参。
+  - 调用 `internal/httpprobe` 发起受控请求。
+  - 按 `ProbePolicy` 编排日志、Kubernetes、Prometheus 证据查询。
+  - 持久化 Evidence Pack。
+- 后续定制化排查不应继续写入 `core`：
+  - 域名、索引、字段、时间窗口、证据源开关优先放 `opspilot-config`。
+  - 新证据类型优先做 datasource/evidence adapter。
+  - `core` 只保留通用 API 编排，不承载某个业务链路的特殊逻辑。
+- 后续新增额外链路时，默认流程为：
+  - 在 GitLab 管理的 `opspilot-config` 仓库新增或修改 `Service`、`Datasource`、`Flow`、`ProbePolicy`、`Inspection` 等配置。
+  - 通过配置热同步让 `opspilot-core` 读取新链路。
+  - 只有出现新的通用证据类型、通用数据源协议或通用查询能力时，才修改代码。
+  - 不允许为了某个业务接口、某个固定域名、某个单独日志格式把特殊排查逻辑写入 `core`。
+
 ## 配置示例
 
 ```yaml
