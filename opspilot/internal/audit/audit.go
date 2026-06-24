@@ -167,7 +167,7 @@ func Policy() map[string]any {
 			{
 				"risk":       "read_only",
 				"automation": "auto_execute",
-				"examples":   []string{"inspect", "release status", "metrics", "logs", "audit recent"},
+				"examples":   []string{"inspect", "release status", "metrics", "logs", "probe http", "audit recent"},
 			},
 			{
 				"risk":       "controlled_mutate",
@@ -219,6 +219,9 @@ func RiskFor(method, path string) string {
 	method = strings.ToUpper(method)
 	path = strings.ToLower(path)
 	if method == "GET" {
+		return "read_only"
+	}
+	if path == "/api/probe/http" || path == "/api/v1/probe/http" {
 		return "read_only"
 	}
 	if strings.Contains(path, "rollback") || strings.Contains(path, "trigger") || strings.Contains(path, "quality/run") {

@@ -37,6 +37,12 @@ func TestPolicyHasHighRiskBoundary(t *testing.T) {
 	}
 }
 
+func TestRiskForHTTPProbeIsReadOnly(t *testing.T) {
+	if risk := RiskFor("POST", "/api/probe/http"); risk != "read_only" {
+		t.Fatalf("risk = %s", risk)
+	}
+}
+
 func TestRecorderRetentionMaxBytes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
 	recorder := NewRecorderWithRetention(path, RetentionPolicy{MaxBytes: 220})

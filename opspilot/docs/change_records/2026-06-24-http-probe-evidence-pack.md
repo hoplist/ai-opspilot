@@ -25,6 +25,7 @@
 - 复用现有 `logsearch.CorrelateRequest`，扩展 `probe_id/user_agent/keyword` 作为弱关联条件。
 - 可选传 `--namespace/--pod` 时补 Kubernetes Pod context 和 Prometheus 单 Pod 指标。
 - 输出 `evidence_pack`，可用 `--persist` 写入服务端 Evidence Pack 存储。
+- 审计策略中 `/api/probe/http` 归类为 `read_only`：它虽然使用 POST 承载表单参数，但不修改集群、代码、配置或远端系统。
 
 ## 使用示例
 
