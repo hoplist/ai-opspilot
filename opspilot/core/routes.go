@@ -20,6 +20,7 @@ func registerRoutes(mux *http.ServeMux, state *runtimeState, errorCollector *err
 	registerRepoRoutes(mux, state)
 	registerKubernetesRoutes(mux, state, errorCollector)
 	registerEvidencePackRoutes(mux, state, errorCollector, qualitySettings, evidenceStore)
+	registerProbeRoutes(mux, state, evidenceStore)
 	registerMetricsRoutes(mux, state)
 	registerProfileRoutes(mux, state)
 	registerLogAndNodeRoutes(mux, state)

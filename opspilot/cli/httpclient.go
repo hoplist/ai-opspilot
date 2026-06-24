@@ -42,8 +42,10 @@ func getJSONMap(backendURL, endpoint string, values url.Values) (map[string]any,
 func get(baseURL, endpoint string, values url.Values) ([]byte, error) {
 	clean := url.Values{}
 	for key, vals := range values {
-		if len(vals) > 0 && vals[0] != "" {
-			clean.Set(key, vals[0])
+		for _, value := range vals {
+			if value != "" {
+				clean.Add(key, value)
+			}
 		}
 	}
 	target := strings.TrimRight(baseURL, "/") + endpoint
@@ -74,8 +76,10 @@ func get(baseURL, endpoint string, values url.Values) ([]byte, error) {
 func post(baseURL, endpoint string, values url.Values) ([]byte, error) {
 	clean := url.Values{}
 	for key, vals := range values {
-		if len(vals) > 0 && vals[0] != "" {
-			clean.Set(key, vals[0])
+		for _, value := range vals {
+			if value != "" {
+				clean.Add(key, value)
+			}
 		}
 	}
 	target := strings.TrimRight(baseURL, "/") + endpoint

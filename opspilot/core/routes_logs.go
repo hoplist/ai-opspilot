@@ -94,6 +94,10 @@ func registerLogAndNodeRoutes(mux *http.ServeMux, state *runtimeState) {
 			APISIXIndex:     q.Get("apisix_index"),
 			ServiceIndex:    q.Get("service_index"),
 			ServiceURIField: q.Get("service_uri_field"),
+			ProbeID:         q.Get("probe_id"),
+			UserAgent:       q.Get("user_agent"),
+			TraceID:         q.Get("trace_id"),
+			Keywords:        queryList(r, "keyword"),
 		})
 		return result, nil, err
 	}))

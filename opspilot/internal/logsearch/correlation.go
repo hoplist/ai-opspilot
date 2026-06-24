@@ -66,6 +66,10 @@ type CorrelateRequest struct {
 	APISIXIndex     string
 	ServiceIndex    string
 	ServiceURIField string
+	ProbeID         string
+	UserAgent       string
+	TraceID         string
+	Keywords        []string
 }
 
 func (c CorrelationConfig) withDefaults() CorrelationConfig {
@@ -183,7 +187,7 @@ func (c *Client) CorrelateRequest(ctx context.Context, req CorrelateRequest) (ma
 		"reason": "service_index is not configured or provided",
 	}
 	if serviceIndex != "" {
-		serviceResult, err = c.searchServiceLogs(ctx, config, route, serviceIndex, serviceURIField, req.URI, req.Status, start, end, limit)
+		serviceResult, err = c.searchServiceLogs(ctx, config, route, serviceIndex, serviceURIField, req, start, end, limit)
 		if err != nil {
 			serviceResult = map[string]any{
 				"status": "error",
@@ -200,6 +204,10 @@ func (c *Client) CorrelateRequest(ctx context.Context, req CorrelateRequest) (ma
 			"host":            req.Host,
 			"uri":             req.URI,
 			"status":          req.Status,
+			"probe_id":        req.ProbeID,
+			"user_agent":      req.UserAgent,
+			"trace_id":        req.TraceID,
+			"keywords":        req.Keywords,
 			"range_start":     start.Format(time.RFC3339Nano),
 			"range_end":       end.Format(time.RFC3339Nano),
 			"range_mode":      mode,
@@ -241,7 +249,19 @@ func (c *Client) searchAPISIX(ctx context.Context, config CorrelationConfig, ind
 	if strings.TrimSpace(req.Status) != "" {
 		filters = append(filters, matchPhrase(config.APISIXStatusField, req.Status))
 	}
+	must := []any{}
+	if query := apisixProbeQuery(req); query != "" {
+		must = append(must, map[string]any{
+			"query_string": map[string]any{
+				"query":            query,
+				"analyze_wildcard": true,
+			},
+		})
+	}
 	boolQuery := map[string]any{"filter": filters}
+	if len(must) > 0 {
+		boolQuery["must"] = must
+	}
 	if !req.IncludeOptions {
 		boolQuery["must_not"] = []any{
 			map[string]any{"match_phrase": map[string]any{config.APISIXReqField: "OPTIONS "}},
@@ -317,9 +337,9 @@ func (c *Client) searchAPISIX(ctx context.Context, config CorrelationConfig, ind
 	}, nil
 }
 
-func (c *Client) searchServiceLogs(ctx context.Context, config CorrelationConfig, route *CorrelationRoute, index, serviceURIField, uri, status string, start, end time.Time, limit int) (map[string]any, error) {
+func (c *Client) searchServiceLogs(ctx context.Context, config CorrelationConfig, route *CorrelationRoute, index, serviceURIField string, req CorrelateRequest, start, end time.Time, limit int) (map[string]any, error) {
 	must := []any{}
-	query, exact := serviceLogQuery(route, serviceURIField, uri)
+	query, exact := serviceLogQuery(route, serviceURIField, req)
 	if query != "" {
 		must = append(must, map[string]any{
 			"query_string": map[string]any{
@@ -328,10 +348,10 @@ func (c *Client) searchServiceLogs(ctx context.Context, config CorrelationConfig
 			},
 		})
 	}
-	if strings.TrimSpace(status) != "" {
+	if strings.TrimSpace(req.Status) != "" {
 		must = append(must, map[string]any{
 			"query_string": map[string]any{
-				"query":            "status:" + quoteQuery(status) + " OR " + quoteQuery(status),
+				"query":            "status:" + quoteQuery(req.Status) + " OR " + quoteQuery(req.Status),
 				"analyze_wildcard": true,
 			},
 		})
@@ -394,8 +414,8 @@ func (c *Client) searchServiceLogs(ctx context.Context, config CorrelationConfig
 	}, nil
 }
 
-func serviceLogQuery(route *CorrelationRoute, serviceURIField, uri string) (string, string) {
-	uri = strings.TrimSpace(uri)
+func serviceLogQuery(route *CorrelationRoute, serviceURIField string, req CorrelateRequest) (string, string) {
+	uri := strings.TrimSpace(req.URI)
 	candidates := []string{}
 	mode := "uri"
 	if route != nil && route.ServiceEventField != "" && route.ServiceEventTemplate != "" {
@@ -414,7 +434,29 @@ func serviceLogQuery(route *CorrelationRoute, serviceURIField, uri string) (stri
 	if route != nil && route.ServiceFallbackQuery != "" {
 		candidates = append(candidates, "("+route.ServiceFallbackQuery+")")
 	}
+	for _, keyword := range append([]string{req.ProbeID, req.TraceID}, req.Keywords...) {
+		keyword = strings.TrimSpace(keyword)
+		if keyword == "" {
+			continue
+		}
+		candidates = append(candidates, quoteQuery(keyword))
+	}
 	return strings.Join(dedupeStrings(candidates), " OR "), mode
+}
+
+func apisixProbeQuery(req CorrelateRequest) string {
+	candidates := []string{}
+	for _, keyword := range append([]string{req.ProbeID, req.UserAgent, req.TraceID}, req.Keywords...) {
+		keyword = strings.TrimSpace(keyword)
+		if keyword == "" {
+			continue
+		}
+		candidates = append(candidates,
+			fieldQuery("http_user_agent", keyword),
+			quoteQuery(keyword),
+		)
+	}
+	return strings.Join(dedupeStrings(candidates), " OR ")
 }
 
 func apisixItem(hit, source map[string]any) map[string]any {

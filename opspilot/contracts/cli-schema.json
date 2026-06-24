@@ -271,6 +271,11 @@
       "description": "Correlate APISIX access logs with service logs by host, URI, time window, optional route mapping, and evidence strength. Supports --skip-apisix / --service-only for preliminary investigation without gateway logs."
     },
     {
+      "name": "probe http",
+      "readonly": true,
+      "description": "Run a controlled HTTP/HTTPS probe with an OpsPilot probe_id, bounded timeout, redacted headers, optional response preview, APISIX/service log weak correlation, optional Pod evidence, and an Evidence Pack output."
+    },
+    {
       "name": "evidence pack",
       "readonly": true,
       "description": "Build a unified Evidence Pack for a service, Pod, or cluster from Kubernetes, release, capability, and recent event evidence. Use --persist to store the pack server-side."

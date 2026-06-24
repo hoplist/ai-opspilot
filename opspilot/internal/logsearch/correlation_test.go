@@ -28,7 +28,7 @@ func TestServiceLogQueryUsesBusinessIDTemplate(t *testing.T) {
 		ServiceEventField:    "evtName",
 		ServiceEventTemplate: "cis_steps_${id}",
 	}
-	query, mode := serviceLogQuery(route, "msg", "/cis/api/internal/jobserver/steps/19635751")
+	query, mode := serviceLogQuery(route, "msg", CorrelateRequest{URI: "/cis/api/internal/jobserver/steps/19635751"})
 	if mode != "business_id" {
 		t.Fatalf("mode = %s", mode)
 	}
@@ -74,11 +74,23 @@ func TestMatchRouteAllowsHostOnlyWhenPrefixEmpty(t *testing.T) {
 }
 
 func TestServiceLogQueryDoesNotForceEmptyURI(t *testing.T) {
-	query, mode := serviceLogQuery(&CorrelationRoute{ServiceFallbackQuery: "level:error"}, "msg", "")
+	query, mode := serviceLogQuery(&CorrelationRoute{ServiceFallbackQuery: "level:error"}, "msg", CorrelateRequest{})
 	if mode != "uri" {
 		t.Fatalf("mode = %s", mode)
 	}
 	if query != "(level:error)" {
+		t.Fatalf("query = %q", query)
+	}
+}
+
+func TestServiceLogQueryIncludesProbeIDAndKeywords(t *testing.T) {
+	query, _ := serviceLogQuery(nil, "msg", CorrelateRequest{
+		URI:      "/api/demo",
+		ProbeID:  "probe-123",
+		TraceID:  "trace-xyz",
+		Keywords: []string{"trace-abc"},
+	})
+	if !containsAll(query, "msg:\"/api/demo\"", "\"probe-123\"", "\"trace-xyz\"", "\"trace-abc\"") {
 		t.Fatalf("query = %q", query)
 	}
 }

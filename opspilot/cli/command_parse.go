@@ -44,8 +44,13 @@ func evidenceCommand(args []string) (string, url.Values) {
 	apisixIndex := fs.String("apisix-index", "", "APISIX Elasticsearch index pattern")
 	serviceIndex := fs.String("service-index", "", "service log Elasticsearch index pattern")
 	serviceURIField := fs.String("service-uri-field", "", "service log field containing URI text")
+	probeID := fs.String("probe-id", "", "probe id to narrow weak correlation")
+	userAgent := fs.String("user-agent", "", "user agent to narrow APISIX correlation")
+	traceID := fs.String("trace-id", "", "trace id to narrow service/APISIX correlation")
+	var keywords repeatedFlags
+	fs.Var(&keywords, "keyword", "extra keyword for service log correlation, repeatable")
 	_ = fs.Parse(args[1:])
-	return "/api/evidence/request", url.Values{
+	values := url.Values{
 		"host":              []string{*host},
 		"uri":               []string{*uri},
 		"status":            []string{*status},
@@ -58,7 +63,14 @@ func evidenceCommand(args []string) (string, url.Values) {
 		"apisix_index":      []string{*apisixIndex},
 		"service_index":     []string{*serviceIndex},
 		"service_uri_field": []string{*serviceURIField},
+		"probe_id":          []string{*probeID},
+		"user_agent":        []string{*userAgent},
+		"trace_id":          []string{*traceID},
 	}
+	for _, keyword := range keywords {
+		values.Add("keyword", keyword)
+	}
+	return "/api/evidence/request", values
 }
 
 func logsCommand(args []string) (string, url.Values) {
