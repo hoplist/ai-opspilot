@@ -127,6 +127,31 @@ spec:
     path_prefixes:
       - /api/im/
 `)
+	writeFile(t, dir, "probes/default-http.yaml", `
+apiVersion: opspilot.io/v1
+kind: ProbePolicy
+metadata:
+  name: default-http-probe
+spec:
+  default: true
+  target: http
+  window:
+    since_seconds: 600
+    window_seconds: 120
+    limit: 10
+  evidence:
+    - name: gateway_logs
+      type: gateway_logs
+      enabled: true
+      required: false
+      on_missing: warn
+      index: apisix-*
+    - name: pod
+      type: kubernetes_pod
+      enabled: true
+      required: false
+      on_missing: skip
+`)
 
 	cfg := Load(dir)
 	if !cfg.Valid {
@@ -159,6 +184,9 @@ spec:
 	if cfg.DefaultNodeAgent() != "node206" || cfg.NodeAgentsRaw() != "node206=http://node206-agent.example" {
 		t.Fatalf("agents raw = %s default=%s", cfg.NodeAgentsRaw(), cfg.DefaultNodeAgent())
 	}
+	if len(cfg.ProbePolicies) != 1 || cfg.ResolveProbePolicy("").Window.WindowSeconds != 120 {
+		t.Fatalf("probe policies = %#v", cfg.ProbePolicies)
+	}
 	if cfg.NodeAgentTokensRaw() != "node206=agent-token" {
 		t.Fatalf("agent token raw = %s", cfg.NodeAgentTokensRaw())
 	}
@@ -174,6 +202,16 @@ spec:
 	defaults := cfg.LogSearchDefaults()
 	if defaults.URL != "http://es.example:9200" || defaults.Index != "*-server-*" || defaults.Username != "elastic" || defaults.Password != "secret" {
 		t.Fatalf("log defaults = %#v", defaults)
+	}
+}
+
+func TestResolveProbePolicyUsesDefaultWhenMissing(t *testing.T) {
+	policy := Config{}.ResolveProbePolicy("")
+	if policy.Name != DefaultProbePolicyName {
+		t.Fatalf("policy = %#v", policy)
+	}
+	if len(policy.Evidence) == 0 || policy.Window.WindowSeconds == 0 {
+		t.Fatalf("policy defaults incomplete: %#v", policy)
 	}
 }
 

@@ -43,6 +43,10 @@ func TestHTTPProbeEndpointReturnsEvidencePack(t *testing.T) {
 	if pack["trigger"] != "http_probe" || pack["status"] != "healthy" {
 		t.Fatalf("pack = %#v", pack)
 	}
+	policy := data["policy"].(map[string]any)
+	if policy["name"] != "default-http-probe" {
+		t.Fatalf("policy = %#v", policy)
+	}
 	if !strings.Contains(recorder.Body.String(), "logs: log search is not configured") {
 		t.Fatalf("expected missing log warning, body=%s", recorder.Body.String())
 	}

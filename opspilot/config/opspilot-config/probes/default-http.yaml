@@ -1,0 +1,47 @@
+apiVersion: opspilot.io/v1
+kind: ProbePolicy
+metadata:
+  name: default-http-probe
+spec:
+  default: true
+  target: http
+  window:
+    since_seconds: 900
+    window_seconds: 300
+    limit: 20
+  evidence:
+    - name: gateway_logs
+      type: gateway_logs
+      enabled: true
+      required: false
+      on_missing: warn
+      index: apisix-*
+      match_fields:
+        - host
+        - uri
+        - status
+        - probe_id
+        - user_agent
+    - name: service_logs
+      type: service_logs
+      enabled: true
+      required: false
+      on_missing: warn
+      index: opspilot-k8s-*
+      uri_field: msg
+      match_fields:
+        - uri
+        - trace_id
+        - probe_id
+        - keyword
+    - name: pod
+      type: kubernetes_pod
+      enabled: true
+      required: false
+      on_missing: skip
+    - name: metrics
+      type: prometheus_pod
+      enabled: true
+      required: false
+      on_missing: warn
+      source: node200-k8s

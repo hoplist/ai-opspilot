@@ -18,6 +18,9 @@ directories small and explicit:
   sources, and optional static assets.
 - `services/`: service catalog, runtime mapping, release mapping, and log
   correlation hints.
+- `probes/`: HTTP probe evidence policies. These decide which optional evidence
+  sources are queried after a probe and whether missing sources warn, skip, or
+  become required.
 - `topology/`: region and network path hints.
 
 Validate before pushing:

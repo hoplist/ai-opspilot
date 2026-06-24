@@ -20,28 +20,29 @@ type Metadata struct {
 }
 
 type Config struct {
-	Version      string        `json:"version"`
-	Source       string        `json:"source"`
-	Directory    string        `json:"directory,omitempty"`
-	Commit       string        `json:"commit,omitempty"`
-	LoadedAt     string        `json:"loaded_at"`
-	Valid        bool          `json:"valid"`
-	Files        []string      `json:"files,omitempty"`
-	Warnings     []string      `json:"warnings,omitempty"`
-	Errors       []string      `json:"errors,omitempty"`
-	Settings     Settings      `json:"settings,omitempty"`
-	Services     []Service     `json:"services,omitempty"`
-	Datasources  []Datasource  `json:"datasources,omitempty"`
-	Credentials  []Credential  `json:"credentials,omitempty"`
-	Clusters     []Cluster     `json:"clusters,omitempty"`
-	Agents       []Agent       `json:"agents,omitempty"`
-	NetworkZones []NetworkZone `json:"network_zones,omitempty"`
-	AssetSources []AssetSource `json:"asset_sources,omitempty"`
-	Assets       []Asset       `json:"assets,omitempty"`
-	Flows        []Flow        `json:"flows,omitempty"`
-	Inspections  []Inspection  `json:"inspections,omitempty"`
-	Topology     []Region      `json:"topology,omitempty"`
-	Rules        []Rule        `json:"correlation_rules,omitempty"`
+	Version       string        `json:"version"`
+	Source        string        `json:"source"`
+	Directory     string        `json:"directory,omitempty"`
+	Commit        string        `json:"commit,omitempty"`
+	LoadedAt      string        `json:"loaded_at"`
+	Valid         bool          `json:"valid"`
+	Files         []string      `json:"files,omitempty"`
+	Warnings      []string      `json:"warnings,omitempty"`
+	Errors        []string      `json:"errors,omitempty"`
+	Settings      Settings      `json:"settings,omitempty"`
+	Services      []Service     `json:"services,omitempty"`
+	Datasources   []Datasource  `json:"datasources,omitempty"`
+	Credentials   []Credential  `json:"credentials,omitempty"`
+	Clusters      []Cluster     `json:"clusters,omitempty"`
+	Agents        []Agent       `json:"agents,omitempty"`
+	NetworkZones  []NetworkZone `json:"network_zones,omitempty"`
+	AssetSources  []AssetSource `json:"asset_sources,omitempty"`
+	Assets        []Asset       `json:"assets,omitempty"`
+	Flows         []Flow        `json:"flows,omitempty"`
+	Inspections   []Inspection  `json:"inspections,omitempty"`
+	ProbePolicies []ProbePolicy `json:"probe_policies,omitempty"`
+	Topology      []Region      `json:"topology,omitempty"`
+	Rules         []Rule        `json:"correlation_rules,omitempty"`
 }
 
 type Summary struct {
@@ -307,6 +308,35 @@ type InspectionCheck struct {
 	Options    map[string]any `json:"options,omitempty" yaml:"options"`
 }
 
+type ProbePolicy struct {
+	Name     string                `json:"name" yaml:"name"`
+	Default  bool                  `json:"default,omitempty" yaml:"default"`
+	Target   string                `json:"target,omitempty" yaml:"target"`
+	Window   ProbePolicyWindow     `json:"window,omitempty" yaml:"window"`
+	Evidence []ProbeEvidencePolicy `json:"evidence,omitempty" yaml:"evidence"`
+	Source   string                `json:"source,omitempty" yaml:"-"`
+}
+
+type ProbePolicyWindow struct {
+	SinceSeconds  int `json:"since_seconds,omitempty" yaml:"since_seconds"`
+	WindowSeconds int `json:"window_seconds,omitempty" yaml:"window_seconds"`
+	Limit         int `json:"limit,omitempty" yaml:"limit"`
+}
+
+type ProbeEvidencePolicy struct {
+	Name        string            `json:"name" yaml:"name"`
+	Type        string            `json:"type,omitempty" yaml:"type"`
+	Enabled     *bool             `json:"enabled,omitempty" yaml:"enabled"`
+	Required    *bool             `json:"required,omitempty" yaml:"required"`
+	OnMissing   string            `json:"on_missing,omitempty" yaml:"on_missing"`
+	Datasource  string            `json:"datasource,omitempty" yaml:"datasource"`
+	Index       string            `json:"index,omitempty" yaml:"index"`
+	URIField    string            `json:"uri_field,omitempty" yaml:"uri_field"`
+	Source      string            `json:"source,omitempty" yaml:"source"`
+	MatchFields []string          `json:"match_fields,omitempty" yaml:"match_fields"`
+	Options     map[string]string `json:"options,omitempty" yaml:"options"`
+}
+
 type Region struct {
 	Name      string   `json:"name" yaml:"name"`
 	Zone      string   `json:"zone,omitempty" yaml:"zone"`
@@ -407,20 +437,21 @@ type assetDocument struct {
 type AssetSpec Asset
 
 type bulkDocument struct {
-	Version      string        `yaml:"version"`
-	Settings     Settings      `yaml:"settings"`
-	Services     []Service     `yaml:"services"`
-	Datasources  []Datasource  `yaml:"datasources"`
-	Credentials  []Credential  `yaml:"credentials"`
-	Clusters     []Cluster     `yaml:"clusters"`
-	Agents       []Agent       `yaml:"agents"`
-	NetworkZones []NetworkZone `yaml:"network_zones"`
-	AssetSources []AssetSource `yaml:"asset_sources"`
-	Assets       []Asset       `yaml:"assets"`
-	Flows        []Flow        `yaml:"flows"`
-	Inspections  []Inspection  `yaml:"inspections"`
-	Topology     []Region      `yaml:"topology"`
-	Rules        []Rule        `yaml:"correlation_rules"`
+	Version       string        `yaml:"version"`
+	Settings      Settings      `yaml:"settings"`
+	Services      []Service     `yaml:"services"`
+	Datasources   []Datasource  `yaml:"datasources"`
+	Credentials   []Credential  `yaml:"credentials"`
+	Clusters      []Cluster     `yaml:"clusters"`
+	Agents        []Agent       `yaml:"agents"`
+	NetworkZones  []NetworkZone `yaml:"network_zones"`
+	AssetSources  []AssetSource `yaml:"asset_sources"`
+	Assets        []Asset       `yaml:"assets"`
+	Flows         []Flow        `yaml:"flows"`
+	Inspections   []Inspection  `yaml:"inspections"`
+	ProbePolicies []ProbePolicy `yaml:"probe_policies"`
+	Topology      []Region      `yaml:"topology"`
+	Rules         []Rule        `yaml:"correlation_rules"`
 }
 
 type flowDocument struct {
@@ -440,6 +471,15 @@ type inspectionDocument struct {
 }
 
 type InspectionSpec Inspection
+
+type probePolicyDocument struct {
+	APIVersion string          `yaml:"apiVersion"`
+	Kind       string          `yaml:"kind"`
+	Metadata   Metadata        `yaml:"metadata"`
+	Spec       ProbePolicySpec `yaml:"spec"`
+}
+
+type ProbePolicySpec ProbePolicy
 
 func Load(dir string) Config {
 	cfg := Config{
@@ -527,6 +567,7 @@ func (c Config) Summary() Summary {
 			"assets":            len(c.Assets),
 			"flows":             len(c.Flows),
 			"inspections":       len(c.Inspections),
+			"probe_policies":    len(c.ProbePolicies),
 			"topology_regions":  len(c.Topology),
 			"correlation_rules": len(c.Rules),
 		},
@@ -699,6 +740,16 @@ func parseDocument(path string, node *yaml.Node, cfg *Config) {
 		item.Name = firstNonEmpty(item.Name, doc.Metadata.Name)
 		item.Source = "file:" + filepath.ToSlash(path)
 		cfg.Inspections = append(cfg.Inspections, item)
+	case "probepolicy", "probe_policy":
+		var doc probePolicyDocument
+		if err := node.Decode(&doc); err != nil {
+			cfg.Errors = append(cfg.Errors, fmt.Sprintf("%s: %v", path, err))
+			return
+		}
+		item := ProbePolicy(doc.Spec)
+		item.Name = firstNonEmpty(item.Name, doc.Metadata.Name)
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.ProbePolicies = append(cfg.ProbePolicies, item)
 	case "":
 		parseBulkDocument(path, node, cfg)
 	default:
@@ -753,6 +804,10 @@ func parseBulkDocument(path string, node *yaml.Node, cfg *Config) {
 	for _, item := range doc.Inspections {
 		item.Source = "file:" + filepath.ToSlash(path)
 		cfg.Inspections = append(cfg.Inspections, item)
+	}
+	for _, item := range doc.ProbePolicies {
+		item.Source = "file:" + filepath.ToSlash(path)
+		cfg.ProbePolicies = append(cfg.ProbePolicies, item)
 	}
 	for _, item := range doc.Topology {
 		item.Source = "file:" + filepath.ToSlash(path)
@@ -888,6 +943,22 @@ func validate(cfg *Config) {
 			}
 		}
 	}
+	for _, item := range cfg.ProbePolicies {
+		if item.Name == "" {
+			cfg.Errors = append(cfg.Errors, "probe policy entry missing name")
+		}
+		if len(item.Evidence) == 0 {
+			cfg.Warnings = append(cfg.Warnings, "probe policy "+item.Name+" has no evidence entries")
+		}
+		for _, entry := range item.Evidence {
+			if entry.Name == "" {
+				cfg.Warnings = append(cfg.Warnings, "probe policy "+item.Name+" has an evidence entry without name")
+			}
+			if entry.Type == "" {
+				cfg.Warnings = append(cfg.Warnings, "probe policy "+item.Name+" evidence "+entry.Name+" has no type")
+			}
+		}
+	}
 }
 
 func attachCredentials(cfg *Config) {
@@ -955,6 +1026,7 @@ func dedupe(cfg *Config) {
 	cfg.Assets = dedupeByName(cfg.Assets, func(item Asset) string { return item.Name })
 	cfg.Flows = dedupeByName(cfg.Flows, func(item Flow) string { return item.Name })
 	cfg.Inspections = dedupeByName(cfg.Inspections, func(item Inspection) string { return item.Name })
+	cfg.ProbePolicies = dedupeByName(cfg.ProbePolicies, func(item ProbePolicy) string { return item.Name })
 	cfg.Topology = dedupeByName(cfg.Topology, func(item Region) string { return item.Name })
 	cfg.Rules = dedupeByName(cfg.Rules, func(item Rule) string { return item.Name })
 }
