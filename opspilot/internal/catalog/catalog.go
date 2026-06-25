@@ -24,6 +24,12 @@ type Credential struct {
 type Cluster struct {
 	Name           string `json:"name"`
 	Environment    string `json:"environment,omitempty"`
+	Region         string `json:"region,omitempty"`
+	NetworkZone    string `json:"network_zone,omitempty"`
+	BusinessLine   string `json:"business_line,omitempty"`
+	Business       string `json:"business,omitempty"`
+	Owner          string `json:"owner,omitempty"`
+	Description    string `json:"description,omitempty"`
 	KubernetesMode string `json:"kubernetes_mode,omitempty"`
 	KubernetesRef  string `json:"kubernetes_ref,omitempty"`
 	KubeconfigPath string `json:"kubeconfig_path,omitempty"`
@@ -192,6 +198,12 @@ func parseClusters(raw string) ([]Cluster, []string) {
 		out = append(out, Cluster{
 			Name:           name,
 			Environment:    attrs["environment"],
+			Region:         attrs["region"],
+			NetworkZone:    firstNonEmpty(attrs["network_zone"], attrs["zone"]),
+			BusinessLine:   firstNonEmpty(attrs["business_line"], attrs["line"]),
+			Business:       attrs["business"],
+			Owner:          attrs["owner"],
+			Description:    attrs["description"],
 			KubernetesMode: firstNonEmpty(attrs["kubernetes"], attrs["kubernetes_mode"], attrs["k8s"]),
 			KubernetesRef:  firstNonEmpty(attrs["secret"], attrs["service_account"], attrs["kubernetes_ref"], attrs["ref"]),
 			KubeconfigPath: firstNonEmpty(attrs["kubeconfig"], attrs["kubeconfig_path"], attrs["kubeconfig_file"]),

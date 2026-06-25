@@ -16,7 +16,7 @@ func TestCredentialsFromEnv(t *testing.T) {
 }
 
 func TestClustersFromEnv(t *testing.T) {
-	got, warnings := ClustersFromEnv("node200-test=environment:test,kubernetes:in-cluster,prometheus:node200-k8s,gitops_project:platform/gitops-manifests,path:clusters/test,argocd_ns:argocd,registry:192.168.48.206:5050;prod-a=environment:prod,kubernetes:remote,secret:opspilot-cluster-prod-a,kubeconfig:/var/run/opspilot/clusters/prod-a/kubeconfig,context:prod-a")
+	got, warnings := ClustersFromEnv("node200-test=environment:test,region:chengdu,network_zone:inner,business_line:platform,business:OpsPilot,owner:platform,kubernetes:in-cluster,prometheus:node200-k8s,gitops_project:platform/gitops-manifests,path:clusters/test,argocd_ns:argocd,registry:192.168.48.206:5050;prod-a=environment:prod,kubernetes:remote,secret:opspilot-cluster-prod-a,kubeconfig:/var/run/opspilot/clusters/prod-a/kubeconfig,context:prod-a")
 	if len(warnings) != 0 {
 		t.Fatalf("warnings = %v", warnings)
 	}
@@ -25,6 +25,9 @@ func TestClustersFromEnv(t *testing.T) {
 	}
 	if got.Items[0].KubernetesMode != "in-cluster" || got.Items[0].GitOpsPath != "clusters/test" {
 		t.Fatalf("cluster not parsed: %#v", got.Items[0])
+	}
+	if got.Items[0].Region != "chengdu" || got.Items[0].NetworkZone != "inner" || got.Items[0].BusinessLine != "platform" || got.Items[0].Owner != "platform" {
+		t.Fatalf("cluster ownership not parsed: %#v", got.Items[0])
 	}
 	if got.Items[1].KubernetesRef != "opspilot-cluster-prod-a" || got.Items[1].KubeconfigPath != "/var/run/opspilot/clusters/prod-a/kubeconfig" || got.Items[1].KubeContext != "prod-a" {
 		t.Fatalf("remote cluster not parsed: %#v", got.Items[1])

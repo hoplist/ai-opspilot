@@ -102,6 +102,30 @@ assets:
       - jumpserver
       - prometheus
 `)
+	writeFile(t, dir, "clusters/node200.yaml", `
+clusters:
+  - name: node200-test
+    environment: test
+    region: chengdu
+    network_zone: inner
+    business_line: platform
+    business: OpsPilot test management cluster
+    owner: platform
+    kubernetes_mode: in-cluster
+    kubernetes_ref: opspilot-core
+    prometheus: node200-k8s
+    logs: node200-logs
+  - name: gz-inner
+    environment: test
+    region: guangzhou
+    network_zone: inner
+    business_line: collaboration
+    business: Guangzhou collaboration cluster
+    owner: ops
+    kubernetes_mode: remote
+    kubeconfig_path: /etc/opspilot/config/current/kubeconfigs/gz-inner.kubeconfig
+    kube_context: gz-inner
+`)
 	writeFile(t, dir, "services/devex/todo-server.yaml", `
 apiVersion: opspilot.io/v1
 kind: Service
@@ -198,6 +222,12 @@ spec:
 	}
 	if len(cfg.Assets) != 1 || cfg.Assets[0].Name != "node-a" {
 		t.Fatalf("assets = %#v", cfg.Assets)
+	}
+	if len(cfg.Clusters) != 2 || cfg.Clusters[1].BusinessLine != "collaboration" || cfg.Clusters[1].KubeconfigPath == "" {
+		t.Fatalf("clusters = %#v", cfg.Clusters)
+	}
+	if raw := cfg.ClusterCatalogRaw(); !strings.Contains(raw, "business_line:collaboration") || !strings.Contains(raw, "kubeconfig:/etc/opspilot/config/current/kubeconfigs/gz-inner.kubeconfig") {
+		t.Fatalf("cluster raw = %s", raw)
 	}
 	defaults := cfg.LogSearchDefaults()
 	if defaults.URL != "http://es.example:9200" || defaults.Index != "*-server-*" || defaults.Username != "elastic" || defaults.Password != "secret" {

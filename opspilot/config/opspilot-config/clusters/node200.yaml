@@ -1,6 +1,11 @@
 clusters:
   - name: node200-test
     environment: test
+    region: chengdu
+    network_zone: inner
+    business_line: platform
+    business: OpsPilot test management cluster
+    owner: platform
     kubernetes_mode: in-cluster
     kubernetes_ref: opspilot-core
     prometheus: node200-k8s
@@ -11,6 +16,11 @@ clusters:
     registry: 192.168.48.206:5050
   - name: node206-host
     environment: test
+    region: chengdu
+    network_zone: inner
+    business_line: platform
+    business: GitLab, registry, runner, and host agent node
+    owner: platform
     kubernetes_mode: host-agent
     prometheus: node206-host
     logs: docker-node-agent

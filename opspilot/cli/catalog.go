@@ -246,10 +246,12 @@ func writeClustersCatalogHuman(data map[string]any, warnings []string) func(io.W
 	return func(w io.Writer) error {
 		fmt.Fprintf(w, "Clusters catalog: source=%s count=%d\n", stringValue(data["source"]), intValue(data["count"]))
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "NAME\tENV\tK8S\tPROMETHEUS\tLOGS\tGITOPS\tARGOCD\tREGISTRY")
+		fmt.Fprintln(tw, "NAME\tENV\tREGION\tZONE\tBUSINESS_LINE\tOWNER\tK8S\tPROMETHEUS\tLOGS\tGITOPS\tARGOCD\tREGISTRY")
 		for _, item := range mapsFromItems(data["items"]) {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				stringValue(item["name"]), stringValue(item["environment"]), stringValue(item["kubernetes_mode"]),
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				stringValue(item["name"]), stringValue(item["environment"]), stringValue(item["region"]),
+				stringValue(item["network_zone"]), stringValue(item["business_line"]), stringValue(item["owner"]),
+				stringValue(item["kubernetes_mode"]),
 				stringValue(item["prometheus"]), stringValue(item["logs"]), stringValue(item["gitops_path"]),
 				stringValue(item["argocd_namespace"]), stringValue(item["registry"]))
 		}

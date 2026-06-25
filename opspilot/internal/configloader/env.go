@@ -106,6 +106,12 @@ func (c Config) ClusterCatalogRaw() string {
 			}
 		}
 		add("environment", item.Environment)
+		add("region", item.Region)
+		add("network_zone", item.NetworkZone)
+		add("business_line", item.BusinessLine)
+		add("business", item.Business)
+		add("owner", item.Owner)
+		add("description", item.Description)
 		add("kubernetes", item.KubernetesMode)
 		add("kubernetes_ref", item.KubernetesRef)
 		add("kubeconfig", item.KubeconfigPath)

@@ -176,6 +176,12 @@ type Credential struct {
 type Cluster struct {
 	Name           string `json:"name" yaml:"name"`
 	Environment    string `json:"environment,omitempty" yaml:"environment"`
+	Region         string `json:"region,omitempty" yaml:"region"`
+	NetworkZone    string `json:"network_zone,omitempty" yaml:"network_zone"`
+	BusinessLine   string `json:"business_line,omitempty" yaml:"business_line"`
+	Business       string `json:"business,omitempty" yaml:"business"`
+	Owner          string `json:"owner,omitempty" yaml:"owner"`
+	Description    string `json:"description,omitempty" yaml:"description"`
 	KubernetesMode string `json:"kubernetes_mode,omitempty" yaml:"kubernetes_mode"`
 	KubernetesRef  string `json:"kubernetes_ref,omitempty" yaml:"kubernetes_ref"`
 	KubeconfigPath string `json:"kubeconfig_path,omitempty" yaml:"kubeconfig_path"`
