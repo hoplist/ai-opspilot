@@ -1,0 +1,289 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opspilot-core
+  namespace: opspilot
+  labels:
+    app.kubernetes.io/name: opspilot-core
+    app.kubernetes.io/part-of: opspilot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opspilot-core
+  template:
+    metadata:
+      annotations:
+        opspilot.io/config-revision: "2026-06-11-retention"
+      labels:
+        app.kubernetes.io/name: opspilot-core
+        app.kubernetes.io/part-of: opspilot
+    spec:
+      serviceAccountName: opspilot-core
+      securityContext:
+        fsGroup: 65533
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: gitlab-registry-pull
+      initContainers:
+        - name: opspilot-config-init
+          image: docker-hub.tpo.xzoa.com/opspilot/git-sync:v4.6.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --repo=$(OPSPILOT_CONFIG_GIT_URL)
+            - --ref=$(OPSPILOT_CONFIG_GIT_REF)
+            - --root=/config/root
+            - --link=/config/current
+            - --depth=1
+            - --one-time
+            - --group-write
+          env:
+            - name: OPSPILOT_CONFIG_GIT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: opspilot-core-config
+                  key: OPSPILOT_CONFIG_GIT_URL
+            - name: OPSPILOT_CONFIG_GIT_REF
+              valueFrom:
+                configMapKeyRef:
+                  name: opspilot-core-config
+                  key: OPSPILOT_CONFIG_GIT_REF
+            - name: GITSYNC_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: opspilot-config-secrets
+                  key: OPSPILOT_CONFIG_GIT_USERNAME
+                  optional: true
+            - name: GITSYNC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opspilot-config-secrets
+                  key: OPSPILOT_CONFIG_GIT_PASSWORD
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65533
+            runAsGroup: 65533
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: opspilot-config
+              mountPath: /config
+            - name: config-sync-tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      containers:
+        - name: core
+          image: docker-hub.tpo.xzoa.com/opspilot/opspilot-core:d5e84c50
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: opspilot-core-config
+            - secretRef:
+                name: opspilot-release-secrets
+                optional: true
+            - secretRef:
+                name: opspilot-skills-secrets
+                optional: true
+            - secretRef:
+                name: opspilot-node-agent-secrets
+                optional: true
+          ports:
+            - name: http
+              containerPort: 18080
+          volumeMounts:
+            - name: opspilot-config
+              mountPath: /etc/opspilot/config
+              readOnly: true
+            - name: opspilot-skills
+              mountPath: /opt/opspilot/skills
+              readOnly: true
+            - name: opspilot-audit
+              mountPath: /var/lib/opspilot/audit
+            - name: opspilot-evidence-packs
+              mountPath: /var/lib/opspilot/evidence-packs
+            - name: opspilot-error-events
+              mountPath: /var/lib/opspilot/error-events
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /api/live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/live
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+        - name: config-sync
+          image: docker-hub.tpo.xzoa.com/opspilot/git-sync:v4.6.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --repo=$(OPSPILOT_CONFIG_GIT_URL)
+            - --ref=$(OPSPILOT_CONFIG_GIT_REF)
+            - --root=/config/root
+            - --link=/config/current
+            - --period=$(OPSPILOT_CONFIG_SYNC_SECONDS)s
+            - --depth=1
+            - --max-failures=-1
+            - --group-write
+          env:
+            - name: OPSPILOT_CONFIG_GIT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: opspilot-core-config
+                  key: OPSPILOT_CONFIG_GIT_URL
+            - name: OPSPILOT_CONFIG_GIT_REF
+              valueFrom:
+                configMapKeyRef:
+                  name: opspilot-core-config
+                  key: OPSPILOT_CONFIG_GIT_REF
+            - name: OPSPILOT_CONFIG_SYNC_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: opspilot-core-config
+                  key: OPSPILOT_CONFIG_SYNC_SECONDS
+            - name: GITSYNC_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: opspilot-config-secrets
+                  key: OPSPILOT_CONFIG_GIT_USERNAME
+                  optional: true
+            - name: GITSYNC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opspilot-config-secrets
+                  key: OPSPILOT_CONFIG_GIT_PASSWORD
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65533
+            runAsGroup: 65533
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: opspilot-config
+              mountPath: /config
+            - name: config-sync-tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+        - name: skills-sync
+          image: docker-hub.tpo.xzoa.com/opspilot/git-sync:v4.6.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --repo=$(OPSPILOT_SKILLS_GIT_URL)
+            - --ref=$(OPSPILOT_SKILLS_GIT_REF)
+            - --root=/skills/root
+            - --link=/skills/current
+            - --period=$(OPSPILOT_SKILLS_SYNC_SECONDS)s
+            - --depth=1
+            - --max-failures=-1
+            - --group-write
+          env:
+            - name: OPSPILOT_SKILLS_GIT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: opspilot-core-config
+                  key: OPSPILOT_SKILLS_GIT_URL
+            - name: OPSPILOT_SKILLS_GIT_REF
+              valueFrom:
+                configMapKeyRef:
+                  name: opspilot-core-config
+                  key: OPSPILOT_SKILLS_GIT_REF
+            - name: OPSPILOT_SKILLS_SYNC_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: opspilot-core-config
+                  key: OPSPILOT_SKILLS_SYNC_SECONDS
+            - name: GITSYNC_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: opspilot-skills-secrets
+                  key: OPSPILOT_SKILLS_GIT_USERNAME
+                  optional: true
+            - name: GITSYNC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opspilot-skills-secrets
+                  key: OPSPILOT_SKILLS_GIT_PASSWORD
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65533
+            runAsGroup: 65533
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: opspilot-skills
+              mountPath: /skills
+            - name: skills-sync-tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      volumes:
+        - name: opspilot-config
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: config-sync-tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: opspilot-skills
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: skills-sync-tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: opspilot-audit
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: opspilot-evidence-packs
+          emptyDir:
+            sizeLimit: 128Mi
+        - name: opspilot-error-events
+          emptyDir:
+            sizeLimit: 64Mi

@@ -1,0 +1,7 @@
+# Optional adapters. Do not block the first internal K3s bring-up on these.
+ghcr.io/parca-dev/parca:v0.24.0
+docker.io/elastic/filebeat:8.14.3
+docker.io/danielqsj/kafka-exporter:v1.7.0
+docker.io/bitnami/redis-exporter:1.61.0
+docker.io/prom/mysqld-exporter:v0.15.1
+docker-hub.tpo.xzoa.com/opspilot/gitlab-ce:18.11.3

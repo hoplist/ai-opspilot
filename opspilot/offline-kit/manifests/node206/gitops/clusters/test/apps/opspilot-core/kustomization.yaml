@@ -1,0 +1,5 @@
+resources:
+  - ../opspilot-rbac
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml

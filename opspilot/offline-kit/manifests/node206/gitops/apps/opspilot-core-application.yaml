@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: opspilot-core
+  namespace: argocd
+spec:
+  project: cicd-apps
+  source:
+    repoURL: http://192.168.48.206:8929/platform/gitops-manifests.git
+    targetRevision: main
+    path: clusters/test/apps/opspilot-core
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: opspilot
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

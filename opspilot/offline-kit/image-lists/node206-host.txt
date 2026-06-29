@@ -1,0 +1,7 @@
+# Node206 Docker Compose host images mirrored to docker-hub.tpo.xzoa.com/opspilot/.
+docker-hub.tpo.xzoa.com/opspilot/gitlab-ce:18.11.3
+docker-hub.tpo.xzoa.com/opspilot/gitlab-runner:18.11.3-alpine
+docker-hub.tpo.xzoa.com/opspilot/prometheus:v3.11.0
+docker-hub.tpo.xzoa.com/opspilot/node-exporter:v1.11.1
+docker-hub.tpo.xzoa.com/opspilot/cadvisor:v0.52.1
+docker-hub.tpo.xzoa.com/opspilot/opspilot-agent:main

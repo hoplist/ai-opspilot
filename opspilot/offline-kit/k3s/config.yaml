@@ -1,0 +1,9 @@
+write-kubeconfig-mode: "0644"
+disable:
+  - traefik
+  - servicelb
+kubelet-arg:
+  - "container-log-max-size=50Mi"
+  - "container-log-max-files=3"
+node-label:
+  - "opspilot.io/test-node=true"

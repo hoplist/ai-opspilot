@@ -1,0 +1,15 @@
+services:
+  gitlab-runner:
+    image: docker-hub.tpo.xzoa.com/opspilot/gitlab-runner:18.11.3-alpine
+    container_name: gitlab-runner
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - gitlab-runner-config:/etc/gitlab-runner
+      - gitlab-runner-cache:/cache
+    environment:
+      TZ: Asia/Shanghai
+
+volumes:
+  gitlab-runner-config:
+  gitlab-runner-cache:

@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: opspilot-prometheus-server
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: opspilot-prometheus
+    app.kubernetes.io/part-of: opspilot
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/instance: auto-prometheus
+    app.kubernetes.io/name: prometheus
+  ports:
+    - name: http
+      port: 80
+      targetPort: 9090
+      protocol: TCP

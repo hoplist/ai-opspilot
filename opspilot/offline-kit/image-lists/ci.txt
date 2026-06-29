@@ -1,0 +1,9 @@
+# CI base images used by GitLab Runner / BuildKit templates.
+# Keep these under docker-hub.tpo.xzoa.com/opspilot/ for the offline/test path.
+192.168.48.206:5050/platform/opspilot/ci-alpine:3.20 -> docker-hub.tpo.xzoa.com/opspilot/ci-alpine:3.20
+192.168.48.206:5050/platform/opspilot/ci-buildkit:rootless -> docker-hub.tpo.xzoa.com/opspilot/ci-buildkit:rootless
+192.168.48.206:5050/platform/opspilot/ci-golang:1.23-alpine -> docker-hub.tpo.xzoa.com/opspilot/ci-golang:1.23-alpine
+192.168.48.206:5050/platform/opspilot/ci-node:20-alpine -> docker-hub.tpo.xzoa.com/opspilot/ci-node:20-alpine
+192.168.48.206:5050/platform/opspilot/ci-python:3.12-alpine -> docker-hub.tpo.xzoa.com/opspilot/ci-python:3.12-alpine
+192.168.48.206:5050/platform/opspilot/ci-maven:3.9.9-jdk21-alpine -> docker-hub.tpo.xzoa.com/opspilot/ci-maven:3.9.9-jdk21-alpine
+m.daocloud.io/docker.io/gitlab/gitlab-runner:alpine -> docker-hub.tpo.xzoa.com/opspilot/gitlab-runner:18.11.3-alpine

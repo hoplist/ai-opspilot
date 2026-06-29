@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-core
+  namespace: argocd
+spec:
+  project: argocd-core
+  source:
+    repoURL: 'http://192.168.48.206:8929/platform/gitops-manifests.git'
+    targetRevision: main
+    path: platform/argocd/overlays/node200-test
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

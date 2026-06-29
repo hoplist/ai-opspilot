@@ -1,0 +1,5 @@
+# OpsPilot runtime and GitOps support images.
+# These are mirrored to docker-hub.tpo.xzoa.com/opspilot/<image>:<tag>.
+192.168.48.206:5050/platform/opspilot/opspilot-core:d5e84c50 -> docker-hub.tpo.xzoa.com/opspilot/opspilot-core:d5e84c50
+192.168.48.206:5050/platform/opspilot/opspilot-agent:main -> docker-hub.tpo.xzoa.com/opspilot/opspilot-agent:main
+192.168.48.206:5050/platform/opspilot/git-sync:v4.6.0 -> docker-hub.tpo.xzoa.com/opspilot/git-sync:v4.6.0

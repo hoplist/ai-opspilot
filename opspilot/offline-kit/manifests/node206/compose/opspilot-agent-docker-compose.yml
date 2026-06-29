@@ -1,0 +1,23 @@
+services:
+  opspilot-agent:
+    image: docker-hub.tpo.xzoa.com/opspilot/opspilot-agent:main
+    container_name: opspilot-agent
+    restart: unless-stopped
+    environment:
+      OPSPILOT_AGENT_PORT: "19080"
+      OPSPILOT_AGENT_DOCKER_SOCKET: /var/run/docker.sock
+      OPSPILOT_AGENT_ALLOWED_CONTAINERS: gitlab,prometheus,cadvisor,node-exporter,opspilot-agent
+      OPSPILOT_AGENT_TOKEN: ${OPSPILOT_AGENT_TOKEN:?set OPSPILOT_AGENT_TOKEN in node206 .env}
+      OPSPILOT_AGENT_HOST_ROOT: /host
+      OPSPILOT_AGENT_DISK_ALLOWED_PATHS: /var/lib/docker,/var/log,/opt,/data,/data*
+      OPSPILOT_AGENT_DISK_MAX_DEPTH: "2"
+      OPSPILOT_AGENT_DISK_TOP_LIMIT: "20"
+    ports:
+      - "19080:19080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /var/lib/docker:/host/var/lib/docker:ro
+      - /var/log:/host/var/log:ro
+      - /opt:/host/opt:ro
+      - /data:/host/data:ro

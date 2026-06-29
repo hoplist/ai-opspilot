@@ -1,0 +1,20 @@
+mirrors:
+  docker.io:
+    endpoint:
+      - "http://docker-hub.tpo.xzoa.com"
+  ghcr.io:
+    endpoint:
+      - "http://docker-hub.tpo.xzoa.com"
+  quay.io:
+    endpoint:
+      - "http://docker-hub.tpo.xzoa.com"
+  registry.k8s.io:
+    endpoint:
+      - "http://docker-hub.tpo.xzoa.com"
+  docker-hub.tpo.xzoa.com:
+    endpoint:
+      - "http://docker-hub.tpo.xzoa.com"
+configs:
+  "docker-hub.tpo.xzoa.com":
+    tls:
+      insecure_skip_verify: true
