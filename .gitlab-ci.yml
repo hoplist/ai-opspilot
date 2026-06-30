@@ -15,8 +15,8 @@ variables:
   BUILDKIT_CACHE_IMAGE: "$CI_REGISTRY_IMAGE/opspilot-core:buildcache"
   AGENT_BUILDKIT_CACHE_IMAGE: "$CI_REGISTRY_IMAGE/opspilot-agent:buildcache"
   GOFLAGS: "-buildvcs=false"
-  GITOPS_REPO: "http://oauth2:${GITOPS_TOKEN}@192.168.48.206:8929/platform/gitops-manifests.git"
-  GITOPS_PROJECT: "platform/gitops-manifests"
+  GITOPS_REPO: "http://oauth2:${GITOPS_TOKEN}@192.168.48.206:8929/tpo/deploy/gitops-manifests.git"
+  GITOPS_PROJECT: "tpo/deploy/gitops-manifests"
   GITLAB_API: "http://192.168.48.206:8929/api/v4"
   GITOPS_APP_PATH: "clusters/test/apps/opspilot-core"
   GITOPS_APP_FILE: "apps/opspilot-core-application.yaml"
@@ -209,7 +209,7 @@ update:gitops:
       spec:
         project: cicd-apps
         source:
-          repoURL: http://192.168.48.206:8929/platform/gitops-manifests.git
+          repoURL: http://192.168.48.206:8929/tpo/deploy/gitops-manifests.git
           targetRevision: main
           path: clusters/test/apps/opspilot-core
         destination:

@@ -2,7 +2,7 @@ settings:
   default_cluster: node200-test
   kubeconfig_dir: /var/run/opspilot/clusters
   gitlab_url: http://192.168.48.206:8929
-  gitops_project: platform/gitops-manifests
+  gitops_project: tpo/deploy/gitops-manifests
   gitops_ref: main
   quality:
     enabled: true

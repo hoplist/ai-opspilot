@@ -5,7 +5,7 @@ metadata:
   namespace: argocd
 spec:
   sourceRepos:
-    - http://192.168.48.206:8929/platform/gitops-manifests.git
+    - http://192.168.48.206:8929/tpo/deploy/gitops-manifests.git
   destinations:
     - server: https://kubernetes.default.svc
       namespace: monitoring

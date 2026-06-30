@@ -10,7 +10,7 @@ clusters:
     kubernetes_ref: opspilot-core
     prometheus: node200-k8s
     logs: node200-logs
-    gitops_project: platform/gitops-manifests
+    gitops_project: tpo/deploy/gitops-manifests
     gitops_path: clusters/test
     argocd_namespace: argocd
     registry: 192.168.48.206:5050

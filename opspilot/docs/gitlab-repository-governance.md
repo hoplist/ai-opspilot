@@ -126,7 +126,7 @@ Snapshot date: 2026-05-29.
 | `platform/opspilot` | `[PLATFORM]` | `tpo/platform/opspilot/opspilot-core` | Keep as current source until CI, image paths, release mapping, and GitOps are updated. |
 | `platform/opspilot-config` | `[PLATFORM]` | `tpo/platform/opspilot/opspilot-config` | Moved on 2026-06-30; OpsPilot git-sync URL updated through GitOps. |
 | `platform/opspilot-skills` | `[SKILL]` | `tpo/platform/opspilot/opspilot-skills` | Moved on 2026-06-30; OpsPilot git-sync URL updated through GitOps. |
-| `platform/gitops-manifests` | `[DEPLOY]` | `tpo/deploy/gitops-manifests` | Move only after Argo CD Application source URLs and OpsPilot release mappings are updated. |
+| `tpo/deploy/gitops-manifests` | `[DEPLOY]` | current | Moved on 2026-06-30; Argo CD Application source URLs, AppProjects, CI templates, and OpsPilot config now point to the governed path. |
 | `tpo/ops/backups/node200-etcd-snapshots` | `[BACKUP]` | current | Moved from `tpo/devex/opspilot/cluster-etcd-backups` in phase 2; node200 backup remote updated and verified. |
 | `tpo/devex/opspilot/opspilot-core` | `[SHARED]` | `tpo/shared/ci-templates` | This is a GitLab CI include source, not the live OpsPilot core. Move after generated service `.gitlab-ci.yml` includes are updated. |
 | `tpo/sandbox/devex/demo-api` | `[SANDBOX]` | current | Moved after registry cleanup; source retained, unused GitOps deployment residue removed. |
@@ -158,7 +158,7 @@ Current status on 2026-05-29:
 - Sandbox/demo repositories have been moved under `tpo/sandbox/devex` after
   backing up Git repositories and runnable registry images.
 - CI, Registry, GitOps, Argo CD, backup jobs, and OpsPilot release mappings
-  still use the existing paths for platform core and GitOps repositories.
+  still use the existing path for the platform core repository only.
 
 1. **Metadata first**
    Add descriptions and topics so GitLab's project list is readable without
@@ -184,8 +184,9 @@ Current status on 2026-05-29:
    and `OPSPILOT_SKILLS_GIT_URL` now point to `tpo/platform/opspilot/*`.
 
 5. **Move GitOps**
-   Move `platform/gitops-manifests`, update Argo CD Application source URLs,
-   update OpsPilot release mappings, and verify a no-op sync.
+   Completed on 2026-06-30. Argo CD Applications, AppProjects, repository
+   Secret, CI templates, and OpsPilot config now point to
+   `tpo/deploy/gitops-manifests`.
 
 6. **Move OpsPilot core**
    Move `platform/opspilot`, update remote URL, GitLab CI variables, image

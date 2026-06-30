@@ -7,8 +7,9 @@ GitOps, credentials, middleware, or observability wiring. The platform should
 keep operational ownership while letting developers work with ordinary Git
 pushes and natural-language OpsPilot requests.
 
-The first governance stages are now in place. Argo CD portability can proceed
-as a controlled migration, but the live source path should only be switched
+The first governance stages are now in place. GitOps desired state has moved to
+`tpo/deploy/gitops-manifests`. Argo CD portability can continue as a controlled
+migration, but the live `argocd-core` package path should only be switched
 after a render diff and Argo CD health verification.
 
 The safer order is:
@@ -28,7 +29,7 @@ Current live paths still use the compatibility layout:
 | OpsPilot core | `platform/opspilot` | Platform source released through the standard pipeline. |
 | Runtime config | `tpo/platform/opspilot/opspilot-config` | GitLab-backed runtime config consumed by `opspilot-core` through git-sync. |
 | Runtime skills | `tpo/platform/opspilot/opspilot-skills` | GitLab-backed skills consumed by `opspilot-core` through git-sync. |
-| GitOps deploy state | `platform/gitops-manifests` | Desired cluster state consumed by Argo CD. |
+| GitOps deploy state | `tpo/deploy/gitops-manifests` | Desired cluster state consumed by Argo CD. |
 | Sandbox apps | `tpo/sandbox/devex/*` | Demo and validation application repositories. |
 | Backups and ops assets | `tpo/ops/*` | Backup snapshots and manual ops holding assets. |
 
@@ -275,7 +276,7 @@ clusters:
     prometheus:
       source: node200-k8s
     gitops:
-      project: platform/gitops-manifests
+      project: tpo/deploy/gitops-manifests
       pathPrefix: clusters/test
     argocd:
       namespace: argocd
@@ -319,7 +320,7 @@ registers where server-side kubeconfigs are mounted; it never stores the
 kubeconfig content itself:
 
 ```text
-OPSPILOT_CLUSTER_CATALOG="node200-test=environment:test,kubernetes:in-cluster,prometheus:node200-k8s,gitops_project:platform/gitops-manifests,path:clusters/test,argocd_ns:argocd,registry:192.168.48.206:5050;prod-a=environment:prod,kubernetes:remote,secret:opspilot-cluster-prod-a,kubeconfig:/var/run/opspilot/clusters/opspilot-cluster-prod-a/kubeconfig,context:prod-a,prometheus:prod-a,logs:prod-elk,gitops_project:tpo/deploy/gitops-manifests,path:clusters/prod-a"
+OPSPILOT_CLUSTER_CATALOG="node200-test=environment:test,kubernetes:in-cluster,prometheus:node200-k8s,gitops_project:tpo/deploy/gitops-manifests,path:clusters/test,argocd_ns:argocd,registry:192.168.48.206:5050;prod-a=environment:prod,kubernetes:remote,secret:opspilot-cluster-prod-a,kubeconfig:/var/run/opspilot/clusters/opspilot-cluster-prod-a/kubeconfig,context:prod-a,prometheus:prod-a,logs:prod-elk,gitops_project:tpo/deploy/gitops-manifests,path:clusters/prod-a"
 ```
 
 Remote kubeconfig Secret example:

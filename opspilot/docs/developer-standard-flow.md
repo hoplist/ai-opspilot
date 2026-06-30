@@ -67,7 +67,7 @@ names, Dockerfile details, or namespace naming rules.
 
 Developers should not directly modify:
 
-- `tpo/deploy/gitops-manifests` or the current `platform/gitops-manifests`.
+- `tpo/deploy/gitops-manifests`.
 - Kubernetes Secrets.
 - Argo CD Applications.
 - Registry tags.

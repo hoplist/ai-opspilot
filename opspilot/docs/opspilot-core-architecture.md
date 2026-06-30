@@ -133,7 +133,7 @@ Initial configuration can come from environment variables:
 ```text
 OPSPILOT_CREDENTIAL_CATALOG="name=opspilot-release-secrets,class=platform-runtime,scope=node200/opspilot,storage=kubernetes-secret,namespace=opspilot,used_by=opspilot-core|argocd,permissions=read_gitlab|write_gitops_confirmed"
 
-OPSPILOT_CLUSTER_CATALOG="node200-test=environment:test,kubernetes:in-cluster,prometheus:node200-k8s,gitops_project:platform/gitops-manifests,path:clusters/test,argocd_ns:argocd,registry:192.168.48.206:5050"
+OPSPILOT_CLUSTER_CATALOG="node200-test=environment:test,kubernetes:in-cluster,prometheus:node200-k8s,gitops_project:tpo/deploy/gitops-manifests,path:clusters/test,argocd_ns:argocd,registry:192.168.48.206:5050"
 ```
 
 Remote example:

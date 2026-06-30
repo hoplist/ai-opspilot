@@ -13,7 +13,7 @@ variables:
   BUILD_ENTRY: "./cmd/$CI_PROJECT_NAME"
   BUILD_OUTPUT: "build/$CI_PROJECT_NAME"
   DOCKERFILE_PATH: "Dockerfile"
-  GITOPS_REPO: "http://oauth2:${GITOPS_TOKEN}@192.168.48.206:8929/platform/gitops-manifests.git"
+  GITOPS_REPO: "http://oauth2:${GITOPS_TOKEN}@192.168.48.206:8929/tpo/deploy/gitops-manifests.git"
   GITOPS_APP_PATH: "clusters/test/apps/$CI_PROJECT_NAME"
   GITOPS_APP_FILE: "apps/$CI_PROJECT_NAME-application.yaml"
   GITOPS_CONTAINER_NAME: "$CI_PROJECT_NAME"
@@ -251,7 +251,7 @@ update:gitops:
       spec:
         project: cicd-apps
         source:
-          repoURL: http://192.168.48.206:8929/platform/gitops-manifests.git
+          repoURL: http://192.168.48.206:8929/tpo/deploy/gitops-manifests.git
           targetRevision: main
           path: ${GITOPS_APP_PATH}
         destination:
