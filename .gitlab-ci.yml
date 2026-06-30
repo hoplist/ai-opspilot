@@ -44,7 +44,7 @@ code-precheck:
   image:
     name: "$GO_VERSION_IMAGE"
   script:
-    - go run ./opspilot/cli --output human repo precheck --repo . --project platform/opspilot --write
+    - go run ./opspilot/cli --output human repo precheck --repo . --project tpo/platform/opspilot/opspilot-core --write
   artifacts:
     when: always
     expire_in: 7 days

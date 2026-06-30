@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewRegistryParsesServices(t *testing.T) {
-	registry := NewRegistry("opspilot-core=namespace:opspilot,deployment:opspilot-core,container:core,source:node200-k8s,image:registry/app:tag,gitlab:platform/opspilot,gitops:clusters/test/apps/opspilot-core/deployment.yaml,argocd:opspilot-core")
+	registry := NewRegistry("opspilot-core=namespace:opspilot,deployment:opspilot-core,container:core,source:node200-k8s,image:registry/app:tag,gitlab:tpo/platform/opspilot/opspilot-core,gitops:clusters/test/apps/opspilot-core/deployment.yaml,argocd:opspilot-core")
 	if !registry.Configured() {
 		t.Fatal("expected configured registry")
 	}
@@ -22,7 +22,7 @@ func TestNewRegistryParsesServices(t *testing.T) {
 	if service.Namespace != "opspilot" || service.Deployment != "opspilot-core" || service.Source != "node200-k8s" {
 		t.Fatalf("service = %#v", service)
 	}
-	if service.Container != "core" || service.GitLab != "platform/opspilot" || service.GitOps == "" || service.ArgoCD != "opspilot-core" {
+	if service.Container != "core" || service.GitLab != "tpo/platform/opspilot/opspilot-core" || service.GitOps == "" || service.ArgoCD != "opspilot-core" {
 		t.Fatalf("service release fields = %#v", service)
 	}
 }
@@ -35,6 +35,21 @@ func TestRegistryCanFallbackToServiceCatalog(t *testing.T) {
 	items := registry.ServiceItems()
 	if len(items) != 1 || items[0].Name != "demo" || items[0].GitOps == "" {
 		t.Fatalf("items = %#v", items)
+	}
+}
+
+func TestRegistryPrefersServiceCatalogOverLegacyEnv(t *testing.T) {
+	registry := NewRegistryWithCatalog(
+		"demo=namespace:legacy,deployment:legacy,gitlab:legacy/demo",
+		"demo=namespace:apps,deployment:demo,container:api,source:node200-k8s,image:registry/demo,gitlab:tpo/apps/demo,gitops:apps/demo/deployment.yaml,argocd:demo",
+		Datasources{},
+	)
+	items := registry.ServiceItems()
+	if len(items) != 1 {
+		t.Fatalf("items = %#v", items)
+	}
+	if items[0].Namespace != "apps" || items[0].GitLab != "tpo/apps/demo" {
+		t.Fatalf("service catalog should win over env mapping: %#v", items[0])
 	}
 }
 
@@ -170,6 +185,26 @@ func TestGapDetailsExplainOptionalEvidenceGaps(t *testing.T) {
 	}
 	if !strings.Contains(details[1]["action"].(string), "datasource") {
 		t.Fatalf("elk detail = %#v", details[1])
+	}
+}
+
+func TestReconcileEvidenceDetectsStaleArgoCache(t *testing.T) {
+	got := reconcileEvidence(map[string]any{
+		"gitops": map[string]any{
+			"status":        "differs_from_cluster",
+			"desired_image": "registry/app:new",
+		},
+		"argocd": map[string]any{
+			"sync_status":   "Synced",
+			"health_status": "Healthy",
+			"revision":      "old",
+		},
+	})
+	if got["status"] != "pending_or_stale" || got["reason"] != "gitops_desired_image_differs_from_cluster" {
+		t.Fatalf("reconcile = %#v", got)
+	}
+	if !strings.Contains(got["action"].(string), "hard refresh") {
+		t.Fatalf("action = %#v", got)
 	}
 }
 

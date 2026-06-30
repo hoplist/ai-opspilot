@@ -63,11 +63,11 @@ func NewRegistryWithDatasources(raw string, datasources Datasources) *Registry {
 }
 
 func NewRegistryWithCatalog(raw, serviceCatalogRaw string, datasources Datasources) *Registry {
-	registry := NewRegistryWithDatasources(raw, datasources)
+	registry := NewRegistryWithDatasources(releaseMappingsFromServiceCatalog(serviceCatalogRaw), datasources)
 	if registry.Configured() {
 		return registry
 	}
-	return NewRegistryWithDatasources(releaseMappingsFromServiceCatalog(serviceCatalogRaw), datasources)
+	return NewRegistryWithDatasources(raw, datasources)
 }
 
 func (r *Registry) Configured() bool {
@@ -305,6 +305,16 @@ func (r *Registry) Status(ctx context.Context, serviceName string, client *k8s.C
 		evidence["quality"] = qualityEvidence
 		warnings = append(warnings, qualityWarnings...)
 	}
+	reconcile := reconcileEvidence(evidence)
+	evidence["reconcile"] = reconcile
+	if status == "healthy" && stringFromMap(reconcile, "status") != "converged" {
+		status = "progressing"
+		stage = "argocd"
+	}
+	next := nextChecks(status, gaps)
+	if action := stringFromMap(reconcile, "action"); action != "" {
+		next = append(next, action)
+	}
 
 	return map[string]any{
 		"service":     service.Name,
@@ -317,7 +327,7 @@ func (r *Registry) Status(ctx context.Context, serviceName string, client *k8s.C
 		"evidence":    evidence,
 		"gaps":        unique(gaps),
 		"gap_details": gapDetails(gaps),
-		"next_checks": nextChecks(status, gaps),
+		"next_checks": unique(next),
 	}, warnings, nil
 }
 
@@ -742,6 +752,57 @@ func nextChecks(status string, gaps []string) []string {
 		}
 	}
 	return unique(checks)
+}
+
+func reconcileEvidence(evidence map[string]any) map[string]any {
+	gitops := mapFromAny(evidence["gitops"])
+	argocd := mapFromAny(evidence["argocd"])
+	out := map[string]any{
+		"status": "unknown",
+	}
+	gitopsStatus := stringFromMap(gitops, "status")
+	if gitopsStatus == "matches_cluster" {
+		out["status"] = "converged"
+		out["reason"] = "gitops_desired_image_matches_cluster"
+		return out
+	}
+	if gitopsStatus != "differs_from_cluster" {
+		out["reason"] = "gitops_status_" + firstNonEmpty(gitopsStatus, "unknown")
+		out["action"] = "inspect GitOps evidence before forcing Argo CD refresh"
+		return out
+	}
+	out["status"] = "pending_or_stale"
+	out["reason"] = "gitops_desired_image_differs_from_cluster"
+	out["desired_image"] = stringFromMap(gitops, "desired_image")
+	syncStatus := stringFromMap(argocd, "sync_status")
+	healthStatus := stringFromMap(argocd, "health_status")
+	out["argocd_sync"] = syncStatus
+	out["argocd_health"] = healthStatus
+	out["argocd_revision"] = stringFromMap(argocd, "revision")
+	switch {
+	case syncStatus == "Synced" && healthStatus == "Healthy":
+		out["action"] = "Argo CD may be using a stale repository cache; hard refresh the Application, then verify rollout"
+	case syncStatus == "OutOfSync" || healthStatus == "Progressing":
+		out["action"] = "wait for Argo CD reconciliation, then verify Deployment rollout"
+	default:
+		out["action"] = "inspect Argo CD Application status and repository revision"
+	}
+	return out
+}
+
+func mapFromAny(value any) map[string]any {
+	if m, ok := value.(map[string]any); ok {
+		return m
+	}
+	return map[string]any{}
+}
+
+func stringFromMap(values map[string]any, key string) string {
+	value, ok := values[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
 }
 
 func gapDetails(gaps []string) []map[string]any {

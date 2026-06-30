@@ -166,7 +166,7 @@ const (
 	defaultGroup             = "devex"
 	defaultNamespacePrefix   = "cicd"
 	defaultResourceProfile   = "small"
-	defaultCITemplateProject = "platform/opspilot"
+	defaultCITemplateProject = "tpo/platform/opspilot/opspilot-core"
 	defaultHostPathRoot      = "/data/opspilot/hostpath"
 )
 

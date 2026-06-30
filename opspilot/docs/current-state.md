@@ -9,7 +9,7 @@
 
 | 用途 | GitLab 仓库 | 说明 |
 | --- | --- | --- |
-| OpsPilot core 源码 | `platform/opspilot` | 当前仍是核心源码和 CI 所在仓库，后续再迁移到 `tpo/platform/opspilot/opspilot-core`。 |
+| OpsPilot core 源码 | `tpo/platform/opspilot/opspilot-core` | 当前核心源码和 CI 所在仓库。旧 `platform/opspilot` 保留 registry 历史和兼容入口。 |
 | Runtime config | `tpo/platform/opspilot/opspilot-config` | `opspilot-core` 通过 git-sync 读取。人工配置集群、数据源、凭证台账、服务目录。 |
 | Runtime skills | `tpo/platform/opspilot/opspilot-skills` | `opspilot-core` 通过 git-sync 读取。客户端不需要自带完整 skills registry。 |
 | GitOps desired state | `tpo/deploy/gitops-manifests` | Argo CD 读取的部署期望状态。不是应用源码仓库。 |
@@ -31,8 +31,8 @@ node206 GitLab
 当前 OpsPilot core 已验证：
 
 ```text
-pipeline: 195 success
-image: 192.168.48.206:5050/platform/opspilot/opspilot-core:227b6a74
+pipeline: 196 success
+image: 192.168.48.206:5050/platform/opspilot/opspilot-core:5c14eb0e
 gitops: matches_cluster
 argocd: Synced / Healthy
 kubernetes: ready=1 desired=1 updated=1 available=1
@@ -55,7 +55,7 @@ Deployment 镜像作为常规回滚方式。
 
 | 凭证 | 存放位置 | 用途 |
 | --- | --- | --- |
-| `GITOPS_TOKEN` | `platform/opspilot` GitLab CI/CD variable | CI 写入 `tpo/deploy/gitops-manifests`。 |
+| `GITOPS_TOKEN` | `tpo/platform/opspilot/opspilot-core` GitLab CI/CD variable | CI 写入 `tpo/deploy/gitops-manifests`。 |
 | `opspilot-config-secrets` | node200 `opspilot` namespace Secret | git-sync 读取 runtime config 仓库。 |
 | `opspilot-skills-secrets` | node200 `opspilot` namespace Secret | git-sync 读取 runtime skills 仓库。 |
 | `opspilot-release-secrets` | node200 `opspilot` namespace Secret | OpsPilot 查询 GitLab、Registry、GitOps 等发布证据。 |
@@ -75,4 +75,4 @@ Deployment 镜像作为常规回滚方式。
 - Argo CD 只管理 node200 测试集群。
 - 正式集群暂不接入 Argo CD。
 - 多 Kibana/ES、多集群、JumpServer/CMDB、前置网关目前以配置模型和文档为主，按需接入。
-- `platform/opspilot` 暂不迁移，避免同时改 CI、Registry、GitOps、release mapping。
+- 旧 `platform/opspilot` 暂不删除，用于保留历史 registry tag 和兼容线索。

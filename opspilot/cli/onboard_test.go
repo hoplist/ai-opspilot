@@ -945,7 +945,7 @@ func TestPlatformGitLabCIIncludesCodePrecheck(t *testing.T) {
 	for _, expected := range [][]byte{
 		[]byte("  - code-precheck"),
 		[]byte("code-precheck:"),
-		[]byte("repo precheck --repo . --project platform/opspilot --write"),
+		[]byte("repo precheck --repo . --project tpo/platform/opspilot/opspilot-core --write"),
 		[]byte(".opspilot/evidence/code-precheck.json"),
 	} {
 		if !bytes.Contains(body, expected) {

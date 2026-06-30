@@ -62,8 +62,9 @@ The following gaps are not release blockers:
 
 ## Deferred
 
-- Do not move `platform/opspilot` yet. It still owns the live source code, CI,
-  registry image path, GitOps update job, and release mapping.
+- `platform/opspilot` was moved in the follow-up core migration stage by
+  creating `tpo/platform/opspilot/opspilot-core`. The old project remains only
+  for registry history and compatibility.
 - Do not force-connect Prometheus/ELK for all services. Missing optional
   evidence must remain explicit and non-blocking.
 - Do not archive old GitLab redirect paths until the platform core migration

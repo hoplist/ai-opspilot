@@ -123,7 +123,7 @@ Snapshot date: 2026-06-30.
 
 | Current path | Type | Target path | Action |
 | --- | --- | --- | --- |
-| `platform/opspilot` | `[PLATFORM]` | `tpo/platform/opspilot/opspilot-core` | Keep as current source until CI, image paths, release mapping, and GitOps are updated. |
+| `tpo/platform/opspilot/opspilot-core` | `[PLATFORM]` | current | Created on 2026-06-30 and now owns OpsPilot core source and CI. Old `platform/opspilot` is retained for registry history and compatibility. |
 | `platform/opspilot-config` | `[PLATFORM]` | `tpo/platform/opspilot/opspilot-config` | Moved on 2026-06-30; OpsPilot git-sync URL updated through GitOps. |
 | `platform/opspilot-skills` | `[SKILL]` | `tpo/platform/opspilot/opspilot-skills` | Moved on 2026-06-30; OpsPilot git-sync URL updated through GitOps. |
 | `tpo/deploy/gitops-manifests` | `[DEPLOY]` | current | Moved on 2026-06-30; Argo CD Application source URLs, AppProjects, CI templates, and OpsPilot config now point to the governed path. |
@@ -157,8 +157,10 @@ Current status on 2026-06-30:
   `tpo/platform/opspilot` and the git-sync URLs were updated through GitOps.
 - Sandbox/demo repositories have been moved under `tpo/sandbox/devex` after
   backing up Git repositories and runnable registry images.
-- CI, Registry, GitOps, Argo CD, backup jobs, and OpsPilot release mappings
-  still use the existing path for the platform core repository only.
+- OpsPilot core source and CI now live at
+  `tpo/platform/opspilot/opspilot-core`. The old `platform/opspilot` project is
+  retained for registry history and compatibility because GitLab transfer was
+  blocked by existing container registry tags.
 
 1. **Metadata first**
    Add descriptions and topics so GitLab's project list is readable without
@@ -189,9 +191,9 @@ Current status on 2026-06-30:
    `tpo/deploy/gitops-manifests`.
 
 6. **Move OpsPilot core**
-   Move `platform/opspilot`, update remote URL, GitLab CI variables, image
-   registry paths, GitOps image references, and release mappings. Run the
-   standard release flow after migration.
+   Completed by creating `tpo/platform/opspilot/opspilot-core`, copying CI
+   variables, pushing the source repository there, and updating release
+   mappings. Registry image paths can be migrated later as a separate operation.
 
 7. **Archive legacy duplicates**
    Archive duplicate or deletion-scheduled repositories after the new paths are

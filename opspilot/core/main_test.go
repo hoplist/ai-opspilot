@@ -271,9 +271,9 @@ func TestCredentialPlanEndpoint(t *testing.T) {
 }
 
 func TestServicesCatalogEndpoint(t *testing.T) {
-	t.Setenv("OPSPILOT_SERVICE_CATALOG", "opspilot-core=repo:platform/opspilot,owner:platform,namespace:opspilot,deployment:opspilot-core,middleware:mysql,config:apollo")
+	t.Setenv("OPSPILOT_SERVICE_CATALOG", "opspilot-core=repo:tpo/platform/opspilot/opspilot-core,owner:platform,namespace:opspilot,deployment:opspilot-core,middleware:mysql,config:apollo")
 	mux := http.NewServeMux()
-	registerTestRoutes(t, mux, "opspilot-core=namespace:opspilot,deployment:opspilot-core,gitlab:platform/opspilot")
+	registerTestRoutes(t, mux, "opspilot-core=namespace:opspilot,deployment:opspilot-core,gitlab:tpo/platform/opspilot/opspilot-core")
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/services/catalog", nil)
 	mux.ServeHTTP(recorder, req)

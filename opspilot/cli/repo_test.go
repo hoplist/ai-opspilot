@@ -135,7 +135,7 @@ spec:
 	if err := run([]string{
 		"repo", "preflight",
 		"--repo", app,
-		"--project", "platform/opspilot",
+		"--project", "tpo/platform/opspilot/opspilot-core",
 		"--ci-path", filepath.Join("..", ".gitlab-ci.yml"),
 		"--deploy-path", filepath.Join("..", "deploy", "opspilot", "core"),
 		"--namespace", "cicd-devex-opspilot",
@@ -416,7 +416,7 @@ spec:
 	if err := run([]string{
 		"repo", "preflight",
 		"--repo", app,
-		"--project", "platform/opspilot",
+		"--project", "tpo/platform/opspilot/opspilot-core",
 		"--ci-path", filepath.Join("..", ".gitlab-ci.yml"),
 		"--deploy-path", filepath.Join("..", "deploy", "core"),
 		"--namespace", "opspilot",

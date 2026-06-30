@@ -43,13 +43,13 @@ func TestCatalogWarnsForMissingName(t *testing.T) {
 
 func TestServicesFromEnvMergesReleaseSeeds(t *testing.T) {
 	got, warnings := ServicesFromEnv(
-		"opspilot-core=repo:platform/opspilot,owner:platform,namespace:opspilot,deployment:opspilot-core,config:apollo|env,middleware:mysql|redis",
+		"opspilot-core=repo:tpo/platform/opspilot/opspilot-core,owner:platform,namespace:opspilot,deployment:opspilot-core,config:apollo|env,middleware:mysql|redis",
 		[]ServiceSeed{{
 			Name:       "opspilot-core",
 			Namespace:  "opspilot",
 			Deployment: "opspilot-core",
 			Image:      "192.168.48.206:5050/platform/opspilot/opspilot-core",
-			GitLab:     "platform/opspilot",
+			GitLab:     "tpo/platform/opspilot/opspilot-core",
 			GitOps:     "clusters/test/apps/opspilot-core/deployment.yaml",
 			ArgoCD:     "opspilot-core",
 		}},

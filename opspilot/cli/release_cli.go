@@ -347,6 +347,12 @@ func runReleaseStatus(opts globalOptions, args []string, out io.Writer) error {
 			if argocd := mapValue(evidence, "argocd"); argocd != nil {
 				fmt.Fprintf(w, "Argo CD: sync=%s health=%s\n", stringValue(argocd["sync_status"]), stringValue(argocd["health_status"]))
 			}
+			if reconcile := mapValue(evidence, "reconcile"); reconcile != nil {
+				fmt.Fprintf(w, "Reconcile: %s reason=%s\n", stringValue(reconcile["status"]), stringValue(reconcile["reason"]))
+				if action := stringValue(reconcile["action"]); action != "" {
+					fmt.Fprintf(w, "  Action: %s\n", action)
+				}
+			}
 			if quality := mapValue(evidence, "quality"); quality != nil {
 				fmt.Fprintf(w, "Quality: %s reason=%s optional=%t\n",
 					stringValue(quality["status"]), stringValue(quality["reason"]), boolValue(quality["optional"]))

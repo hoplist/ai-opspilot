@@ -69,7 +69,7 @@ opspilot release rollback --service opspilot-core --to <tag-or-revision> --confi
 Initial service mapping is configured through:
 
 ```text
-OPSPILOT_RELEASE_SERVICES="opspilot-core=namespace:opspilot,deployment:opspilot-core,container:core,source:node200-k8s,image:192.168.48.206:5050/platform/opspilot/opspilot-core,gitlab:platform/opspilot,gitops:clusters/test/apps/opspilot-core/deployment.yaml,argocd:opspilot-core"
+OPSPILOT_RELEASE_SERVICES="opspilot-core=namespace:opspilot,deployment:opspilot-core,container:core,source:node200-k8s,image:192.168.48.206:5050/platform/opspilot/opspilot-core,gitlab:tpo/platform/opspilot/opspilot-core,gitops:clusters/test/apps/opspilot-core/deployment.yaml,argocd:opspilot-core"
 OPSPILOT_GITLAB_URL="http://192.168.48.206:8929"
 OPSPILOT_GITOPS_PROJECT="tpo/deploy/gitops-manifests"
 OPSPILOT_GITOPS_REF="main"
