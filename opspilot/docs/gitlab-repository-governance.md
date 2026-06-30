@@ -4,8 +4,8 @@
 
 Make the node206 GitLab project list understandable at first glance. A user
 should be able to tell whether a repository is application code, GitOps deploy
-state, platform code, shared templates, runtime skills, backups, or sandbox
-work without opening the repository.
+state, platform code, runtime skills, or backups without opening the
+repository.
 
 ## Target Group Model
 
@@ -14,32 +14,21 @@ first, then by owner or product:
 
 ```text
 tpo/
-  apps/
-    devex/<project>/<service>
-    office/<project>/<service>
-    collab/<project>/<service>
-
   platform/
     opspilot/opspilot-core
-    opspilot/opspilot-agent
+    opspilot/opspilot-config
     opspilot/opspilot-skills
 
   deploy/
     gitops-manifests
 
-  shared/
-    ci-templates
-    dockerfile-templates
-    service-templates
-
   ops/
     backups/node200-etcd-snapshots
-    yaml
-
-  sandbox/
-    devex/demo-api
-    devex/python-fastapi-demo
 ```
+
+The earlier empty `apps`, `devex`, `sandbox`, and `shared` groups were removed
+after the repository baseline was reduced to OpsPilot core, runtime config,
+runtime skills, GitOps, and the active etcd backup repository.
 
 ## Repository Type Prefixes
 

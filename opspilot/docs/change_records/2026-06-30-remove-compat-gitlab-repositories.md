@@ -49,9 +49,36 @@ tpo/platform/opspilot/opspilot-core
 tpo/platform/opspilot/opspilot-skills
 ```
 
+## Empty Group Cleanup
+
+After the project cleanup, GitLab still showed empty groups in the UI. Removed
+the unused groups:
+
+- `platform`
+- `tpo/apps`
+- `tpo/devex`
+- `tpo/sandbox`
+- `tpo/shared`
+
+GitLab first renamed those groups to `*-deletion_scheduled-*`. The scheduled
+group entries were then removed with GitLab Rails `Groups::DestroyService` on
+node206.
+
+Verified remaining groups:
+
+```text
+tpo
+tpo/deploy
+tpo/ops
+tpo/ops/backups
+tpo/platform
+tpo/platform/opspilot
+```
+
 ## Validation
 
 - GitLab project API returns only the five repositories above.
+- GitLab group API returns only the required groups above.
 - Argo CD Applications remain `Synced` and `Healthy`.
 - `node200-etcd-snapshots` backup repository was not changed.
 
