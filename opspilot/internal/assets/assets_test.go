@@ -69,9 +69,62 @@ func TestDiffIsAdvisoryOnly(t *testing.T) {
 	}
 }
 
+func TestSyncPlanForOptionalJMS(t *testing.T) {
+	cfg := configloader.Config{
+		Source: "test",
+		AssetSources: []configloader.AssetSource{
+			{
+				Name:        "jms-chengdu-inner",
+				Kind:        "jms",
+				NetworkZone: "chengdu-inner",
+				Enabled:     boolPtr(false),
+				Required:    boolPtr(false),
+				Sync: configloader.AssetSourceSync{
+					Enabled:      boolPtr(false),
+					Mode:         "readonly",
+					DeletePolicy: "mark_stale",
+				},
+			},
+		},
+	}
+
+	got := SyncPlanForSource(cfg, "jms-chengdu-inner")
+	if got.Mode != "readonly_plan" || got.DeletePolicy != "mark_stale" {
+		t.Fatalf("plan = %#v", got)
+	}
+	if got.Ready {
+		t.Fatalf("disabled jms source should not be ready: %#v", got)
+	}
+	if !contains(got.MissingEvidence, "cmdb_source_inactive") || !contains(got.MissingEvidence, "cmdb_source_url_missing") {
+		t.Fatalf("missing evidence = %#v", got.MissingEvidence)
+	}
+}
+
+func TestSyncPlanMissingSourceIsNonBlocking(t *testing.T) {
+	got := SyncPlanForSource(configloader.Config{Source: "test"}, "")
+	if got.Ready {
+		t.Fatalf("missing source should not be ready: %#v", got)
+	}
+	if !contains(got.MissingEvidence, "cmdb_source_missing") {
+		t.Fatalf("missing evidence = %#v", got.MissingEvidence)
+	}
+	if len(got.Findings) == 0 || got.Findings[0].Severity != "warning" {
+		t.Fatalf("findings = %#v", got.Findings)
+	}
+}
+
 func hasFinding(items []Finding, typ string) bool {
 	for _, item := range items {
 		if item.Type == typ {
+			return true
+		}
+	}
+	return false
+}
+
+func contains(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
 			return true
 		}
 	}

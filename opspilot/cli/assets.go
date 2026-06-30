@@ -32,8 +32,16 @@ func runAssetsCommand(opts globalOptions, args []string, out io.Writer) error {
 		return runAssetsEndpoint(opts, "/api/assets/inspect", url.Values{"ip": {*ip}}, out, writeAssetsInspectHuman)
 	case "diff":
 		return runAssetsEndpoint(opts, "/api/assets/diff", url.Values{}, out, writeAssetsDiffHuman)
+	case "sync-plan", "sync":
+		fs := flag.NewFlagSet("assets sync-plan", flag.ExitOnError)
+		source := fs.String("source", "", "optional CMDB/JMS asset source name")
+		_ = fs.Parse(args[1:])
+		if *source == "" && fs.NArg() > 0 {
+			*source = fs.Arg(0)
+		}
+		return runAssetsEndpoint(opts, "/api/assets/sync-plan", url.Values{"source": {*source}}, out, writeAssetsSyncPlanHuman)
 	default:
-		return fmt.Errorf("expected assets subcommand: zones, catalog, inspect, or diff")
+		return fmt.Errorf("expected assets subcommand: zones, catalog, inspect, diff, or sync-plan")
 	}
 }
 
@@ -85,11 +93,12 @@ func writeAssetsCatalogHuman(data map[string]any, warnings []string) func(io.Wri
 		if sources := mapsFromItems(data["sources"]); len(sources) > 0 {
 			fmt.Fprintln(w, "Sources:")
 			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "NAME\tKIND\tZONE\tENABLED\tURL\tCOVERAGE")
+			fmt.Fprintln(tw, "NAME\tKIND\tZONE\tENABLED\tREQUIRED\tURL\tCOVERAGE\tON_ERROR")
 			for _, item := range sources {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%t\t%t\t%s\n",
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%t\t%t\t%t\t%s\t%s\n",
 					stringValue(item["name"]), stringValue(item["kind"]), stringValue(item["network_zone"]),
-					boolValue(item["enabled"]), boolValue(item["url_set"]), stringValue(item["coverage"]))
+					boolValue(item["enabled"]), boolValue(item["required"]), boolValue(item["url_set"]),
+					stringValue(item["coverage"]), stringValue(item["on_error"]))
 			}
 			if err := tw.Flush(); err != nil {
 				return err
@@ -98,11 +107,12 @@ func writeAssetsCatalogHuman(data map[string]any, warnings []string) func(io.Wri
 		if assets := mapsFromItems(data["assets"]); len(assets) > 0 {
 			fmt.Fprintln(w, "Assets:")
 			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "NAME\tHOSTNAME\tIPS\tTYPE\tZONE\tSOURCES\tEXPECTED")
+			fmt.Fprintln(tw, "NAME\tHOSTNAME\tIPS\tTYPE\tZONE\tBUSINESS_LINE\tOWNER\tSTATUS\tSOURCES\tEXPECTED")
 			for _, item := range assets {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 					stringValue(item["name"]), stringValue(item["hostname"]), strings.Join(stringList(item["ips"]), ","),
 					stringValue(item["asset_type"]), stringValue(item["network_zone"]),
+					stringValue(item["business_line"]), stringValue(item["owner"]), stringValue(item["status"]),
 					strings.Join(stringList(item["sources"]), ","), strings.Join(stringList(item["expected_sources"]), ","))
 			}
 			if err := tw.Flush(); err != nil {
@@ -127,11 +137,12 @@ func writeAssetsInspectHuman(data map[string]any, warnings []string) func(io.Wri
 		if sources := mapsFromItems(data["sources"]); len(sources) > 0 {
 			fmt.Fprintln(w, "Sources:")
 			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "NAME\tKIND\tENABLED\tURL\tCOVERAGE")
+			fmt.Fprintln(tw, "NAME\tKIND\tENABLED\tREQUIRED\tURL\tCOVERAGE\tON_ERROR")
 			for _, item := range sources {
-				fmt.Fprintf(tw, "%s\t%s\t%t\t%t\t%s\n",
+				fmt.Fprintf(tw, "%s\t%s\t%t\t%t\t%t\t%s\t%s\n",
 					stringValue(item["name"]), stringValue(item["kind"]), boolValue(item["enabled"]),
-					boolValue(item["url_set"]), stringValue(item["coverage"]))
+					boolValue(item["required"]), boolValue(item["url_set"]), stringValue(item["coverage"]),
+					stringValue(item["on_error"]))
 			}
 			if err := tw.Flush(); err != nil {
 				return err
@@ -152,6 +163,20 @@ func writeAssetsDiffHuman(data map[string]any, warnings []string) func(io.Writer
 	return func(w io.Writer) error {
 		fmt.Fprintf(w, "Asset diff: mode=%s findings=%d\n", stringValue(data["mode"]), intValue(data["count"]))
 		writeFindingRows(w, mapsFromItems(data["findings"]))
+		writeMessages(w, "Warnings", append(warnings, stringList(data["warnings"])...))
+		return nil
+	}
+}
+
+func writeAssetsSyncPlanHuman(data map[string]any, warnings []string) func(io.Writer) error {
+	return func(w io.Writer) error {
+		fmt.Fprintf(w, "CMDB sync plan: mode=%s source=%s kind=%s ready=%t delete_policy=%s\n",
+			stringValue(data["mode"]), stringValue(data["source"]), stringValue(data["kind"]),
+			boolValue(data["ready"]), stringValue(data["delete_policy"]))
+		writeMessages(w, "Missing evidence", stringList(data["missing_evidence"]))
+		writeMessages(w, "Actions", stringList(data["actions"]))
+		writeFindingRows(w, mapsFromItems(data["findings"]))
+		writeMessages(w, "Validation", stringList(data["validation"]))
 		writeMessages(w, "Warnings", append(warnings, stringList(data["warnings"])...))
 		return nil
 	}

@@ -156,6 +156,90 @@ spec:
 	}
 }
 
+func TestRepoGovernanceAcceptsRecommendedAppPath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "deploy", "k8s"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	deployment := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-api
+  namespace: cicd-devex-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: demo-api
+          image: docker-hub.tpo.xzoa.com/devex/demo-api:abc1234
+`
+	if err := os.WriteFile(filepath.Join(dir, "deploy", "k8s", "deployment.yaml"), []byte(deployment), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	cfg := onboardServiceConfig{GitLabProject: "tpo/apps/devex/demo/demo-api"}
+	items := checkRepoGovernance(cfg, repoLayoutOptions{}.defaults())
+	if item := findRepoPolicyItem(items, "repo_class"); item.Status != "pass" || !strings.Contains(item.Message, "app") {
+		t.Fatalf("repo_class item = %#v", item)
+	}
+	if item := findRepoPolicyItem(items, "immutable_image_tag"); item.Status != "pass" {
+		t.Fatalf("immutable image item = %#v", item)
+	}
+}
+
+func TestRepoGovernanceWarnsLegacyPathWithoutBlocking(t *testing.T) {
+	items := checkRepoGovernance(onboardServiceConfig{GitLabProject: "tpo/devex/demo/demo-api"}, repoLayoutOptions{}.defaults())
+	item := findRepoPolicyItem(items, "repo_class")
+	if item.Status != "warn" || item.Level != "warning" || !strings.Contains(item.Message, "legacy") {
+		t.Fatalf("repo_class item = %#v", item)
+	}
+}
+
+func TestRepoGovernanceBlocksLatestImageForAppRepo(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "deploy", "k8s"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	deployment := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: demo-api
+          image: docker-hub.tpo.xzoa.com/devex/demo-api:latest
+`
+	if err := os.WriteFile(filepath.Join(dir, "deploy", "k8s", "deployment.yaml"), []byte(deployment), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	items := checkRepoGovernance(onboardServiceConfig{GitLabProject: "tpo/apps/devex/demo/demo-api"}, repoLayoutOptions{}.defaults())
+	item := findRepoPolicyItem(items, "immutable_image_tag")
+	if item.Status != "fail" || item.Level != "blocker" || !strings.Contains(item.Message, ":latest") {
+		t.Fatalf("immutable image item = %#v", item)
+	}
+}
+
 func TestCodePrecheckIgnoresHTTPQueryHelperLoops(t *testing.T) {
 	items := scanCodePrecheckText("core/http.go", `package main
 
@@ -176,6 +260,15 @@ func queryList(r *http.Request, name string) []string {
 			t.Fatalf("unexpected possible_n_plus_one finding: %#v", items)
 		}
 	}
+}
+
+func findRepoPolicyItem(items []repoPolicyItem, name string) repoPolicyItem {
+	for _, item := range items {
+		if item.Name == name {
+			return item
+		}
+	}
+	return repoPolicyItem{}
 }
 
 func TestRepoAutofixWritesPlatformFiles(t *testing.T) {

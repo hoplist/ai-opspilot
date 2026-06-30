@@ -76,6 +76,20 @@ project list shows them before a user opens the repository.
 - `tpo/sandbox/...` repositories are disposable validation assets. They should
   not be used as production examples without being promoted.
 
+## Preflight Governance Checks
+
+`opspilot repo preflight` now emits repository governance checks before a repo
+enters the standard release path:
+
+| Check | Purpose | Blocking behavior |
+| --- | --- | --- |
+| `repo_class` | Classifies the GitLab path as app, platform, deploy, shared, ops, sandbox, legacy, or unknown. | Legacy/unknown paths warn only during migration. |
+| `business_repo_boundary` | Detects whether an application repository contains starter deploy manifests. | Warn only; current onboarding still generates starter manifests. |
+| `immutable_image_tag` | Detects mutable image tags in deployment manifests. | `:latest` blocks app/sandbox repos; platform/deploy/shared/ops repos warn first. |
+
+This gives OpsPilot a Google-style source-boundary check without requiring an
+immediate monorepo or GitLab group migration.
+
 ## Identity-less Test Upload Default
 
 Before user identity, team ownership, and permissions are fully wired, OpsPilot

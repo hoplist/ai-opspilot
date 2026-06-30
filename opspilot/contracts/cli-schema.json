@@ -136,6 +136,21 @@
       "description": "Return advisory-only asset gaps and removal candidates. Does not delete JumpServer assets or Prometheus targets."
     },
     {
+      "name": "assets sync-plan",
+      "readonly": true,
+      "description": "Generate a readonly CMDB/JMS asset sync plan for an optional asset source. Missing CMDB/JMS is reported as missing evidence and does not block troubleshooting."
+    },
+    {
+      "name": "cmdb catalog",
+      "readonly": true,
+      "description": "Alias for assets catalog. Shows optional CMDB/JMS, Prometheus, agent, and manual asset context."
+    },
+    {
+      "name": "cmdb sync-plan",
+      "readonly": true,
+      "description": "Alias for assets sync-plan. Plans readonly JMS/CMDB asset ingestion and stale marking without deleting assets or Prometheus targets."
+    },
+    {
       "name": "inventory overview",
       "readonly": true,
       "description": "Return cluster, server, workload, pod, and container overview."
@@ -457,7 +472,7 @@
     {
       "name": "repo preflight",
       "readonly": true,
-      "description": "Run automated repository governance checks for Dockerfile, platform GitLab CI include, deploy/k8s manifests, CPU/memory limits, probes, namespace guardrails, namespace ownership, port, health evidence, and shared middleware intent. Intended for CI gating."
+      "description": "Run automated repository governance checks for repository class, business repo boundary, immutable deployment image tags, Dockerfile, platform GitLab CI include, deploy/k8s manifests, CPU/memory limits, probes, namespace guardrails, namespace ownership, port, health evidence, and shared middleware intent. Intended for CI gating."
     },
     {
       "name": "repo upload-plan",

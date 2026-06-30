@@ -225,10 +225,21 @@ type AssetSource struct {
 	URL           string             `json:"url,omitempty" yaml:"url"`
 	CredentialRef string             `json:"credential_ref,omitempty" yaml:"credential_ref"`
 	Enabled       *bool              `json:"enabled,omitempty" yaml:"enabled"`
+	Required      *bool              `json:"required,omitempty" yaml:"required"`
 	Coverage      string             `json:"coverage,omitempty" yaml:"coverage"`
+	Timeout       string             `json:"timeout,omitempty" yaml:"timeout"`
+	OnError       string             `json:"on_error,omitempty" yaml:"on_error"`
+	Sync          AssetSourceSync    `json:"sync,omitempty" yaml:"sync"`
 	Note          string             `json:"note,omitempty" yaml:"note"`
 	Source        string             `json:"source,omitempty" yaml:"-"`
 	Credential    *CredentialRuntime `json:"-" yaml:"-"`
+}
+
+type AssetSourceSync struct {
+	Enabled      *bool  `json:"enabled,omitempty" yaml:"enabled"`
+	Mode         string `json:"mode,omitempty" yaml:"mode"`
+	DeletePolicy string `json:"delete_policy,omitempty" yaml:"delete_policy"`
+	Interval     string `json:"interval,omitempty" yaml:"interval"`
 }
 
 type Asset struct {
@@ -238,6 +249,8 @@ type Asset struct {
 	AssetType       string            `json:"asset_type,omitempty" yaml:"asset_type"`
 	Region          string            `json:"region,omitempty" yaml:"region"`
 	NetworkZone     string            `json:"network_zone,omitempty" yaml:"network_zone"`
+	BusinessLine    string            `json:"business_line,omitempty" yaml:"business_line"`
+	Business        string            `json:"business,omitempty" yaml:"business"`
 	Status          string            `json:"status,omitempty" yaml:"status"`
 	Owner           string            `json:"owner,omitempty" yaml:"owner"`
 	Sources         []string          `json:"sources,omitempty" yaml:"sources"`

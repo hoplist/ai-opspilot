@@ -17,13 +17,25 @@
       "type": "object",
       "required": ["kind"],
       "properties": {
-        "kind": { "enum": ["jumpserver", "prometheus", "agent", "manual", "vm"] },
+        "kind": { "enum": ["jumpserver", "jms", "cmdb", "prometheus", "agent", "manual", "vm"] },
         "region": { "type": "string" },
         "network_zone": { "type": "string" },
         "url": { "type": "string" },
         "credential_ref": { "type": "string" },
         "enabled": { "type": "boolean" },
+        "required": { "type": "boolean" },
         "coverage": { "enum": ["complete", "partial", "unknown"] },
+        "timeout": { "type": "string" },
+        "on_error": { "enum": ["warn", "skip", "error"] },
+        "sync": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "mode": { "enum": ["readonly"] },
+            "delete_policy": { "enum": ["mark_stale"] },
+            "interval": { "type": "string" }
+          }
+        },
         "note": { "type": "string" }
       }
     }

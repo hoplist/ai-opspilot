@@ -25,4 +25,8 @@ func registerAssetRoutes(mux *http.ServeMux, state *runtimeState) {
 	handleAPI(mux, "/api/assets/diff", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
 		return assets.Diff(state.snapshot().config), nil, nil
 	}))
+	handleAPI(mux, "/api/assets/sync-plan", wrap(func(ctx context.Context, r *http.Request) (any, []string, error) {
+		q := r.URL.Query()
+		return assets.SyncPlanForSource(state.snapshot().config, q.Get("source")), nil, nil
+	}))
 }

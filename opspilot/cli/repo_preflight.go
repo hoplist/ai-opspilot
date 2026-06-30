@@ -46,7 +46,8 @@ func repoPreflight(project, catalogPath string, layout repoLayoutOptions) (repoP
 	if err := cfg.defaults(); err != nil {
 		return repoPreflightResult{}, err
 	}
-	items := []repoPolicyItem{
+	items := checkRepoGovernance(cfg, layout)
+	items = append(items,
 		checkRepoDockerfile(cfg),
 		checkRepoCI(cfg, layout.CIPath),
 		checkRepoFile("namespace", layout.NamespacePath, "generate deploy/k8s/namespace.yaml from ownership"),
@@ -58,7 +59,7 @@ func repoPreflight(project, catalogPath string, layout repoLayoutOptions) (repoP
 		checkRepoFile("kustomization", filepath.Join(layout.DeployPath, "kustomization.yaml"), "generate deploy/k8s/kustomization.yaml"),
 		checkRepoQuality(layout.QualityPath),
 		checkRepoHealth(cfg),
-	}
+	)
 	if len(cfg.ConfigSources) > 0 {
 		items = append(items, checkRepoFile("configmap", filepath.Join(layout.DeployPath, "configmap.yaml"), "generate deploy/k8s/configmap.yaml for Apollo/config source metadata"))
 	}
@@ -88,6 +89,204 @@ func repoPreflight(project, catalogPath string, layout repoLayoutOptions) (repoP
 		}
 	}
 	return result, nil
+}
+
+func checkRepoGovernance(cfg onboardServiceConfig, layout repoLayoutOptions) []repoPolicyItem {
+	project := normalizeGitLabProject(cfg.GitLabProject)
+	class, recommended := classifyGitLabProject(project)
+	items := []repoPolicyItem{repoClassPolicyItem(project, class, recommended)}
+	items = append(items, repoBusinessBoundaryPolicyItem(class, layout.DeployPath))
+	items = append(items, repoImmutableImagePolicyItem(class, filepath.Join(layout.DeployPath, "deployment.yaml")))
+	return items
+}
+
+func normalizeGitLabProject(project string) string {
+	project = strings.TrimSpace(strings.Trim(project, "/"))
+	for strings.Contains(project, "//") {
+		project = strings.ReplaceAll(project, "//", "/")
+	}
+	return project
+}
+
+func classifyGitLabProject(project string) (string, bool) {
+	switch {
+	case strings.HasPrefix(project, "tpo/apps/"):
+		return "app", true
+	case strings.HasPrefix(project, "tpo/platform/") || strings.HasPrefix(project, "platform/"):
+		return "platform", strings.HasPrefix(project, "tpo/platform/")
+	case strings.HasPrefix(project, "tpo/deploy/") || project == "platform/gitops-manifests":
+		return "deploy", strings.HasPrefix(project, "tpo/deploy/")
+	case strings.HasPrefix(project, "tpo/shared/"):
+		return "shared", true
+	case strings.HasPrefix(project, "tpo/ops/"):
+		return "ops", true
+	case strings.HasPrefix(project, "tpo/sandbox/"):
+		return "sandbox", true
+	case strings.HasPrefix(project, "tpo/devex/") || strings.HasPrefix(project, "tpo/office/") || strings.HasPrefix(project, "tpo/collab/"):
+		return "legacy_app", false
+	default:
+		return "unknown", false
+	}
+}
+
+func repoClassPolicyItem(project, class string, recommended bool) repoPolicyItem {
+	if project == "" {
+		return repoPolicyItem{
+			Name:    "repo_class",
+			Status:  "warn",
+			Level:   "warning",
+			Message: "GitLab project path is empty; cannot classify repository",
+			Action:  "set project path to tpo/apps/<group>/<project>/<service> or another governed tpo/* class",
+		}
+	}
+	if recommended {
+		return repoPolicyItem{
+			Name:    "repo_class",
+			Status:  "pass",
+			Level:   "info",
+			Message: class + " repository path accepted: " + project,
+		}
+	}
+	if class == "legacy_app" {
+		return repoPolicyItem{
+			Name:    "repo_class",
+			Status:  "warn",
+			Level:   "warning",
+			Message: "legacy application path tolerated: " + project,
+			Action:  "promote new services to tpo/apps/<group>/<project>/<service>; keep legacy path only during migration",
+		}
+	}
+	if class == "platform" || class == "deploy" {
+		return repoPolicyItem{
+			Name:    "repo_class",
+			Status:  "warn",
+			Level:   "warning",
+			Message: "legacy platform/deploy path tolerated: " + project,
+			Action:  "migrate to tpo/platform/* or tpo/deploy/* after CI, GitOps, and Argo references are updated",
+		}
+	}
+	return repoPolicyItem{
+		Name:    "repo_class",
+		Status:  "warn",
+		Level:   "warning",
+		Message: "repository path is outside governed tpo layout: " + project,
+		Action:  "classify repository as tpo/apps, tpo/platform, tpo/deploy, tpo/shared, tpo/ops, or tpo/sandbox",
+	}
+}
+
+func repoBusinessBoundaryPolicyItem(class, deployPath string) repoPolicyItem {
+	if class != "app" && class != "legacy_app" && class != "sandbox" {
+		return repoPolicyItem{
+			Name:    "business_repo_boundary",
+			Status:  "pass",
+			Level:   "info",
+			Message: "not an application repository",
+		}
+	}
+	if _, err := os.Stat(deployPath); err == nil {
+		return repoPolicyItem{
+			Name:    "business_repo_boundary",
+			Path:    deployPath,
+			Status:  "warn",
+			Level:   "warning",
+			Message: "application repository contains starter deploy manifests; GitOps desired state remains the long-term deployment source",
+			Action:  "keep business repos thin; write live deployment state to platform GitOps/config repositories when promotion is automated",
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return repoPolicyItem{
+			Name:    "business_repo_boundary",
+			Path:    deployPath,
+			Status:  "warn",
+			Level:   "warning",
+			Message: err.Error(),
+			Action:  "fix deploy path filesystem error",
+		}
+	}
+	return repoPolicyItem{
+		Name:    "business_repo_boundary",
+		Status:  "pass",
+		Level:   "info",
+		Message: "business repository is source-first; deployment state not embedded",
+	}
+}
+
+func repoImmutableImagePolicyItem(class, path string) repoPolicyItem {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return repoPolicyItem{
+				Name:    "immutable_image_tag",
+				Path:    path,
+				Status:  "pass",
+				Level:   "info",
+				Message: "deployment manifest absent; checked by deployment policy",
+			}
+		}
+		return repoPolicyItem{
+			Name:    "immutable_image_tag",
+			Path:    path,
+			Status:  "warn",
+			Level:   "warning",
+			Message: err.Error(),
+			Action:  "fix deployment filesystem error",
+		}
+	}
+	mutable := deploymentMutableImageTags(string(body))
+	if len(mutable) == 0 {
+		return repoPolicyItem{
+			Name:    "immutable_image_tag",
+			Path:    path,
+			Status:  "pass",
+			Level:   "info",
+			Message: "no mutable image tag detected",
+		}
+	}
+	level := "blocker"
+	status := "fail"
+	if class == "platform" || class == "deploy" || class == "shared" || class == "ops" {
+		level = "warning"
+		status = "warn"
+	}
+	return repoPolicyItem{
+		Name:    "immutable_image_tag",
+		Path:    path,
+		Status:  status,
+		Level:   level,
+		Message: "mutable image tag detected: " + strings.Join(mutable, ", "),
+		Fixable: true,
+		Action:  "use commit tag or digest generated by the standard BuildKit -> GitOps release flow",
+	}
+}
+
+func deploymentMutableImageTags(text string) []string {
+	seen := map[string]bool{}
+	images := []string{}
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "image:") {
+			continue
+		}
+		_, value, _ := strings.Cut(trimmed, ":")
+		image := strings.Trim(strings.TrimSpace(value), `"'`)
+		if image == "" || image == "placeholder" || !imageHasMutableTag(image) || seen[image] {
+			continue
+		}
+		seen[image] = true
+		images = append(images, image)
+	}
+	return images
+}
+
+func imageHasMutableTag(image string) bool {
+	if strings.Contains(image, "@sha256:") {
+		return false
+	}
+	lastSlash := strings.LastIndex(image, "/")
+	lastColon := strings.LastIndex(image, ":")
+	if lastColon <= lastSlash {
+		return false
+	}
+	return image[lastColon+1:] == "latest"
 }
 
 func checkRepoDockerfile(cfg onboardServiceConfig) repoPolicyItem {
@@ -150,7 +349,8 @@ func checkRepoCI(cfg onboardServiceConfig, path string) repoPolicyItem {
 		return repoPolicyItem{Name: "gitlab_ci", Path: path, Status: "pass", Level: "info", Message: "platform template include detected"}
 	}
 	if strings.Contains(text, "buildctl-daemonless.sh") || strings.Contains(text, "BUILDKIT_IMAGE") {
-		if cfg.GitLabProject == "platform/opspilot" {
+		project := normalizeGitLabProject(cfg.GitLabProject)
+		if project == "platform/opspilot" || project == "tpo/platform/opspilot/opspilot-core" {
 			return repoPolicyItem{Name: "gitlab_ci", Path: path, Status: "pass", Level: "info", Message: "platform repository owns direct BuildKit CI"}
 		}
 		return repoPolicyItem{Name: "gitlab_ci", Path: path, Status: "warn", Level: "warning", Message: "direct BuildKit CI detected; platform include is preferred", Fixable: true, Action: "run repo autofix --write --force to replace CI with platform include"}

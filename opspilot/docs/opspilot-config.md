@@ -97,17 +97,43 @@ asset_sources:
     coverage: partial
 ```
 
+Optional CMDB/JMS source:
+
+```yaml
+asset_sources:
+  - name: jms-chengdu-inner
+    kind: jms
+    region: chengdu
+    network_zone: chengdu-inner
+    enabled: false
+    required: false
+    coverage: partial
+    timeout: 5s
+    on_error: warn
+    sync:
+      enabled: false
+      mode: readonly
+      delete_policy: mark_stale
+      interval: 30m
+```
+
 Commands:
 
 ```powershell
 opspilot assets zones --output human
 opspilot assets inspect --ip 10.236.12.19 --output human
 opspilot assets diff --output human
+opspilot cmdb catalog --output human
+opspilot cmdb sync-plan --source jms-chengdu-inner --output human
 ```
 
 Use `coverage: partial` when JumpServer does not fully cover a network zone.
 `action_policy: advisory_only` means OpsPilot can say "missing" or "candidate
 for removal", but it must not delete JumpServer assets or Prometheus targets.
+CMDB/JMS is also optional: if it is missing, inactive, or unreachable, OpsPilot
+should return missing evidence and keep the main Kubernetes/log/metric
+troubleshooting path available. First-rollout deletion behavior is
+`mark_stale` only; physical deletion stays plan-only.
 
 ## Credential Policy
 

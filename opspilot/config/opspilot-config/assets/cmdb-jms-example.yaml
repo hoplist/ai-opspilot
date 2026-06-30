@@ -1,0 +1,44 @@
+# Optional CMDB/JMS asset source example.
+#
+# This file is intentionally disabled for the external/mock environment.
+# In the internal GitLab config repo, set enabled=true and fill url/credential_ref.
+# Missing or failing CMDB/JMS must not block pod, cluster, log, or metric inspection.
+
+asset_sources:
+  - name: jms-chengdu-inner
+    kind: jms
+    region: chengdu
+    network_zone: chengdu-inner
+    enabled: false
+    required: false
+    coverage: partial
+    timeout: 5s
+    on_error: warn
+    sync:
+      enabled: false
+      mode: readonly
+      delete_policy: mark_stale
+      interval: 30m
+    note: Optional JumpServer/JMS readonly asset sync source. First rollout only generates sync and stale-mark plans.
+
+assets:
+  - name: node206
+    hostname: nfs-206
+    ips:
+      - 192.168.48.206
+    asset_type: host
+    region: chengdu
+    network_zone: chengdu-inner
+    business_line: platform
+    business: GitLab, registry, runner, and OpsPilot host agent node
+    status: active
+    owner: platform
+    sources:
+      - manual
+      - prometheus:node206-host
+    expected_sources:
+      - jms
+      - prometheus
+      - agent
+    labels:
+      role: gitlab,registry,runner

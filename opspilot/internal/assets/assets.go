@@ -23,15 +23,26 @@ type Zone struct {
 }
 
 type Source struct {
-	Name        string `json:"name"`
-	Kind        string `json:"kind,omitempty"`
-	Region      string `json:"region,omitempty"`
-	NetworkZone string `json:"network_zone,omitempty"`
-	URLSet      bool   `json:"url_set"`
-	Enabled     bool   `json:"enabled"`
-	Coverage    string `json:"coverage,omitempty"`
-	Note        string `json:"note,omitempty"`
-	Source      string `json:"source,omitempty"`
+	Name        string     `json:"name"`
+	Kind        string     `json:"kind,omitempty"`
+	Region      string     `json:"region,omitempty"`
+	NetworkZone string     `json:"network_zone,omitempty"`
+	URLSet      bool       `json:"url_set"`
+	Enabled     bool       `json:"enabled"`
+	Required    bool       `json:"required"`
+	Coverage    string     `json:"coverage,omitempty"`
+	Timeout     string     `json:"timeout,omitempty"`
+	OnError     string     `json:"on_error,omitempty"`
+	Sync        SourceSync `json:"sync,omitempty"`
+	Note        string     `json:"note,omitempty"`
+	Source      string     `json:"source,omitempty"`
+}
+
+type SourceSync struct {
+	Enabled      bool   `json:"enabled"`
+	Mode         string `json:"mode,omitempty"`
+	DeletePolicy string `json:"delete_policy,omitempty"`
+	Interval     string `json:"interval,omitempty"`
 }
 
 type Asset struct {
@@ -41,6 +52,8 @@ type Asset struct {
 	AssetType       string            `json:"asset_type,omitempty"`
 	Region          string            `json:"region,omitempty"`
 	NetworkZone     string            `json:"network_zone,omitempty"`
+	BusinessLine    string            `json:"business_line,omitempty"`
+	Business        string            `json:"business,omitempty"`
 	Status          string            `json:"status,omitempty"`
 	Owner           string            `json:"owner,omitempty"`
 	Sources         []string          `json:"sources,omitempty"`
@@ -88,6 +101,20 @@ type DiffResult struct {
 	Count    int       `json:"count"`
 	Findings []Finding `json:"findings"`
 	Warnings []string  `json:"warnings,omitempty"`
+}
+
+type SyncPlan struct {
+	Version         string    `json:"version"`
+	Mode            string    `json:"mode"`
+	Source          string    `json:"source,omitempty"`
+	Kind            string    `json:"kind,omitempty"`
+	Ready           bool      `json:"ready"`
+	DeletePolicy    string    `json:"delete_policy"`
+	Actions         []string  `json:"actions"`
+	Validation      []string  `json:"validation"`
+	MissingEvidence []string  `json:"missing_evidence,omitempty"`
+	Findings        []Finding `json:"findings,omitempty"`
+	Warnings        []string  `json:"warnings,omitempty"`
 }
 
 func Build(cfg configloader.Config) Catalog {
@@ -255,6 +282,68 @@ func Diff(cfg configloader.Config) DiffResult {
 	}
 }
 
+func SyncPlanForSource(cfg configloader.Config, name string) SyncPlan {
+	sources := sourcesFromConfig(cfg.AssetSources)
+	name = strings.TrimSpace(name)
+	plan := SyncPlan{
+		Version:      Version,
+		Mode:         "readonly_plan",
+		DeletePolicy: "mark_stale",
+		Actions: []string{
+			"Read assets from the configured CMDB/JMS source.",
+			"Normalize hostname, IP, region, network zone, owner, and source labels.",
+			"Compare remote assets with GitLab-managed asset metadata.",
+			"Mark missing remote assets as stale instead of deleting them.",
+			"Generate a config change plan; do not modify JumpServer, Prometheus, or GitLab automatically.",
+		},
+		Validation: []string{
+			"opspilot cmdb catalog --output human",
+			"opspilot cmdb diff --output human",
+			"opspilot cmdb sync-plan --source <name> --output human",
+		},
+	}
+	var selected *Source
+	for idx := range sources {
+		if name == "" && isCMDBKind(sources[idx].Kind) {
+			selected = &sources[idx]
+			break
+		}
+		if sources[idx].Name == name {
+			selected = &sources[idx]
+			break
+		}
+	}
+	if selected == nil {
+		plan.MissingEvidence = append(plan.MissingEvidence, "cmdb_source_missing")
+		plan.Findings = append(plan.Findings, Finding{
+			Type:       "cmdb_source_missing",
+			Severity:   "warning",
+			TargetType: "asset_source",
+			Target:     firstNonEmpty(name, "default"),
+			Summary:    "No CMDB/JMS asset source is configured.",
+			Advice:     "Add an optional asset source with kind=jms, jumpserver, or cmdb. Missing CMDB must not block inspection.",
+		})
+		return plan
+	}
+	plan.Source = selected.Name
+	plan.Kind = selected.Kind
+	plan.Ready = selected.Enabled && selected.URLSet
+	plan.DeletePolicy = firstNonEmpty(selected.Sync.DeletePolicy, "mark_stale")
+	if !selected.Enabled {
+		plan.MissingEvidence = append(plan.MissingEvidence, "cmdb_source_inactive")
+	}
+	if !selected.URLSet {
+		plan.MissingEvidence = append(plan.MissingEvidence, "cmdb_source_url_missing")
+	}
+	if selected.Required {
+		plan.Warnings = append(plan.Warnings, "cmdb source is marked required; OpsPilot recommends required=false so missing CMDB does not block troubleshooting")
+	}
+	if plan.DeletePolicy != "mark_stale" {
+		plan.Warnings = append(plan.Warnings, "delete_policy should stay mark_stale in the first rollout; physical deletion remains plan-only")
+	}
+	return plan
+}
+
 func zonesFromConfig(items []configloader.NetworkZone) []Zone {
 	out := make([]Zone, 0, len(items))
 	for _, item := range items {
@@ -290,9 +379,18 @@ func sourcesFromConfig(items []configloader.AssetSource) []Source {
 			NetworkZone: strings.TrimSpace(item.NetworkZone),
 			URLSet:      strings.TrimSpace(item.URL) != "",
 			Enabled:     sourceEnabled(item),
+			Required:    boolValue(item.Required),
 			Coverage:    firstNonEmpty(item.Coverage, "partial"),
-			Note:        strings.TrimSpace(item.Note),
-			Source:      item.Source,
+			Timeout:     firstNonEmpty(item.Timeout, "5s"),
+			OnError:     firstNonEmpty(item.OnError, "warn"),
+			Sync: SourceSync{
+				Enabled:      boolValue(item.Sync.Enabled),
+				Mode:         firstNonEmpty(item.Sync.Mode, "readonly"),
+				DeletePolicy: firstNonEmpty(item.Sync.DeletePolicy, "mark_stale"),
+				Interval:     strings.TrimSpace(item.Sync.Interval),
+			},
+			Note:   strings.TrimSpace(item.Note),
+			Source: item.Source,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -316,6 +414,8 @@ func assetsFromConfig(items []configloader.Asset, zones []Zone) []Asset {
 			AssetType:       strings.TrimSpace(item.AssetType),
 			Region:          strings.TrimSpace(item.Region),
 			NetworkZone:     networkZone,
+			BusinessLine:    strings.TrimSpace(item.BusinessLine),
+			Business:        strings.TrimSpace(item.Business),
 			Status:          firstNonEmpty(item.Status, "active"),
 			Owner:           strings.TrimSpace(item.Owner),
 			Sources:         cleanStrings(item.Sources),
@@ -343,7 +443,7 @@ func sourceFindingsForZone(sources []Source, zone string) []Finding {
 			})
 			continue
 		}
-		if !source.URLSet && (source.Kind == "jumpserver" || source.Kind == "prometheus") {
+		if !source.URLSet && (source.Kind == "jumpserver" || source.Kind == "jms" || source.Kind == "cmdb" || source.Kind == "prometheus") {
 			findings = append(findings, Finding{
 				Type:        source.Kind + "_url_missing",
 				Severity:    "warning",
@@ -411,6 +511,19 @@ func sourceEnabled(item configloader.AssetSource) bool {
 		return true
 	}
 	return *item.Enabled
+}
+
+func boolValue(value *bool) bool {
+	return value != nil && *value
+}
+
+func isCMDBKind(kind string) bool {
+	switch normalizedKind(kind) {
+	case "jms", "jumpserver", "cmdb":
+		return true
+	default:
+		return false
+	}
 }
 
 func zoneForAsset(asset configloader.Asset, zones []Zone) string {
