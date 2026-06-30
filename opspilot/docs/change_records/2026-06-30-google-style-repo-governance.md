@@ -312,6 +312,13 @@ Validation:
   `http://192.168.48.206:8929/tpo/deploy/gitops-manifests.git`.
 - All Argo CD AppProjects that restrict source repos allow the new URL.
 - All Applications are `Synced` and `Healthy`.
+- Pipeline `193` exposed a release follow-up gap: `update:gitops` failed with
+  GitLab Commit API `404 Project Not Found` when using the moved path
+  `tpo/deploy/gitops-manifests` as `GITOPS_PROJECT`.
+- The platform core `.gitlab-ci.yml` now uses stable GitLab project ID `2` for
+  `GITOPS_PROJECT`, while clone URLs and Argo CD URLs continue to use the
+  governed repository path. This keeps Commit API writes stable across future
+  GitLab path moves.
 
 Rollback:
 

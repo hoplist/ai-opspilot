@@ -16,7 +16,7 @@ variables:
   AGENT_BUILDKIT_CACHE_IMAGE: "$CI_REGISTRY_IMAGE/opspilot-agent:buildcache"
   GOFLAGS: "-buildvcs=false"
   GITOPS_REPO: "http://oauth2:${GITOPS_TOKEN}@192.168.48.206:8929/tpo/deploy/gitops-manifests.git"
-  GITOPS_PROJECT: "tpo/deploy/gitops-manifests"
+  GITOPS_PROJECT: "2"
   GITLAB_API: "http://192.168.48.206:8929/api/v4"
   GITOPS_APP_PATH: "clusters/test/apps/opspilot-core"
   GITOPS_APP_FILE: "apps/opspilot-core-application.yaml"
