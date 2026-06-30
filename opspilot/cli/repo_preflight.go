@@ -57,6 +57,7 @@ func repoPreflight(project, catalogPath string, layout repoLayoutOptions) (repoP
 		checkRepoDeployment(cfg, filepath.Join(layout.DeployPath, "deployment.yaml")),
 		checkRepoFile("service", filepath.Join(layout.DeployPath, "service.yaml"), "generate deploy/k8s/service.yaml"),
 		checkRepoFile("kustomization", filepath.Join(layout.DeployPath, "kustomization.yaml"), "generate deploy/k8s/kustomization.yaml"),
+		checkRepoKustomizationReferences(cfg, layout),
 		checkRepoQuality(layout.QualityPath),
 		checkRepoHealth(cfg),
 	)
@@ -365,6 +366,117 @@ func checkRepoFile(name, path, action string) repoPolicyItem {
 		return repoPolicyItem{Name: name, Path: path, Status: "fail", Level: "blocker", Message: err.Error(), Fixable: false, Action: "fix manifest filesystem error"}
 	}
 	return repoPolicyItem{Name: name, Path: path, Status: "fail", Level: "blocker", Message: "missing", Fixable: true, Action: action}
+}
+
+func checkRepoKustomizationReferences(cfg onboardServiceConfig, layout repoLayoutOptions) repoPolicyItem {
+	kustomizationPath := filepath.Join(layout.DeployPath, "kustomization.yaml")
+	body, err := os.ReadFile(kustomizationPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return repoPolicyItem{
+				Name:    "kustomization_references",
+				Path:    kustomizationPath,
+				Status:  "pass",
+				Level:   "info",
+				Message: "kustomization manifest absent; checked by kustomization policy",
+			}
+		}
+		return repoPolicyItem{
+			Name:    "kustomization_references",
+			Path:    kustomizationPath,
+			Status:  "fail",
+			Level:   "blocker",
+			Message: err.Error(),
+			Action:  "fix kustomization filesystem error",
+		}
+	}
+	resources := parseKustomizationResources(string(body))
+	required := []string{
+		filepath.Join(layout.DeployPath, "deployment.yaml"),
+		filepath.Join(layout.DeployPath, "service.yaml"),
+	}
+	for _, path := range []string{
+		layout.NamespacePath,
+		layout.LimitRangePath,
+		layout.ResourceQuotaPath,
+		layout.ServiceAccountPath,
+	} {
+		if fileExists(path) {
+			required = append(required, path)
+		}
+	}
+	configMapPath := filepath.Join(layout.DeployPath, "configmap.yaml")
+	if len(cfg.ConfigSources) > 0 || fileExists(configMapPath) {
+		required = append(required, configMapPath)
+	}
+	missing := []string{}
+	for _, path := range required {
+		name := filepath.Base(path)
+		if name == "." || name == "" || hasKustomizationResource(resources, name) {
+			continue
+		}
+		missing = append(missing, name)
+	}
+	if len(missing) == 0 {
+		return repoPolicyItem{
+			Name:    "kustomization_references",
+			Path:    kustomizationPath,
+			Status:  "pass",
+			Level:   "info",
+			Message: "required manifests are referenced",
+		}
+	}
+	return repoPolicyItem{
+		Name:    "kustomization_references",
+		Path:    kustomizationPath,
+		Status:  "fail",
+		Level:   "blocker",
+		Message: "missing resources: " + strings.Join(missing, ", "),
+		Fixable: true,
+		Action:  "add missing manifest files to deploy/k8s/kustomization.yaml resources",
+	}
+}
+
+func parseKustomizationResources(text string) []string {
+	resources := []string{}
+	inResources := false
+	resourcesIndent := 0
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimRight(line, "\r")
+		withoutComment, _, _ := strings.Cut(line, "#")
+		trimmed := strings.TrimSpace(withoutComment)
+		if trimmed == "" {
+			continue
+		}
+		indent := countLeadingSpaces(line)
+		if inResources && indent <= resourcesIndent && !strings.HasPrefix(trimmed, "- ") {
+			inResources = false
+		}
+		if strings.HasPrefix(trimmed, "resources:") {
+			inResources = true
+			resourcesIndent = indent
+			continue
+		}
+		if !inResources || !strings.HasPrefix(trimmed, "- ") {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
+		value = strings.Trim(value, `"'`)
+		if value != "" {
+			resources = append(resources, filepath.ToSlash(value))
+		}
+	}
+	return resources
+}
+
+func hasKustomizationResource(resources []string, basename string) bool {
+	for _, resource := range resources {
+		clean := filepath.ToSlash(filepath.Clean(resource))
+		if clean == basename || filepath.Base(clean) == basename {
+			return true
+		}
+	}
+	return false
 }
 
 func checkRepoQuality(path string) repoPolicyItem {

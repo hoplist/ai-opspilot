@@ -158,6 +158,47 @@ Follow-up:
   currently have no active Argo Application or running Deployment, so they
   should be fixed only when intentionally re-enabled.
 
+## Preflight Hardening After Demo Rollout
+
+Applied on 2026-06-30 after the `ai-loop-demo` rollout exposed a real blind
+spot.
+
+Root cause:
+
+- The repository contained `deploy/k8s/serviceaccount.yaml`.
+- `repo preflight` only checked that the file existed.
+- `deploy/k8s/kustomization.yaml` did not reference `serviceaccount.yaml`, so
+  Argo CD never applied it.
+- The first rollout therefore still failed even though the repository looked
+  structurally complete.
+
+Change:
+
+- Added `kustomization_references` to `repo preflight`.
+- The rule verifies that critical existing manifests are listed under
+  `resources:` in `deploy/k8s/kustomization.yaml`.
+- Missing references are blockers because the standard GitOps path will not
+  apply unreferenced files.
+
+Current checked references:
+
+- `deployment.yaml`
+- `service.yaml`
+- `namespace.yaml` when present
+- `limitrange.yaml` when present
+- `resourcequota.yaml` when present
+- `serviceaccount.yaml` when present
+- `configmap.yaml` when config sources exist or the file is present
+
+Registry pull secret boundary:
+
+- The `ai-loop-demo` fix used a project-level read-only `read_registry` deploy
+  token and updated the namespace pull secret without printing the token value.
+- This is recorded as an operational workaround, not a permanent platform
+  contract.
+- Longer term, registry pull secret handling should be documented as a
+  namespace bootstrap step or moved behind a governed platform operation.
+
 ## Risk Boundary
 
 - Path governance warnings do not block current test workflows.

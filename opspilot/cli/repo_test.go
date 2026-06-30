@@ -91,6 +91,17 @@ func TestRepoPreflightSupportsExplicitMonorepoPaths(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	kustomization := `resources:
+  - namespace.yaml
+  - limitrange.yaml
+  - resourcequota.yaml
+  - serviceaccount.yaml
+  - deployment.yaml
+  - service.yaml
+`
+	if err := os.WriteFile(filepath.Join(deploy, "kustomization.yaml"), []byte(kustomization), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	deployment := `apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -287,6 +298,7 @@ func TestRepoAutofixWritesPlatformFiles(t *testing.T) {
 		filepath.Join("deploy", "k8s", "namespace.yaml"),
 		filepath.Join("deploy", "k8s", "limitrange.yaml"),
 		filepath.Join("deploy", "k8s", "resourcequota.yaml"),
+		filepath.Join("deploy", "k8s", "serviceaccount.yaml"),
 		filepath.Join("deploy", "k8s", "deployment.yaml"),
 		filepath.Join("deploy", "k8s", "service.yaml"),
 		filepath.Join("deploy", "k8s", "kustomization.yaml"),
@@ -299,6 +311,42 @@ func TestRepoAutofixWritesPlatformFiles(t *testing.T) {
 	out.Reset()
 	if err := run([]string{"repo", "preflight", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out); err != nil {
 		t.Fatalf("preflight after autofix failed: %v\n%s", err, out.String())
+	}
+}
+
+func TestRepoPreflightBlocksUnreferencedKustomizeManifest(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"repo", "autofix", "--repo", dir, "--project", "tpo/devex/demo/demo-api", "--write"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	kustomizationPath := filepath.Join(dir, "deploy", "k8s", "kustomization.yaml")
+	body, err := os.ReadFile(kustomizationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.ReplaceAll(body, []byte("  - serviceaccount.yaml\n"), nil)
+	if err := os.WriteFile(kustomizationPath, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	err = run([]string{"repo", "preflight", "--repo", dir, "--project", "tpo/devex/demo/demo-api"}, &out)
+	if err == nil {
+		t.Fatal("expected preflight to fail when serviceaccount.yaml is not referenced")
+	}
+	var payload repoPreflightResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	item := findRepoPolicyItem(payload.Items, "kustomization_references")
+	if item.Status != "fail" || item.Level != "blocker" || !strings.Contains(item.Message, "serviceaccount.yaml") {
+		t.Fatalf("kustomization reference item = %#v\n%s", item, out.String())
+	}
+	if !containsString(payload.Gaps, "kustomization_references") {
+		t.Fatalf("expected kustomization_references gap: %#v", payload.Gaps)
 	}
 }
 
