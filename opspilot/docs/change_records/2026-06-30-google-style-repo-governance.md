@@ -111,6 +111,53 @@ The preflight findings were not auto-fixed in this step because these demo
 repositories already participate in release/GitOps history. They should be
 fixed one repository at a time through the standard release flow.
 
+## Sandbox Demo Preflight Landing
+
+Applied after explicit approval on 2026-06-30.
+
+### `tpo/sandbox/devex/ai-loop-demo`
+
+Goal: make the first legacy sandbox demo pass the new repository governance
+preflight without changing its existing runtime namespace.
+
+GitLab commits:
+
+| Commit | Purpose |
+| --- | --- |
+| `7a27e55` | Added `opspilot.namespaces.yaml` so `tpo/sandbox/devex/ai-loop-demo` maps to existing namespace `cicd-devex-demo`. |
+| `6e41dcf` | Updated Deployment to use the existing `ai-loop-demo` ServiceAccount. |
+| `9a1a3ed` | Added `serviceaccount.yaml` to `deploy/k8s/kustomization.yaml` so Argo CD actually applies it. |
+
+Validation:
+
+- `repo preflight --project tpo/sandbox/devex/ai-loop-demo` is ready.
+- `go test ./...` in the demo repository passed.
+- GitLab pipelines `185`, `186`, and `187` reached success while iterating the
+  fix.
+- Argo CD Application `devex-demo-ai-loop-demo` is `Synced` and `Healthy`.
+- Deployment `cicd-devex-demo/ai-loop-demo` rolled out successfully.
+- Current Pod is `Running`.
+
+Operational fix discovered during rollout:
+
+- `cicd-devex-demo` lacked a usable `gitlab-registry-pull` secret for the new
+  sandbox registry path.
+- A project-level read-only deploy token
+  `opspilot-ai-loop-demo-read-registry-20260630` was created for
+  `tpo/sandbox/devex/ai-loop-demo` with `read_registry`, expiring on
+  2027-06-30.
+- `gitlab-registry-pull` was created/updated in `cicd-devex-demo` without
+  printing the token value.
+
+Follow-up:
+
+- Generalize the registry pull secret step into a platform-side namespace
+  bootstrap or documented per-demo onboarding step.
+- Do not bulk reactivate inactive demos. `frontend-vite-demo`,
+  `java-spring-demo`, `python-fastapi-demo`, and `resource-guardrail-demo`
+  currently have no active Argo Application or running Deployment, so they
+  should be fixed only when intentionally re-enabled.
+
 ## Risk Boundary
 
 - Path governance warnings do not block current test workflows.
