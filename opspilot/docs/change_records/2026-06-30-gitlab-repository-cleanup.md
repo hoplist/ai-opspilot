@@ -58,13 +58,12 @@ scheduled projects were then removed from the GitLab Rails side through
 
 ## Remaining Required Repositories
 
-The verified remaining GitLab project list is:
+The verified remaining GitLab project list after the follow-up compatibility
+cleanup is:
 
 | Path | Purpose |
 | --- | --- |
-| `platform/opspilot` | Legacy compatibility and registry-history holder. |
 | `tpo/deploy/gitops-manifests` | Argo CD desired state. |
-| `tpo/devex/opspilot/opspilot-core` | Shared CI template include source. |
 | `tpo/ops/backups/node200-etcd-snapshots` | Active node200 etcd backups. |
 | `tpo/platform/opspilot/opspilot-config` | Runtime config source. |
 | `tpo/platform/opspilot/opspilot-core` | Current OpsPilot core source and CI. |
@@ -74,7 +73,7 @@ The verified remaining GitLab project list is:
 
 Verified after cleanup:
 
-- GitLab project API returns only the seven required projects above.
+- GitLab project API returns only the five required projects above.
 - Argo CD Applications are `Synced` and `Healthy`:
   - `argocd-bootstrap`
   - `argocd-core`

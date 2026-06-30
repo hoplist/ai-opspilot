@@ -14,7 +14,7 @@
 
 ## 外网当前基线
 
-外网 node206 GitLab 当前保留 7 个项目：
+外网 node206 GitLab 当前保留 5 个项目：
 
 | 仓库 | 是否需要同步到内网 | 用途 |
 | --- | --- | --- |
@@ -23,8 +23,6 @@
 | `tpo/platform/opspilot/opspilot-skills` | 是 | 服务端 runtime skills。 |
 | `tpo/deploy/gitops-manifests` | 是 | Argo CD 读取的测试集群 GitOps desired state。 |
 | `tpo/ops/backups/node200-etcd-snapshots` | 可选 | node200 etcd 备份仓库。内网如果是新集群，可新建同名空仓库。 |
-| `tpo/devex/opspilot/opspilot-core` | 可选 | 旧共享 CI template include source。只有旧业务仓库仍 include 它时才同步。 |
-| `platform/opspilot` | 可选 | 旧兼容和 registry-history holder。内网新环境建议不同步，除非需要旧回滚历史。 |
 
 建议内网首版必同步：
 
@@ -39,8 +37,6 @@ tpo/deploy/gitops-manifests
 
 ```text
 tpo/ops/backups/node200-etcd-snapshots
-tpo/devex/opspilot/opspilot-core
-platform/opspilot
 ```
 
 ## 内网 GitLab 需要建立的结构
@@ -59,22 +55,14 @@ tpo/
   ops/
     backups/
       node200-etcd-snapshots
-  devex/
-    opspilot/
-      opspilot-core
-
-platform/
-  opspilot
 ```
 
-如果内网不需要旧兼容路径，可以暂不建：
+兼容和历史路径已经删除，内网不再创建：
 
 ```text
 platform/opspilot
 tpo/devex/opspilot/opspilot-core
 ```
-
-但要确认没有配置或 CI include 还指向它们。
 
 ## 仓库导入方式
 

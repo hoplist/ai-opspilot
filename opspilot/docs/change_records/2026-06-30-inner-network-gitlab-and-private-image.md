@@ -7,11 +7,9 @@ GitLab and private registry.
 
 ## Current Required GitLab Repositories
 
-After repository cleanup, node206 GitLab contains only:
+After repository cleanup and compatibility removal, node206 GitLab contains only:
 
-- `platform/opspilot`
 - `tpo/deploy/gitops-manifests`
-- `tpo/devex/opspilot/opspilot-core`
 - `tpo/ops/backups/node200-etcd-snapshots`
 - `tpo/platform/opspilot/opspilot-config`
 - `tpo/platform/opspilot/opspilot-core`
@@ -56,7 +54,7 @@ docs/inner-network-gitlab-migration.md
 The document covers:
 
 - which GitLab projects to create and sync;
-- which projects are optional compatibility/history holders;
+- which backup repository is optional for a new inner-network cluster;
 - which GitLab URLs must be changed in config and GitOps;
 - how to replace the OpsPilot runtime image with the private-registry tag;
 - which credentials must be regenerated in the inner network;

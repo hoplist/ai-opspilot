@@ -123,12 +123,12 @@ Snapshot date: 2026-06-30.
 
 | Current path | Type | Target path | Action |
 | --- | --- | --- | --- |
-| `tpo/platform/opspilot/opspilot-core` | `[PLATFORM]` | current | Created on 2026-06-30 and now owns OpsPilot core source and CI. Old `platform/opspilot` is retained for registry history and compatibility. |
+| `tpo/platform/opspilot/opspilot-core` | `[PLATFORM]` | current | Created on 2026-06-30 and now owns OpsPilot core source and CI. Old `platform/opspilot` was removed after backup. |
 | `platform/opspilot-config` | `[PLATFORM]` | `tpo/platform/opspilot/opspilot-config` | Moved on 2026-06-30; OpsPilot git-sync URL updated through GitOps. |
 | `platform/opspilot-skills` | `[SKILL]` | `tpo/platform/opspilot/opspilot-skills` | Moved on 2026-06-30; OpsPilot git-sync URL updated through GitOps. |
 | `tpo/deploy/gitops-manifests` | `[DEPLOY]` | current | Moved on 2026-06-30; Argo CD Application source URLs, AppProjects, CI templates, and OpsPilot config now point to the governed path. |
 | `tpo/ops/backups/node200-etcd-snapshots` | `[BACKUP]` | current | Moved from `tpo/devex/opspilot/cluster-etcd-backups` in phase 2; node200 backup remote updated and verified. |
-| `tpo/devex/opspilot/opspilot-core` | `[SHARED]` | `tpo/shared/ci-templates` | This is a GitLab CI include source, not the live OpsPilot core. Move after generated service `.gitlab-ci.yml` includes are updated. |
+| `tpo/devex/opspilot/opspilot-core` | `[SHARED]` | deleted | Removed on 2026-06-30 after backup because compatibility/shared template history is no longer needed. |
 | `tpo/sandbox/devex/*` demo repositories | `[SANDBOX]` | deleted | Removed on 2026-06-30 after mirror backups and GitOps demo cleanup so the inner-network sync source only contains required repositories. |
 | `tpo/ops/backups/test-cluster-backup` | `[BACKUP]` | deleted | Removed on 2026-06-30 after mirror backup; `node200-etcd-snapshots` remains the active backup repository. |
 | `tpo/ops/yaml` | `[OPS]` | deleted | Removed on 2026-06-30 after mirror backup because it was an empty manual holding area, not GitOps desired state. |
@@ -155,9 +155,8 @@ Current status on 2026-06-30:
   demo repositories were removed on 2026-06-30 after the platform cleanup for
   inner-network synchronization.
 - OpsPilot core source and CI now live at
-  `tpo/platform/opspilot/opspilot-core`. The old `platform/opspilot` project is
-  retained for registry history and compatibility because GitLab transfer was
-  blocked by existing container registry tags.
+  `tpo/platform/opspilot/opspilot-core`. The old `platform/opspilot` project
+  was removed after backup when compatibility history was no longer needed.
 
 1. **Metadata first**
    Add descriptions and topics so GitLab's project list is readable without
@@ -209,8 +208,6 @@ contains only these repositories:
 | `tpo/platform/opspilot/opspilot-skills` | Server-side runtime skills consumed by `opspilot-core`. |
 | `tpo/deploy/gitops-manifests` | Argo CD desired state for the node200 test cluster. |
 | `tpo/ops/backups/node200-etcd-snapshots` | Active node200 etcd backup repository. |
-| `tpo/devex/opspilot/opspilot-core` | Shared CI template include source; later move to `tpo/shared/ci-templates`. |
-| `platform/opspilot` | Legacy compatibility and registry-history holder until rollback history is no longer needed. |
 
 ## Move Checklist
 
