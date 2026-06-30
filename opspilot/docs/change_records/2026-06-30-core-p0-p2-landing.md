@@ -26,6 +26,10 @@ Actions:
   `tpo/platform/opspilot/opspilot-core`.
 - Copied masked `GITOPS_TOKEN` CI/CD variable from the old project to the new
   project without printing token values.
+- Copied the core CI base images to the new project registry:
+  - `tpo/platform/opspilot/opspilot-core/ci-alpine:3.20`;
+  - `tpo/platform/opspilot/opspilot-core/ci-golang:1.23-alpine`;
+  - `tpo/platform/opspilot/opspilot-core/ci-buildkit:rootless`.
 - Updated source references that represent GitLab project identity:
   - `.gitlab-ci.yml` repo precheck project;
   - `config/opspilot-config/services/platform/opspilot-core.yaml`;
