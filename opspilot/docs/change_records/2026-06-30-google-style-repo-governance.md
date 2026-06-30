@@ -70,6 +70,47 @@ landing order is:
 Core path migration remains a separate operation because current runtime config
 still references `platform/opspilot` and `platform/gitops-manifests`.
 
+## GitLab Metadata Landing
+
+Applied after explicit approval on 2026-06-30.
+
+Updated low-risk project descriptions only:
+
+| Project | Description prefix |
+| --- | --- |
+| `platform/opspilot-config` | `[PLATFORM]` |
+| `tpo/sandbox/devex/fullstack-vue-web` | `[SANDBOX]` |
+| `tpo/sandbox/devex/fullstack-go-api` | `[SANDBOX]` |
+
+No GitLab project was transferred, archived, deleted, or permission-modified.
+No deploy token, CI/CD variable, registry setting, GitOps URL, or Argo CD source
+URL was changed.
+
+Current GitLab governance scan:
+
+| Project class | Projects | Result |
+| --- | ---: | --- |
+| `ok` | 11 | Description prefix present and path is already governed enough for current phase. |
+| `high-impact-path-migration-deferred` | 4 | `platform/opspilot`, `platform/opspilot-config`, `platform/opspilot-skills`, `platform/gitops-manifests`. These remain deferred because runtime config, GitOps, Argo CD, CI, and registry paths still reference them. |
+| `needs-classification` | 1 | `tpo/devex/opspilot/opspilot-core`, currently documented as `[SHARED]` CI template include source. |
+
+Sandbox repository preflight scan:
+
+| Repository | Result | Main gaps |
+| --- | --- | --- |
+| `tpo/sandbox/devex/fullstack-go-api` | ready | none |
+| `tpo/sandbox/devex/fullstack-vue-web` | ready | none |
+| `tpo/sandbox/devex/ai-loop-demo` | not ready | deployment namespace does not match inferred namespace `cicd-sandbox-devex` |
+| `tpo/sandbox/devex/frontend-vite-demo` | not ready | `serviceaccount`, `deployment` |
+| `tpo/sandbox/devex/java-spring-demo` | not ready | `serviceaccount`, `deployment` |
+| `tpo/sandbox/devex/python-fastapi-demo` | not ready | `serviceaccount`, `deployment` |
+| `tpo/sandbox/devex/resource-guardrail-demo` | not ready | `serviceaccount`, `deployment` |
+| `tpo/sandbox/devex/demo-api` | not ready | `limitrange`, `resourcequota`, `serviceaccount`, `deployment` |
+
+The preflight findings were not auto-fixed in this step because these demo
+repositories already participate in release/GitOps history. They should be
+fixed one repository at a time through the standard release flow.
+
 ## Risk Boundary
 
 - Path governance warnings do not block current test workflows.
