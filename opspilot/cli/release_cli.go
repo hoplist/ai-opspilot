@@ -354,6 +354,10 @@ func runReleaseStatus(opts globalOptions, args []string, out io.Writer) error {
 		}
 		if gaps := stringList(data["gaps"]); len(gaps) > 0 {
 			fmt.Fprintf(w, "Gaps: %s\n", strings.Join(gaps, ", "))
+			for _, detail := range mapsFromItems(data["gap_details"]) {
+				fmt.Fprintf(w, "  - %s: %s Action: %s\n",
+					stringValue(detail["code"]), stringValue(detail["impact"]), stringValue(detail["action"]))
+			}
 		}
 		if checks := stringList(data["next_checks"]); len(checks) > 0 {
 			fmt.Fprintf(w, "Next: %s\n", strings.Join(checks, "; "))

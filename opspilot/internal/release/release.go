@@ -316,6 +316,7 @@ func (r *Registry) Status(ctx context.Context, serviceName string, client *k8s.C
 		"status":      status,
 		"evidence":    evidence,
 		"gaps":        unique(gaps),
+		"gap_details": gapDetails(gaps),
 		"next_checks": nextChecks(status, gaps),
 	}, warnings, nil
 }
@@ -734,9 +735,59 @@ func nextChecks(status string, gaps []string) []string {
 			checks = append(checks, "configure GitLab read-only token for pipeline evidence")
 		case "gitops_datasource_missing":
 			checks = append(checks, "configure GitOps repository read-only evidence")
+		case "pod_metrics_missing", "prometheus_datasource_missing":
+			checks = append(checks, "configure or verify Prometheus pod metrics for resource trend evidence")
+		case "elk_logs_missing", "elk_logs_empty":
+			checks = append(checks, "configure service log datasource or accept Kubernetes logs as fallback")
 		}
 	}
 	return unique(checks)
+}
+
+func gapDetails(gaps []string) []map[string]any {
+	details := []map[string]any{}
+	for _, code := range unique(gaps) {
+		details = append(details, gapDetail(code))
+	}
+	return details
+}
+
+func gapDetail(code string) map[string]any {
+	detail := map[string]any{
+		"code":     code,
+		"blocking": false,
+	}
+	switch code {
+	case "pod_metrics_missing":
+		detail["meaning"] = "Prometheus is configured, but no pod CPU or memory samples were returned for the matched pods."
+		detail["impact"] = "Release health can still be judged from Kubernetes and GitOps evidence; resource trend RCA is weaker."
+		detail["action"] = "Verify pod metrics labels, scrape targets, or PromQL datasource mapping."
+	case "prometheus_datasource_missing":
+		detail["meaning"] = "No Prometheus datasource is configured for this release service."
+		detail["impact"] = "Release status skips resource metrics and relies on Kubernetes rollout, GitLab, Registry, GitOps, and logs."
+		detail["action"] = "Add a Prometheus datasource when CPU, memory, disk, or traffic trend evidence is required."
+	case "elk_logs_missing":
+		detail["meaning"] = "The external service log datasource is not configured or the query failed."
+		detail["impact"] = "Release status still uses Kubernetes pod logs as fallback; cross-service log RCA is weaker."
+		detail["action"] = "Configure an ELK/OpenSearch/OpenObserve datasource, or keep this as an accepted gap for lightweight clusters."
+	case "elk_logs_empty":
+		detail["meaning"] = "The external service log datasource was queried successfully but returned no matching logs."
+		detail["impact"] = "No external log evidence was found for this service and time window."
+		detail["action"] = "Check index pattern, namespace/service fields, time range, and application log shipping."
+	case "kubernetes_logs_missing":
+		detail["meaning"] = "Kubernetes pod logs could not be read for the matched pods."
+		detail["impact"] = "Runtime log evidence is missing; release status must rely on rollout and external evidence."
+		detail["action"] = "Check pod/container names and Kubernetes log access permissions."
+	case "release_mapping_missing":
+		detail["meaning"] = "The service was not configured in the release service catalog."
+		detail["impact"] = "Kubernetes fallback may work, but GitLab, GitOps, Registry, and Argo evidence can be incomplete."
+		detail["action"] = "Add the service to OpsPilot service catalog or release mapping."
+	default:
+		detail["meaning"] = "OpsPilot could not collect one optional or required evidence source."
+		detail["impact"] = "Read the evidence object and warnings to decide whether the release decision is still safe."
+		detail["action"] = "Fill the missing datasource or mapping if this evidence is required for the service."
+	}
+	return detail
 }
 
 func intFromAny(value any) int {

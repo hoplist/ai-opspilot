@@ -128,6 +128,15 @@ must explicitly report the missing evidence instead of failing silently.
     "argocd_datasource_missing",
     "elk_logs_missing"
   ],
+  "gap_details": [
+    {
+      "code": "elk_logs_missing",
+      "blocking": false,
+      "meaning": "The external service log datasource is not configured or the query failed.",
+      "impact": "Release status still uses Kubernetes pod logs as fallback; cross-service log RCA is weaker.",
+      "action": "Configure an ELK/OpenSearch/OpenObserve datasource, or keep this as an accepted gap for lightweight clusters."
+    }
+  ],
   "next_checks": []
 }
 ```

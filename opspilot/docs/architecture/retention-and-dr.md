@@ -26,8 +26,8 @@ Application logic must still clean old files before the limit is reached.
 | Data | Recovery source |
 | --- | --- |
 | Kubernetes desired state | GitOps repository |
-| OpsPilot config | `platform/opspilot-config` GitLab repository |
-| Runtime skills | `platform/opspilot-skills` GitLab repository plus image fallback |
+| OpsPilot config | `tpo/platform/opspilot/opspilot-config` GitLab repository |
+| Runtime skills | `tpo/platform/opspilot/opspilot-skills` GitLab repository plus image fallback |
 | Cluster data | daily etcd backup |
 | Container images | GitLab registry or approved private registry |
 

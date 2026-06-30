@@ -160,6 +160,19 @@ func TestSplitImageNameTag(t *testing.T) {
 	}
 }
 
+func TestGapDetailsExplainOptionalEvidenceGaps(t *testing.T) {
+	details := gapDetails([]string{"pod_metrics_missing", "elk_logs_missing", "pod_metrics_missing"})
+	if len(details) != 2 {
+		t.Fatalf("details = %#v", details)
+	}
+	if details[0]["code"] != "pod_metrics_missing" || details[0]["blocking"] != false {
+		t.Fatalf("pod metrics detail = %#v", details[0])
+	}
+	if !strings.Contains(details[1]["action"].(string), "datasource") {
+		t.Fatalf("elk detail = %#v", details[1])
+	}
+}
+
 func TestLimitTailBytes(t *testing.T) {
 	got, truncated := limitTailBytes("abcdef", 3)
 	if got != "def" || !truncated {

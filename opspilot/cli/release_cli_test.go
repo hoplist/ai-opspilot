@@ -31,6 +31,14 @@ func TestCheckReleaseAlias(t *testing.T) {
 			"namespace":  "opspilot",
 			"deployment": "opspilot-core",
 			"evidence":   map[string]any{},
+			"gaps":       []any{"pod_metrics_missing"},
+			"gap_details": []any{
+				map[string]any{
+					"code":   "pod_metrics_missing",
+					"impact": "Release health can still be judged from Kubernetes and GitOps evidence; resource trend RCA is weaker.",
+					"action": "Verify pod metrics labels, scrape targets, or PromQL datasource mapping.",
+				},
+			},
 		}})
 	}))
 	defer server.Close()
@@ -41,6 +49,9 @@ func TestCheckReleaseAlias(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("Release: opspilot-core")) {
 		t.Fatalf("unexpected output: %s", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("pod_metrics_missing")) || !bytes.Contains(out.Bytes(), []byte("Verify pod metrics labels")) {
+		t.Fatalf("missing gap detail: %s", out.String())
 	}
 }
 

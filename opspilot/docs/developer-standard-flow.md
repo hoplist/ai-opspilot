@@ -1,29 +1,28 @@
 # Developer standard flow
 
-## What Developers Do
+## 开发者只需要做什么
 
-Developers should only work in the application repository:
+开发者只在应用源码仓库里工作：
 
 ```text
 tpo/apps/<group>/<project>/<service>
 ```
 
-For current demos, the temporary location is:
+当前 demo 和无身份测试上传默认走临时位置：
 
 ```text
 tpo/sandbox/devex/<service>
 ```
 
-When a user has no identity mapping yet, OpsPilot treats uploads as disposable
-test-only sandbox work. It should first show the plan instead of creating a
-GitLab project:
+当用户身份、团队归属和权限还没有完全接入时，OpsPilot 会把上传视为
+test-only sandbox 工作，并先给出计划：
 
 ```powershell
 opspilot repo upload-plan --repo . --name my-demo-api --output human
 opspilot repo upload --repo . --name my-demo-api --confirm --output human
 ```
 
-Default plan:
+默认计划：
 
 ```text
 GitLab project: tpo/sandbox/devex/<repo>
@@ -32,23 +31,11 @@ GitOps path: clusters/test/apps/sandbox/<repo>
 Release scope: test-only
 ```
 
-`repo upload-plan` is read-only. `repo upload --confirm` runs code precheck,
-creates or reuses the sandbox GitLab project, and pushes the current committed
-HEAD. It does not auto-commit local changes, edit GitOps, mutate Kubernetes, or
-configure gateway routes.
+`repo upload-plan` 是只读计划。`repo upload --confirm` 会做代码预检查、
+创建或复用 sandbox GitLab 项目，并推送当前已提交的 `HEAD`。它不会自动
+提交本地改动、修改 GitOps、变更 Kubernetes 或配置网关路由。
 
-Normal workflow:
-
-```bash
-git clone <app-repo>
-cd <app-repo>
-# edit code
-git add .
-git commit -m "change service behavior"
-git push origin main
-```
-
-## What Happens After Push
+## 推送后发生什么
 
 ```text
 developer push
@@ -57,40 +44,24 @@ developer push
 -> image is pushed to GitLab Registry
 -> CI updates GitOps desired state
 -> Argo CD reconciles the cluster
--> OpsPilot can show release evidence
+-> OpsPilot shows release evidence
 ```
 
-Developers do not need to know Pod names, GitOps paths, Argo CD Application
-names, Dockerfile details, or namespace naming rules.
+开发者不需要知道 Pod 名、GitOps 路径、Argo CD Application 名、Dockerfile
+细节或 namespace 命名规则。
 
-## What Developers Should Not Do
+## 开发者不应该直接改什么
 
-Developers should not directly modify:
+- `tpo/deploy/gitops-manifests`
+- Kubernetes Secrets
+- Argo CD Applications
+- Registry tags
+- Runtime credentials
+- Cluster-level RBAC、CNI、StorageClass、ingress controller
 
-- `tpo/deploy/gitops-manifests`.
-- Kubernetes Secrets.
-- Argo CD Applications.
-- Registry tags.
-- Runtime credentials.
-- Cluster-level RBAC, CNI, StorageClass, or ingress controller settings.
+## 仓库不规范时怎么做
 
-## Optional Test Gateway
-
-A future front gateway can route `*.test.tpo.xzoa.com` to the single test entry
-machine, but this is external gateway configuration and must not block the
-standard release path. In the current phase, OpsPilot only documents the
-expected route:
-
-```text
-*.test.tpo.xzoa.com -> test ingress/APISIX/Nginx entry -> sandbox or app namespace Service
-```
-
-Generated applications should still be inspectable by Pod, Service, release,
-and metrics evidence even when this gateway is not connected.
-
-## When The Repository Is Not Standard
-
-Ask OpsPilot to onboard or repair the repo:
+让 OpsPilot 检查或修复：
 
 ```text
 帮我把这个仓库接入标准发布
@@ -99,7 +70,7 @@ Ask OpsPilot to onboard or repair the repo:
 帮我把 preflight 报错修成可发布状态
 ```
 
-OpsPilot should produce or update:
+OpsPilot 应产出或更新：
 
 ```text
 Dockerfile
@@ -108,9 +79,9 @@ opspilot.service.yaml
 deploy/k8s/*
 ```
 
-## How Developers Use Middleware
+## 中间件怎么处理
 
-Developers declare intent, not passwords:
+开发者声明意图，不直接维护长期密码：
 
 ```yaml
 middleware:
@@ -118,28 +89,41 @@ middleware:
     mode: shared
 ```
 
-OpsPilot/platform creates service-scoped credentials and injects them into the
-runtime Deployment. Local debugging should use temporary debug credentials, not
-the long-lived service account password.
+平台创建服务级凭证并注入运行时 Deployment。本地调试使用临时 debug
+凭证，不复用长期服务账号密码。
 
-## How Developers Check Release Status
+## 怎么看发布状态
 
-Use OpsPilot or ask AI through OpsPilot:
+用 OpsPilot CLI，或通过 AI 调用 OpsPilot：
 
 ```text
 查看 skillshub-api 发布状态
 查看 skillshub-api 最近一次发布为什么失败
 查看 skillshub-api 当前 Pod 是否正常
-查看 skillshub-api 是否可以回退
+查看 skillshub-api 是否可以回滚
 ```
 
-OpsPilot should report:
+OpsPilot 应报告：
 
-- GitLab pipeline status.
-- BuildKit job evidence.
-- Registry image tag.
-- GitOps desired image.
-- Argo CD sync and health.
-- Kubernetes rollout and Pod status.
-- Logs and metrics when configured.
-- Missing evidence when a datasource is not connected.
+- GitLab pipeline 状态。
+- BuildKit job 证据。
+- Registry image tag。
+- GitOps desired image。
+- Argo CD sync 和 health。
+- Kubernetes rollout 和 Pod 状态。
+- 日志和指标，前提是数据源已配置。
+- 缺失证据及其影响，数据源未接入时不伪装成功。
+
+## 可选测试网关
+
+未来可以让前置网关把 `*.test.tpo.xzoa.com` 指向测试入口机，但这是外部
+网关配置，不应阻塞标准发布链路。
+
+当前只记录期望路由：
+
+```text
+*.test.tpo.xzoa.com -> test ingress/APISIX/Nginx entry -> sandbox or app namespace Service
+```
+
+即使网关未接入，生成应用仍应能通过 Pod、Service、release、metrics 证据
+被 OpsPilot 排查。

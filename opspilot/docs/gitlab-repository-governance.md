@@ -119,7 +119,7 @@ the agreed application layout when identity and ownership are added.
 
 ## Current Inventory And Target Paths
 
-Snapshot date: 2026-05-29.
+Snapshot date: 2026-06-30.
 
 | Current path | Type | Target path | Action |
 | --- | --- | --- | --- |
@@ -148,7 +148,7 @@ updates, archive/delete actions, permission changes, deploy-token changes,
 CI/CD variable changes, and repository URL changes used by Argo CD, GitOps,
 backup jobs, or git-sync.
 
-Current status on 2026-05-29:
+Current status on 2026-06-30:
 
 - Target groups under `tpo` have been created.
 - Existing project descriptions have been updated with visible type prefixes.
