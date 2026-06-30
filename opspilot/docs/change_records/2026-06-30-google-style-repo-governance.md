@@ -319,6 +319,13 @@ Validation:
   `GITOPS_PROJECT`, while clone URLs and Argo CD URLs continue to use the
   governed repository path. This keeps Commit API writes stable across future
   GitLab path moves.
+- Pipeline `194` confirmed a second migration gap: the existing masked
+  `GITOPS_TOKEN` CI variable in `platform/opspilot` did not have API visibility
+  to the moved GitOps project, so Commit API writes still returned `404`.
+- Updated the masked `GITOPS_TOKEN` CI variable after validating the replacement
+  credential can read both `platform/opspilot` and
+  `tpo/deploy/gitops-manifests` through the GitLab API. No token value was
+  printed in logs or documentation.
 
 Rollback:
 
