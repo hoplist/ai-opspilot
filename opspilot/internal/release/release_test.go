@@ -175,6 +175,14 @@ func TestSplitImageNameTag(t *testing.T) {
 	}
 }
 
+func TestImageRepositoryPreservesProjectPathWithPort(t *testing.T) {
+	got := imageRepository("192.168.48.206:5050/tpo/platform/opspilot/opspilot-core/opspilot-core:b9b1e4e3")
+	want := "192.168.48.206:5050/tpo/platform/opspilot/opspilot-core/opspilot-core"
+	if got != want {
+		t.Fatalf("repo=%q want=%q", got, want)
+	}
+}
+
 func TestGapDetailsExplainOptionalEvidenceGaps(t *testing.T) {
 	details := gapDetails([]string{"pod_metrics_missing", "elk_logs_missing", "pod_metrics_missing"})
 	if len(details) != 2 {

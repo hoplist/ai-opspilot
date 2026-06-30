@@ -178,6 +178,7 @@ func (c *gitLabClient) registryTag(ctx context.Context, project, image string) (
 	if tag == "" {
 		return map[string]any{"status": "unknown", "image": image, "reason": "image tag is empty"}, nil
 	}
+	imageRepo := imageRepository(image)
 	endpoint := c.apiPath("projects", project, "registry/repositories") + "?tags=true&per_page=100"
 	var repos []map[string]any
 	if err := c.getJSON(ctx, endpoint, &repos); err != nil {
@@ -186,7 +187,7 @@ func (c *gitLabClient) registryTag(ctx context.Context, project, image string) (
 	for _, repo := range repos {
 		repoPath := fmt.Sprint(repo["path"])
 		location := fmt.Sprint(repo["location"])
-		if !strings.HasSuffix(repoPath, repoName) && !strings.Contains(location, repoName) {
+		if location != imageRepo && !strings.HasSuffix(repoPath, "/"+repoName) {
 			continue
 		}
 		id := fmt.Sprint(repo["id"])
@@ -206,6 +207,19 @@ func (c *gitLabClient) registryTag(ctx context.Context, project, image string) (
 		}, nil
 	}
 	return map[string]any{"status": "missing", "image": image, "tag": tag}, nil
+}
+
+func imageRepository(image string) string {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return ""
+	}
+	lastSlash := strings.LastIndex(image, "/")
+	lastColon := strings.LastIndex(image, ":")
+	if lastColon > lastSlash {
+		return image[:lastColon]
+	}
+	return image
 }
 
 func (c *gitLabClient) rawFile(ctx context.Context, project, filePath, ref string) (string, error) {
