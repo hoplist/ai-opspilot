@@ -350,6 +350,92 @@ func TestRepoPreflightBlocksUnreferencedKustomizeManifest(t *testing.T) {
 	}
 }
 
+func TestRepoPreflightAllowsKustomizeDirectoryReference(t *testing.T) {
+	dir := t.TempDir()
+	app := filepath.Join(dir, "app")
+	deploy := filepath.Join(dir, "deploy", "core")
+	rbac := filepath.Join(dir, "deploy", "rbac")
+	for _, path := range []string{app, deploy, rbac} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(app, "go.mod"), []byte("module example.com/opspilot\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app, "Dockerfile"), []byte("FROM alpine:3.20\nEXPOSE 18080\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".gitlab-ci.yml"), []byte("buildctl-daemonless.sh build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"namespace.yaml", "limitrange.yaml", "resourcequota.yaml", "serviceaccount.yaml"} {
+		if err := os.WriteFile(filepath.Join(rbac, name), []byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: placeholder\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(rbac, "kustomization.yaml"), []byte("resources:\n  - namespace.yaml\n  - limitrange.yaml\n  - resourcequota.yaml\n  - serviceaccount.yaml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deployment := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opspilot
+  namespace: opspilot
+spec:
+  template:
+    spec:
+      containers:
+        - name: opspilot
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+`
+	if err := os.WriteFile(filepath.Join(deploy, "deployment.yaml"), []byte(deployment), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deploy, "service.yaml"), []byte("apiVersion: v1\nkind: Service\nmetadata:\n  name: opspilot\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deploy, "kustomization.yaml"), []byte("resources:\n  - ../rbac\n  - deployment.yaml\n  - service.yaml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{
+		"repo", "preflight",
+		"--repo", app,
+		"--project", "platform/opspilot",
+		"--ci-path", filepath.Join("..", ".gitlab-ci.yml"),
+		"--deploy-path", filepath.Join("..", "deploy", "core"),
+		"--namespace", "opspilot",
+		"--namespace-path", filepath.Join("..", "deploy", "rbac", "namespace.yaml"),
+		"--limitrange-path", filepath.Join("..", "deploy", "rbac", "limitrange.yaml"),
+		"--resourcequota-path", filepath.Join("..", "deploy", "rbac", "resourcequota.yaml"),
+		"--serviceaccount-path", filepath.Join("..", "deploy", "rbac", "serviceaccount.yaml"),
+	}, &out); err != nil {
+		t.Fatalf("preflight should accept kustomize directory references: %v\n%s", err, out.String())
+	}
+	var payload repoPreflightResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if item := findRepoPolicyItem(payload.Items, "kustomization_references"); item.Status != "pass" {
+		t.Fatalf("kustomization references item = %#v", item)
+	}
+}
+
 func TestRepoPreflightAllowsPlatformStorage(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo-api\n"), 0o644); err != nil {

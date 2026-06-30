@@ -179,6 +179,8 @@ Change:
   `resources:` in `deploy/k8s/kustomization.yaml`.
 - Missing references are blockers because the standard GitOps path will not
   apply unreferenced files.
+- The rule also accepts valid Kustomize directory resources such as `../rbac`
+  when that directory's own `kustomization.yaml` owns the referenced manifests.
 
 Current checked references:
 
@@ -198,6 +200,81 @@ Registry pull secret boundary:
   contract.
 - Longer term, registry pull secret handling should be documented as a
   namespace bootstrap step or moved behind a governed platform operation.
+
+## GitLab Repository Adjustment Landing
+
+Applied on 2026-06-30 after approving the seven-step GitLab repository
+governance adjustment.
+
+Completed actions:
+
+1. **Inventory current GitLab repositories**
+   - Pulled the node206 GitLab project list through the GitLab API.
+   - Confirmed sandbox/demo repositories are already under
+     `tpo/sandbox/devex`.
+   - Confirmed backup and ops holding repositories are already under
+     `tpo/ops`.
+
+2. **Mark migration status**
+   - Kept `platform/opspilot` as the live OpsPilot core source because CI,
+     registry image paths, release mapping, and GitOps still point there.
+   - Kept `platform/gitops-manifests` as the live Argo CD source because all
+     current Argo CD Applications still use this repo URL.
+   - Marked runtime config and runtime skills as safe to move after checking
+     that neither project has Container Registry repositories.
+
+3. **Update descriptions and README files**
+   - Updated GitLab descriptions for:
+     - `platform/opspilot`
+     - `platform/gitops-manifests`
+     - `tpo/platform/opspilot/opspilot-config`
+     - `tpo/platform/opspilot/opspilot-skills`
+   - Updated README files in the config and skills repositories so users can
+     identify their purpose without opening platform docs.
+
+4. **Migrate low-risk repositories**
+   - Moved `platform/opspilot-config` to
+     `tpo/platform/opspilot/opspilot-config`.
+   - Moved `platform/opspilot-skills` to
+     `tpo/platform/opspilot/opspilot-skills`.
+   - Existing project deploy tokens remain project-scoped and were not printed
+     or rotated in this step.
+
+5. **Modify OpsPilot config references**
+   - Updated GitOps desired state:
+     - `OPSPILOT_CONFIG_GIT_URL`
+     - `OPSPILOT_SKILLS_GIT_URL`
+   - Updated the offline kit copy of the same config so future installs use
+     the governed path.
+   - Updated current docs that point operators to the runtime config and skills
+     repositories.
+
+6. **Run preflight and standard validation**
+   - `repo preflight` is expected to include the new
+     `kustomization_references` guard.
+   - Standard validation for this landing must include:
+     - `go test ./...`
+     - `go vet ./...`
+     - `go run ./cli --output human config validate --dir ./config/opspilot-config`
+     - `git diff --check`
+     - standard node206 GitLab Runner -> BuildKit -> Registry -> GitOps ->
+       Argo CD release status check.
+
+7. **Core/GitOps migration remains deferred**
+   - `platform/opspilot` and `platform/gitops-manifests` were intentionally not
+     moved in this stage.
+   - Moving either requires a dedicated render diff, CI/registry/release mapping
+     review, Argo CD source URL update, and rollback validation.
+
+Risk boundary:
+
+- No GitLab permission model, branch protection, deploy token, CI variable, or
+  project deletion setting was changed.
+- No Kubernetes Secret value was printed.
+- The only runtime-impacting change is the GitOps URL update for config and
+  skills git-sync. Rollback is to restore the two URLs to
+  `platform/opspilot-config.git` and `platform/opspilot-skills.git`, then hard
+  refresh the `opspilot-core` Argo CD Application.
 
 ## Risk Boundary
 

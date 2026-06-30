@@ -37,7 +37,7 @@ User / CLI / AI
 The source of truth is the GitLab repository:
 
 ```text
-platform/opspilot-skills
+tpo/platform/opspilot/opspilot-skills
 ```
 
 The cluster runtime syncs this repository into the OpsPilot Pod by git-sync:
@@ -105,7 +105,7 @@ discover -> classify -> adapt -> review -> publish -> sync -> verify
    `kubernetes`, `monitoring`, or `planning`.
 3. Adapt to OpsPilot runtime commands.
 4. Review for safety and usefulness.
-5. Publish to `platform/opspilot-skills`.
+5. Publish to `tpo/platform/opspilot/opspilot-skills`.
 6. Let git-sync update the cluster copy.
 7. Verify with OpsPilot `capabilities`, skill registry evidence, and one
    natural-language routing test.
@@ -137,7 +137,7 @@ OpsPilot does not need public internet access to call skills.
 It needs only internal GitLab access when syncing or updating skills:
 
 ```text
-OpsPilot Pod -> node206 GitLab -> platform/opspilot-skills.git
+OpsPilot Pod -> node206 GitLab -> tpo/platform/opspilot/opspilot-skills.git
 ```
 
 Runtime calls read the local synced directory. If GitLab is temporarily

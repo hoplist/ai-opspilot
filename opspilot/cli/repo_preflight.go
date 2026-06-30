@@ -412,7 +412,7 @@ func checkRepoKustomizationReferences(cfg onboardServiceConfig, layout repoLayou
 	missing := []string{}
 	for _, path := range required {
 		name := filepath.Base(path)
-		if name == "." || name == "" || hasKustomizationResource(resources, name) {
+		if name == "." || name == "" || hasKustomizationResource(layout.DeployPath, resources, path) {
 			continue
 		}
 		missing = append(missing, name)
@@ -469,10 +469,21 @@ func parseKustomizationResources(text string) []string {
 	return resources
 }
 
-func hasKustomizationResource(resources []string, basename string) bool {
+func hasKustomizationResource(kustomizationDir string, resources []string, requiredPath string) bool {
+	requiredPath = filepath.ToSlash(filepath.Clean(requiredPath))
+	requiredRel, err := filepath.Rel(kustomizationDir, filepath.FromSlash(requiredPath))
+	if err != nil {
+		requiredRel = filepath.Base(requiredPath)
+	}
+	requiredRel = filepath.ToSlash(filepath.Clean(requiredRel))
+	requiredDir := filepath.ToSlash(filepath.Clean(filepath.Dir(requiredRel)))
+	basename := filepath.Base(requiredPath)
 	for _, resource := range resources {
 		clean := filepath.ToSlash(filepath.Clean(resource))
-		if clean == basename || filepath.Base(clean) == basename {
+		if clean == requiredRel || clean == basename || filepath.Base(clean) == basename {
+			return true
+		}
+		if requiredDir != "." && clean == requiredDir {
 			return true
 		}
 	}

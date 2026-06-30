@@ -28,7 +28,7 @@ manager.
 | Name | Class | Location | Used by | Notes |
 | --- | --- | --- | --- | --- |
 | `opspilot-release-secrets` | `platform-runtime` | `opspilot` namespace Secret | `opspilot-core` | Contains `OPSPILOT_GITLAB_TOKEN`. |
-| `opspilot-skills-secrets` | `skills-runtime` | `opspilot` namespace Secret | `skills-sync` sidecar | Contains Git credentials for `platform/opspilot-skills`. |
+| `opspilot-skills-secrets` | `skills-runtime` | `opspilot` namespace Secret | `skills-sync` sidecar | Contains Git credentials for `tpo/platform/opspilot/opspilot-skills`. |
 | `gitlab-registry-pull` | `image-pull` | `opspilot` and selected app namespaces | Workload image pulls | May be replaced by node/containerd registry auth. |
 | `GITOPS_TOKEN` | `ci-gitops` | GitLab CI/CD variables | BuildKit/GitOps pipeline | Writes GitOps desired state. |
 | `RUNNER_AUTH_TOKEN` | `ci-runner` | Runner setup only | node206 GitLab Runner registration | Should not be stored in app repos. |

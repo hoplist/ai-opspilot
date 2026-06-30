@@ -26,7 +26,8 @@ Current live paths still use the compatibility layout:
 | Area | Current path | Purpose |
 | --- | --- | --- |
 | OpsPilot core | `platform/opspilot` | Platform source released through the standard pipeline. |
-| Runtime skills | `platform/opspilot-skills` | GitLab-backed skills consumed by `opspilot-core` through git-sync. |
+| Runtime config | `tpo/platform/opspilot/opspilot-config` | GitLab-backed runtime config consumed by `opspilot-core` through git-sync. |
+| Runtime skills | `tpo/platform/opspilot/opspilot-skills` | GitLab-backed skills consumed by `opspilot-core` through git-sync. |
 | GitOps deploy state | `platform/gitops-manifests` | Desired cluster state consumed by Argo CD. |
 | Sandbox apps | `tpo/sandbox/devex/*` | Demo and validation application repositories. |
 | Backups and ops assets | `tpo/ops/*` | Backup snapshots and manual ops holding assets. |

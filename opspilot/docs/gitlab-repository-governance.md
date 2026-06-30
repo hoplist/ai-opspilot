@@ -86,6 +86,7 @@ enters the standard release path:
 | `repo_class` | Classifies the GitLab path as app, platform, deploy, shared, ops, sandbox, legacy, or unknown. | Legacy/unknown paths warn only during migration. |
 | `business_repo_boundary` | Detects whether an application repository contains starter deploy manifests. | Warn only; current onboarding still generates starter manifests. |
 | `immutable_image_tag` | Detects mutable image tags in deployment manifests. | `:latest` blocks app/sandbox repos; platform/deploy/shared/ops repos warn first. |
+| `kustomization_references` | Detects manifest files that exist but are not referenced by `deploy/k8s/kustomization.yaml`. | Blocker, because Argo CD will not apply unreferenced files. |
 
 This gives OpsPilot a Google-style source-boundary check without requiring an
 immediate monorepo or GitLab group migration.
@@ -123,7 +124,8 @@ Snapshot date: 2026-05-29.
 | Current path | Type | Target path | Action |
 | --- | --- | --- | --- |
 | `platform/opspilot` | `[PLATFORM]` | `tpo/platform/opspilot/opspilot-core` | Keep as current source until CI, image paths, release mapping, and GitOps are updated. |
-| `platform/opspilot-skills` | `[SKILL]` | `tpo/platform/opspilot/opspilot-skills` | Move after OpsPilot `OPSPILOT_SKILLS_GIT_URL` is updated and verified. |
+| `platform/opspilot-config` | `[PLATFORM]` | `tpo/platform/opspilot/opspilot-config` | Moved on 2026-06-30; OpsPilot git-sync URL updated through GitOps. |
+| `platform/opspilot-skills` | `[SKILL]` | `tpo/platform/opspilot/opspilot-skills` | Moved on 2026-06-30; OpsPilot git-sync URL updated through GitOps. |
 | `platform/gitops-manifests` | `[DEPLOY]` | `tpo/deploy/gitops-manifests` | Move only after Argo CD Application source URLs and OpsPilot release mappings are updated. |
 | `tpo/ops/backups/node200-etcd-snapshots` | `[BACKUP]` | current | Moved from `tpo/devex/opspilot/cluster-etcd-backups` in phase 2; node200 backup remote updated and verified. |
 | `tpo/devex/opspilot/opspilot-core` | `[SHARED]` | `tpo/shared/ci-templates` | This is a GitLab CI include source, not the live OpsPilot core. Move after generated service `.gitlab-ci.yml` includes are updated. |
@@ -151,11 +153,12 @@ Current status on 2026-05-29:
 - Target groups under `tpo` have been created.
 - Existing project descriptions have been updated with visible type prefixes.
 - Backup and ops holding repositories have been moved under `tpo/ops`.
+- Runtime config and skills repositories have been moved under
+  `tpo/platform/opspilot` and the git-sync URLs were updated through GitOps.
 - Sandbox/demo repositories have been moved under `tpo/sandbox/devex` after
   backing up Git repositories and runnable registry images.
 - CI, Registry, GitOps, Argo CD, backup jobs, and OpsPilot release mappings
-  still use the existing paths for sandbox/demo, platform, skills, and GitOps
-  repositories.
+  still use the existing paths for platform core and GitOps repositories.
 
 1. **Metadata first**
    Add descriptions and topics so GitLab's project list is readable without
@@ -177,9 +180,8 @@ Current status on 2026-05-29:
    follow-up demo builds.
 
 4. **Move runtime skills**
-   Move `platform/opspilot-skills`, update `OPSPILOT_SKILLS_GIT_URL`, let
-   git-sync pull from the new URL, and verify `skills registry` reports
-   `source=dynamic+embedded`.
+   Completed on 2026-06-30 together with runtime config. `OPSPILOT_CONFIG_GIT_URL`
+   and `OPSPILOT_SKILLS_GIT_URL` now point to `tpo/platform/opspilot/*`.
 
 5. **Move GitOps**
    Move `platform/gitops-manifests`, update Argo CD Application source URLs,

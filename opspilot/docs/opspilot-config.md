@@ -10,7 +10,7 @@ deployments can migrate gradually.
 Recommended GitLab project:
 
 ```text
-platform/opspilot-config
+tpo/platform/opspilot/opspilot-config
 ```
 
 Repository root layout:
