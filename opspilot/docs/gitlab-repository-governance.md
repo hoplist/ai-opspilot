@@ -129,14 +129,9 @@ Snapshot date: 2026-06-30.
 | `tpo/deploy/gitops-manifests` | `[DEPLOY]` | current | Moved on 2026-06-30; Argo CD Application source URLs, AppProjects, CI templates, and OpsPilot config now point to the governed path. |
 | `tpo/ops/backups/node200-etcd-snapshots` | `[BACKUP]` | current | Moved from `tpo/devex/opspilot/cluster-etcd-backups` in phase 2; node200 backup remote updated and verified. |
 | `tpo/devex/opspilot/opspilot-core` | `[SHARED]` | `tpo/shared/ci-templates` | This is a GitLab CI include source, not the live OpsPilot core. Move after generated service `.gitlab-ci.yml` includes are updated. |
-| `tpo/sandbox/devex/demo-api` | `[SANDBOX]` | current | Moved after registry cleanup; source retained, unused GitOps deployment residue removed. |
-| `tpo/sandbox/devex/ai-loop-demo` | `[SANDBOX]` | current | Moved after registry cleanup; rebuilt through standard demo pipeline. |
-| `tpo/sandbox/devex/frontend-vite-demo` | `[SANDBOX]` | current | Moved after registry cleanup; rebuilt through standard demo pipeline. |
-| `tpo/sandbox/devex/java-spring-demo` | `[SANDBOX]` | current | Moved after registry cleanup; rebuilt through standard demo pipeline. |
-| `tpo/sandbox/devex/python-fastapi-demo` | `[SANDBOX]` | current | Moved after registry cleanup; rebuilt through standard demo pipeline. |
-| `tpo/sandbox/devex/resource-guardrail-demo` | `[SANDBOX]` | current | Moved after registry cleanup; rebuilt through standard demo pipeline. |
-| `tpo/ops/backups/test-cluster-backup` | `[BACKUP]` | current | Moved from `root/test-cluster-backup` in phase 2; keep for audit and later retirement review. |
-| `tpo/ops/yaml` | `[OPS]` | current | Moved from `root/yaml` in phase 2; currently empty manual YAML holding area, not GitOps desired state. |
+| `tpo/sandbox/devex/*` demo repositories | `[SANDBOX]` | deleted | Removed on 2026-06-30 after mirror backups and GitOps demo cleanup so the inner-network sync source only contains required repositories. |
+| `tpo/ops/backups/test-cluster-backup` | `[BACKUP]` | deleted | Removed on 2026-06-30 after mirror backup; `node200-etcd-snapshots` remains the active backup repository. |
+| `tpo/ops/yaml` | `[OPS]` | deleted | Removed on 2026-06-30 after mirror backup because it was an empty manual holding area, not GitOps desired state. |
 | `platform/demo-api-deletion_scheduled-6` | `[ARCHIVE]` | none | Leave scheduled for deletion; do not use. |
 | `platform/password-deletion_scheduled-4` | `[ARCHIVE]` | none | Leave scheduled for deletion; do not use. |
 
@@ -156,7 +151,9 @@ Current status on 2026-06-30:
 - Runtime config and skills repositories have been moved under
   `tpo/platform/opspilot` and the git-sync URLs were updated through GitOps.
 - Sandbox/demo repositories have been moved under `tpo/sandbox/devex` after
-  backing up Git repositories and runnable registry images.
+  backing up Git repositories and runnable registry images. These temporary
+  demo repositories were removed on 2026-06-30 after the platform cleanup for
+  inner-network synchronization.
 - OpsPilot core source and CI now live at
   `tpo/platform/opspilot/opspilot-core`. The old `platform/opspilot` project is
   retained for registry history and compatibility because GitLab transfer was
@@ -196,8 +193,24 @@ Current status on 2026-06-30:
    mappings. Registry image paths can be migrated later as a separate operation.
 
 7. **Archive legacy duplicates**
-   Archive duplicate or deletion-scheduled repositories after the new paths are
-   verified.
+   Archive or delete duplicate/deletion-scheduled repositories after the new
+   paths are verified. Completed for sandbox demos, the empty ops YAML holding
+   repository, and the legacy test-cluster backup on 2026-06-30.
+
+## Current Required GitLab Projects
+
+After the 2026-06-30 cleanup, the node206 GitLab project list intentionally
+contains only these repositories:
+
+| Path | Purpose |
+| --- | --- |
+| `tpo/platform/opspilot/opspilot-core` | Current OpsPilot core source, CI, and image release pipeline. |
+| `tpo/platform/opspilot/opspilot-config` | GitLab-managed runtime configuration consumed by `opspilot-core`. |
+| `tpo/platform/opspilot/opspilot-skills` | Server-side runtime skills consumed by `opspilot-core`. |
+| `tpo/deploy/gitops-manifests` | Argo CD desired state for the node200 test cluster. |
+| `tpo/ops/backups/node200-etcd-snapshots` | Active node200 etcd backup repository. |
+| `tpo/devex/opspilot/opspilot-core` | Shared CI template include source; later move to `tpo/shared/ci-templates`. |
+| `platform/opspilot` | Legacy compatibility and registry-history holder until rollback history is no longer needed. |
 
 ## Move Checklist
 
